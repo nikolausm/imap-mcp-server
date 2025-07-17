@@ -4,15 +4,25 @@
   "description": "A powerful Model Context Protocol (MCP) server for IMAP email integration with Claude",
   "main": "dist/index.js",
   "bin": {
-    "imap-mcp": "./dist/index.js"
+    "imap-mcp": "./dist/index.js",
+    "imap-setup": "./dist/setup.js"
   },
   "scripts": {
     "build": "tsc",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
+    "setup": "tsx src/setup.ts",
+    "web": "tsx src/web/server.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": ["mcp", "imap", "email", "claude", "ai", "model-context-protocol"],
+  "keywords": [
+    "mcp",
+    "imap",
+    "email",
+    "claude",
+    "ai",
+    "model-context-protocol"
+  ],
   "author": "Michael Nikolaus",
   "license": "MIT",
   "repository": {
@@ -23,8 +33,10 @@
     "url": "https://github.com/michaelnikolaus/imap-mcp-server/issues"
   },
   "homepage": "https://github.com/michaelnikolaus/imap-mcp-server#readme",
-  "type": "commonjs",
+  "type": "module",
   "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.3",
     "@types/mailparser": "^3.4.6",
     "@types/node": "^24.0.14",
     "@types/node-imap": "^0.9.3",
@@ -34,11 +46,15 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.15.1",
+    "body-parser": "^2.2.0",
     "chalk": "^5.4.1",
     "commander": "^14.0.0",
+    "cors": "^2.8.5",
     "dotenv": "^17.2.0",
+    "express": "^5.1.0",
     "mailparser": "^3.7.4",
     "node-imap": "^0.9.6",
+    "open": "^10.2.0",
     "ora": "^8.2.0",
     "zod": "^3.25.76"
   }

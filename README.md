@@ -10,6 +10,8 @@ A powerful Model Context Protocol (MCP) server that provides seamless IMAP email
 - 📁 **Folder Management**: List folders, check status, get unread counts
 - 🔄 **Multiple Account Support**: Manage multiple IMAP accounts simultaneously
 - 🛡️ **Type-Safe**: Built with TypeScript for reliability
+- 🌐 **Web-Based Setup Wizard**: Easy account configuration with provider presets
+- 📱 **15+ Email Providers**: Pre-configured settings for Gmail, Outlook, Yahoo, and more
 
 ## Installation
 
@@ -42,6 +44,45 @@ npm install
 ```bash
 npm run build
 ```
+
+## Account Setup
+
+### Web-Based Setup Wizard (Recommended)
+
+After installation, run the setup wizard:
+
+```bash
+npm run setup
+```
+
+Or if installed globally:
+
+```bash
+imap-setup
+```
+
+This will:
+1. Start a local web server
+2. Open your browser to the setup wizard
+3. Guide you through adding email accounts with pre-configured settings
+
+### Supported Email Providers
+
+The setup wizard includes pre-configured settings for:
+- Gmail / Google Workspace
+- Microsoft Outlook / Hotmail / Live
+- Yahoo Mail
+- Apple iCloud Mail
+- GMX
+- WEB.DE
+- IONOS (1&1)
+- ProtonMail (with Bridge)
+- Fastmail
+- Zoho Mail
+- AOL Mail
+- mailbox.org
+- Posteo
+- Custom IMAP servers
 
 ## Configuration
 

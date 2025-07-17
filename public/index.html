@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IMAP Account Setup - MCP Server</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.1/css/all.min.css" rel="stylesheet">
+    <style>
+        .provider-card {
+            transition: all 0.3s ease;
+        }
+        .provider-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 12px 24px rgba(0,0,0,0.1);
+        }
+        .step-inactive {
+            opacity: 0.5;
+            pointer-events: none;
+        }
+        .loading-spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .success-checkmark {
+            animation: scaleIn 0.5s ease-in-out;
+        }
+        @keyframes scaleIn {
+            0% { transform: scale(0); }
+            50% { transform: scale(1.2); }
+            100% { transform: scale(1); }
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div id="app" class="min-h-screen">
+        <!-- Header -->
+        <header class="bg-white shadow-sm border-b">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center">
+                        <i class="fas fa-envelope text-blue-600 text-2xl mr-3"></i>
+                        <h1 class="text-2xl font-bold text-gray-900">IMAP Account Setup</h1>
+                    </div>
+                    <div class="flex items-center space-x-4">
+                        <button onclick="viewAccounts()" class="text-gray-600 hover:text-gray-900">
+                            <i class="fas fa-list mr-2"></i>View Accounts
+                        </button>
+                        <a href="https://github.com/nikolausm/imap-mcp-server" target="_blank" class="text-gray-600 hover:text-gray-900">
+                            <i class="fab fa-github text-xl"></i>
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <!-- Step Indicator -->
+            <div class="mb-8">
+                <div class="flex items-center justify-center space-x-4">
+                    <div class="step-item flex items-center" id="step1">
+                        <div class="step-circle bg-blue-600 text-white rounded-full w-10 h-10 flex items-center justify-center font-bold">1</div>
+                        <span class="ml-2 font-medium">Choose Provider</span>
+                    </div>
+                    <div class="flex-1 h-1 bg-gray-300 mx-4"></div>
+                    <div class="step-item flex items-center step-inactive" id="step2">
+                        <div class="step-circle bg-gray-300 text-gray-600 rounded-full w-10 h-10 flex items-center justify-center font-bold">2</div>
+                        <span class="ml-2 font-medium">Enter Credentials</span>
+                    </div>
+                    <div class="flex-1 h-1 bg-gray-300 mx-4"></div>
+                    <div class="step-item flex items-center step-inactive" id="step3">
+                        <div class="step-circle bg-gray-300 text-gray-600 rounded-full w-10 h-10 flex items-center justify-center font-bold">3</div>
+                        <span class="ml-2 font-medium">Test & Save</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 1: Provider Selection -->
+            <div id="providerSelection" class="step-content">
+                <h2 class="text-xl font-semibold mb-6">Select your email provider</h2>
+                <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4" id="providerGrid">
+                    <!-- Providers will be inserted here -->
+                </div>
+            </div>
+
+            <!-- Step 2: Credentials -->
+            <div id="credentialsForm" class="step-content hidden">
+                <h2 class="text-xl font-semibold mb-6">Enter your account details</h2>
+                <div class="max-w-2xl mx-auto bg-white rounded-lg shadow p-6">
+                    <form id="accountForm">
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Account Name</label>
+                            <input type="text" id="accountName" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="e.g., Personal Gmail" required>
+                        </div>
+                        
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Email Address</label>
+                            <input type="email" id="email" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="your@email.com" required>
+                        </div>
+                        
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Password</label>
+                            <div class="relative">
+                                <input type="password" id="password" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 pr-10" required>
+                                <button type="button" onclick="togglePassword()" class="absolute right-2 top-2 text-gray-500 hover:text-gray-700">
+                                    <i class="fas fa-eye" id="passwordToggle"></i>
+                                </button>
+                            </div>
+                            <p class="mt-1 text-sm text-gray-500" id="passwordHelp"></p>
+                        </div>
+
+                        <div id="advancedSettings" class="hidden">
+                            <h3 class="font-medium text-gray-900 mb-3">Advanced Settings</h3>
+                            <div class="grid grid-cols-2 gap-4 mb-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">IMAP Server</label>
+                                    <input type="text" id="imapHost" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">IMAP Port</label>
+                                    <input type="number" id="imapPort" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                </div>
+                            </div>
+                        </div>
+
+                        <button type="button" onclick="toggleAdvanced()" class="text-blue-600 hover:text-blue-800 text-sm mb-4">
+                            <i class="fas fa-cog mr-1"></i>Advanced settings
+                        </button>
+
+                        <div class="flex justify-between mt-6">
+                            <button type="button" onclick="goToStep(1)" class="px-4 py-2 text-gray-600 hover:text-gray-900">
+                                <i class="fas fa-arrow-left mr-2"></i>Back
+                            </button>
+                            <button type="submit" class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                Continue<i class="fas fa-arrow-right ml-2"></i>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Step 3: Test & Save -->
+            <div id="testConnection" class="step-content hidden">
+                <h2 class="text-xl font-semibold mb-6">Testing connection</h2>
+                <div class="max-w-2xl mx-auto bg-white rounded-lg shadow p-6">
+                    <div id="testProgress" class="text-center py-8">
+                        <div class="loading-spinner mx-auto mb-4"></div>
+                        <p class="text-gray-600">Testing IMAP connection...</p>
+                    </div>
+                    
+                    <div id="testSuccess" class="hidden text-center py-8">
+                        <div class="success-checkmark text-green-500 text-6xl mb-4">
+                            <i class="fas fa-check-circle"></i>
+                        </div>
+                        <h3 class="text-xl font-semibold text-gray-900 mb-2">Connection successful!</h3>
+                        <p class="text-gray-600 mb-6">Your account has been configured successfully.</p>
+                        <button onclick="addAnotherAccount()" class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 mr-3">
+                            <i class="fas fa-plus mr-2"></i>Add Another Account
+                        </button>
+                        <button onclick="closeWindow()" class="px-6 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700">
+                            <i class="fas fa-check mr-2"></i>Done
+                        </button>
+                    </div>
+                    
+                    <div id="testError" class="hidden">
+                        <div class="text-red-500 text-6xl mb-4 text-center">
+                            <i class="fas fa-times-circle"></i>
+                        </div>
+                        <h3 class="text-xl font-semibold text-gray-900 mb-2 text-center">Connection failed</h3>
+                        <div class="bg-red-50 border border-red-200 rounded-md p-4 mb-6">
+                            <p class="text-red-800" id="errorMessage"></p>
+                        </div>
+                        <div class="flex justify-center">
+                            <button onclick="goToStep(2)" class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
+                                <i class="fas fa-arrow-left mr-2"></i>Back to Settings
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Account List View -->
+            <div id="accountsList" class="hidden">
+                <h2 class="text-xl font-semibold mb-6">Configured Accounts</h2>
+                <div class="bg-white rounded-lg shadow">
+                    <div id="accountsTable" class="p-6">
+                        <!-- Accounts will be listed here -->
+                    </div>
+                </div>
+                <div class="mt-4">
+                    <button onclick="showProviderSelection()" class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
+                        <i class="fas fa-plus mr-2"></i>Add New Account
+                    </button>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="/js/app.js"></script>
+</body>
+</html>
