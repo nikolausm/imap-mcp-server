@@ -26,10 +26,11 @@ async function loadProviders() {
 function renderProviders() {
     const grid = document.getElementById('providerGrid');
     grid.innerHTML = providers.map(provider => `
-        <div class="provider-card bg-white rounded-lg shadow p-4 cursor-pointer hover:shadow-lg" onclick="selectProvider('${provider.id}')">
+        <div class="provider-card bg-white rounded-lg shadow p-4 cursor-pointer hover:shadow-lg border-l-4" onclick="selectProvider('${provider.id}')" style="border-left-color: ${provider.color}">
             <div class="text-center">
-                ${provider.logo ? `<img src="${provider.logo}" alt="${provider.name}" class="h-12 mx-auto mb-2 object-contain" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
-                <div class="h-12 w-12 mx-auto mb-2 bg-gray-200 rounded-lg flex items-center justify-center text-gray-600 text-xl font-bold" style="display:none;">${provider.name.charAt(0)}</div>` : `<div class="h-12 w-12 mx-auto mb-2 bg-blue-100 rounded-lg flex items-center justify-center text-blue-600 text-2xl">📧</div>`}
+                <div class="h-12 w-12 mx-auto mb-2 rounded-lg flex items-center justify-center text-3xl" style="background-color: ${provider.color}20;">
+                    ${provider.emoji}
+                </div>
                 <h3 class="font-medium text-gray-900">${provider.displayName}</h3>
                 ${provider.domains.length > 0 ? `<p class="text-sm text-gray-500 mt-1">${provider.domains[0]}</p>` : ''}
             </div>
