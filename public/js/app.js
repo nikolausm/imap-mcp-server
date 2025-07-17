@@ -28,7 +28,8 @@ function renderProviders() {
     grid.innerHTML = providers.map(provider => `
         <div class="provider-card bg-white rounded-lg shadow p-4 cursor-pointer hover:shadow-lg" onclick="selectProvider('${provider.id}')">
             <div class="text-center">
-                ${provider.logo ? `<img src="${provider.logo}" alt="${provider.name}" class="h-12 mx-auto mb-2">` : `<i class="fas fa-envelope text-4xl text-gray-400 mb-2"></i>`}
+                ${provider.logo ? `<img src="${provider.logo}" alt="${provider.name}" class="h-12 mx-auto mb-2 object-contain" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                <div class="h-12 w-12 mx-auto mb-2 bg-gray-200 rounded-lg flex items-center justify-center text-gray-600 text-xl font-bold" style="display:none;">${provider.name.charAt(0)}</div>` : `<div class="h-12 w-12 mx-auto mb-2 bg-blue-100 rounded-lg flex items-center justify-center text-blue-600 text-2xl">📧</div>`}
                 <h3 class="font-medium text-gray-900">${provider.displayName}</h3>
                 ${provider.domains.length > 0 ? `<p class="text-sm text-gray-500 mt-1">${provider.domains[0]}</p>` : ''}
             </div>
@@ -49,7 +50,7 @@ function selectProvider(providerId) {
         // Update password help text
         const passwordHelp = document.getElementById('passwordHelp');
         if (selectedProvider.requiresAppPassword) {
-            passwordHelp.innerHTML = `<i class="fas fa-info-circle mr-1"></i>${selectedProvider.notes || 'This provider requires an app-specific password.'}`;
+            passwordHelp.innerHTML = `<span class="mr-1">ℹ️</span>${selectedProvider.notes || 'This provider requires an app-specific password.'}`;
             if (selectedProvider.helpUrl) {
                 passwordHelp.innerHTML += ` <a href="${selectedProvider.helpUrl}" target="_blank" class="text-blue-600 hover:underline">Learn more</a>`;
             }
@@ -78,7 +79,7 @@ function goToStep(step) {
             stepEl.classList.remove('step-inactive');
             circle.classList.add('bg-green-600', 'text-white');
             circle.classList.remove('bg-gray-300', 'text-gray-600', 'bg-blue-600');
-            circle.innerHTML = '<i class="fas fa-check"></i>';
+            circle.innerHTML = '✓';
         } else if (i === step) {
             stepEl.classList.remove('step-inactive');
             circle.classList.add('bg-blue-600', 'text-white');
@@ -219,7 +220,7 @@ async function viewAccounts() {
                                 </td>
                                 <td class="py-3 text-right">
                                     <button onclick="removeAccount('${account.id}')" class="text-red-600 hover:text-red-800">
-                                        <i class="fas fa-trash"></i>
+                                        🗑️
                                     </button>
                                 </td>
                             </tr>
@@ -252,12 +253,10 @@ function togglePassword() {
     
     if (input.type === 'password') {
         input.type = 'text';
-        icon.classList.remove('fa-eye');
-        icon.classList.add('fa-eye-slash');
+        icon.textContent = '🙈';
     } else {
         input.type = 'password';
-        icon.classList.remove('fa-eye-slash');
-        icon.classList.add('fa-eye');
+        icon.textContent = '👁️';
     }
 }
 
