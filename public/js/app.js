@@ -28,8 +28,8 @@ function renderProviders() {
     grid.innerHTML = providers.map(provider => `
         <div class="provider-card bg-white rounded-lg shadow p-4 cursor-pointer hover:shadow-lg border-l-4" onclick="selectProvider('${provider.id}')" style="border-left-color: ${provider.color}">
             <div class="text-center">
-                <div class="h-12 w-12 mx-auto mb-2 rounded-lg flex items-center justify-center text-3xl" style="background-color: ${provider.color}20;">
-                    ${provider.emoji}
+                <div class="h-12 w-12 mx-auto mb-2 rounded-lg flex items-center justify-center" style="background-color: ${provider.color}15;">
+                    ${provider.iconSvg}
                 </div>
                 <h3 class="font-medium text-gray-900">${provider.displayName}</h3>
                 ${provider.domains.length > 0 ? `<p class="text-sm text-gray-500 mt-1">${provider.domains[0]}</p>` : ''}
