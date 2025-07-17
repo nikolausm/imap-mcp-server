@@ -28,8 +28,13 @@ function renderProviders() {
     grid.innerHTML = providers.map(provider => `
         <div class="provider-card bg-white rounded-lg shadow p-4 cursor-pointer hover:shadow-lg border-l-4" onclick="selectProvider('${provider.id}')" style="border-left-color: ${provider.color}">
             <div class="text-center">
-                <div class="h-12 w-12 mx-auto mb-2 rounded-lg flex items-center justify-center" style="background-color: ${provider.color}15;">
-                    ${provider.iconSvg}
+                <div class="h-12 w-12 mx-auto mb-2 rounded-lg flex items-center justify-center p-2" style="background-color: ${provider.color}15;">
+                    <img src="${provider.iconUrl}" alt="${provider.name}" class="w-full h-full object-contain" style="filter: brightness(0) saturate(100%) invert(0)" 
+                         onload="this.style.filter = 'none'" 
+                         onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                    <div class="w-full h-full items-center justify-center text-sm font-bold text-white rounded" style="display:none; background-color: ${provider.color};">
+                        ${provider.name.charAt(0)}
+                    </div>
                 </div>
                 <h3 class="font-medium text-gray-900">${provider.displayName}</h3>
                 ${provider.domains.length > 0 ? `<p class="text-sm text-gray-500 mt-1">${provider.domains[0]}</p>` : ''}
