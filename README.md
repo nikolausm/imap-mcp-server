@@ -13,10 +13,24 @@ A powerful Model Context Protocol (MCP) server that provides seamless IMAP email
 
 ## Installation
 
+### Quick Install (Recommended)
+
+#### macOS/Linux:
+```bash
+curl -fsSL https://raw.githubusercontent.com/nikolausm/imap-mcp-server/main/install.sh | bash
+```
+
+#### Windows (PowerShell as Administrator):
+```powershell
+iwr -useb https://raw.githubusercontent.com/nikolausm/imap-mcp-server/main/install.ps1 | iex
+```
+
+### Manual Installation
+
 1. Clone the repository:
 ```bash
-git clone <repository-url>
-cd ImapClient
+git clone https://github.com/nikolausm/imap-mcp-server.git
+cd imap-mcp-server
 ```
 
 2. Install dependencies:
