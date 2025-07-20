@@ -24,29 +24,20 @@ export class AccountManager {
       password: this.encrypt(account.password),
     };
 
+    // Encrypt SMTP password if provided
+    if (account.smtp?.password) {
+      newAccount.smtp = {
+        ...account.smtp,
+        password: this.encrypt(account.smtp.password),
+      };
+    }
+
     this.accounts.set(id, newAccount);
     await this.saveAccounts();
     
-    return { ...newAccount, password: account.password };
+    return { ...newAccount, password: account.password, smtp: account.smtp };
   }
 
-  async updateAccount(id: string, updates: Partial<Omit<ImapAccount, 'id'>>): Promise<ImapAccount> {
-    const account = this.accounts.get(id);
-    if (!account) {
-      throw new Error(`Account ${id} not found`);
-    }
-
-    const updatedAccount = {
-      ...account,
-      ...updates,
-      password: updates.password ? this.encrypt(updates.password) : account.password,
-    };
-
-    this.accounts.set(id, updatedAccount);
-    await this.saveAccounts();
-
-    return this.getAccount(id)!;
-  }
 
   async removeAccount(id: string): Promise<void> {
     if (!this.accounts.has(id)) {
@@ -57,31 +48,106 @@ export class AccountManager {
     await this.saveAccounts();
   }
 
+  async updateAccount(id: string, updates: Partial<Omit<ImapAccount, 'id'>>): Promise<ImapAccount> {
+    const existingAccount = this.accounts.get(id);
+    if (!existingAccount) {
+      throw new Error(`Account with id ${id} not found`);
+    }
+
+    // Encrypt password if it's being updated
+    const processedUpdates = { ...updates };
+    if (processedUpdates.password) {
+      processedUpdates.password = this.encrypt(processedUpdates.password);
+    }
+    
+    // Encrypt SMTP password if it's being updated
+    if (processedUpdates.smtp?.password) {
+      processedUpdates.smtp = {
+        ...processedUpdates.smtp,
+        password: this.encrypt(processedUpdates.smtp.password),
+      };
+    }
+
+    // Merge updates with existing account
+    const updatedAccount: ImapAccount = {
+      ...existingAccount,
+      ...processedUpdates,
+      id, // Ensure ID doesn't change
+    };
+
+    this.accounts.set(id, updatedAccount);
+    await this.saveAccounts();
+
+    // Return decrypted version
+    const decrypted: ImapAccount = {
+      ...updatedAccount,
+      password: this.decrypt(updatedAccount.password),
+    };
+    
+    if (updatedAccount.smtp?.password) {
+      decrypted.smtp = {
+        ...updatedAccount.smtp,
+        password: this.decrypt(updatedAccount.smtp.password),
+      };
+    }
+    
+    return decrypted;
+  }
+
   getAccount(id: string): ImapAccount | undefined {
     const account = this.accounts.get(id);
     if (!account) return undefined;
 
-    return {
+    const decrypted: ImapAccount = {
       ...account,
       password: this.decrypt(account.password),
     };
+    
+    if (account.smtp?.password) {
+      decrypted.smtp = {
+        ...account.smtp,
+        password: this.decrypt(account.smtp.password),
+      };
+    }
+    
+    return decrypted;
   }
 
   getAllAccounts(): ImapAccount[] {
-    return Array.from(this.accounts.values()).map(account => ({
-      ...account,
-      password: this.decrypt(account.password),
-    }));
+    return Array.from(this.accounts.values()).map(account => {
+      const decrypted: ImapAccount = {
+        ...account,
+        password: this.decrypt(account.password),
+      };
+      
+      if (account.smtp?.password) {
+        decrypted.smtp = {
+          ...account.smtp,
+          password: this.decrypt(account.smtp.password),
+        };
+      }
+      
+      return decrypted;
+    });
   }
 
   getAccountByName(name: string): ImapAccount | undefined {
     const account = Array.from(this.accounts.values()).find(acc => acc.name === name);
     if (!account) return undefined;
 
-    return {
+    const decrypted: ImapAccount = {
       ...account,
       password: this.decrypt(account.password),
     };
+    
+    if (account.smtp?.password) {
+      decrypted.smtp = {
+        ...account.smtp,
+        password: this.decrypt(account.smtp.password),
+      };
+    }
+    
+    return decrypted;
   }
 
   private async loadAccounts(): Promise<void> {

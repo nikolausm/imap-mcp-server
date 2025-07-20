@@ -10,6 +10,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     
     // Setup form handler
     document.getElementById('accountForm').addEventListener('submit', handleAccountSubmit);
+    
+    // Clear test results when form fields change
+    const formFields = ['email', 'password', 'imapHost', 'imapPort'];
+    formFields.forEach(fieldId => {
+        document.getElementById(fieldId).addEventListener('input', () => {
+            document.getElementById('inlineTestResult').classList.add('hidden');
+            document.getElementById('inlineTestSuccess').classList.add('hidden');
+            document.getElementById('inlineTestError').classList.add('hidden');
+        });
+    });
 });
 
 // Load providers from API
@@ -52,6 +62,12 @@ function selectProvider(providerId) {
     if (selectedProvider) {
         document.getElementById('imapHost').value = selectedProvider.imapHost;
         document.getElementById('imapPort').value = selectedProvider.imapPort;
+        
+        // Reset SMTP settings
+        document.getElementById('enableSmtp').checked = false;
+        document.getElementById('smtpSettings').classList.add('hidden');
+        document.getElementById('smtpSameAuth').checked = true;
+        document.getElementById('smtpAuthFields').classList.add('hidden');
         
         // Update password help text
         const passwordHelp = document.getElementById('passwordHelp');
@@ -113,6 +129,28 @@ function goToStep(step) {
     }
 }
 
+// Handle account update
+async function handleAccountUpdate(e) {
+    e.preventDefault();
+    
+    const accountData = {
+        name: document.getElementById('accountName').value,
+        email: document.getElementById('email').value,
+        password: document.getElementById('password').value,
+        host: document.getElementById('imapHost').value,
+        port: parseInt(document.getElementById('imapPort').value),
+        tls: selectedProvider?.imapSecurity !== 'STARTTLS'
+    };
+    
+    // Only include password if it was changed
+    if (!accountData.password) {
+        delete accountData.password;
+    }
+    
+    goToStep(3);
+    await updateAndTestAccount(window.editingAccountId, accountData);
+}
+
 // Handle account form submission
 async function handleAccountSubmit(e) {
     e.preventDefault();
@@ -125,6 +163,21 @@ async function handleAccountSubmit(e) {
         port: parseInt(document.getElementById('imapPort').value),
         tls: selectedProvider?.imapSecurity !== 'STARTTLS'
     };
+    
+    // Add SMTP configuration if enabled
+    if (document.getElementById('enableSmtp').checked) {
+        accountData.smtp = {
+            host: document.getElementById('smtpHost').value,
+            port: parseInt(document.getElementById('smtpPort').value) || 587,
+            secure: document.getElementById('smtpSecure').checked
+        };
+        
+        // Add SMTP auth if not using same credentials
+        if (!document.getElementById('smtpSameAuth').checked) {
+            accountData.smtp.user = document.getElementById('smtpUser').value;
+            accountData.smtp.password = document.getElementById('smtpPassword').value;
+        }
+    }
     
     // Auto-detect provider if not selected
     if (!selectedProvider || selectedProvider.id === 'custom') {
@@ -141,6 +194,64 @@ async function handleAccountSubmit(e) {
     
     goToStep(3);
     await testAndSaveAccount(accountData);
+}
+
+// Update and test account
+async function updateAndTestAccount(accountId, accountData) {
+    // Show loading
+    document.getElementById('testProgress').classList.remove('hidden');
+    document.getElementById('testSuccess').classList.add('hidden');
+    document.getElementById('testError').classList.add('hidden');
+    
+    try {
+        // Test connection with new data
+        const testResponse = await fetch('/api/test-connection', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                ...accountData,
+                // If no password provided, we need to test with existing one
+                password: accountData.password || 'use-existing'
+            })
+        });
+        
+        const testResult = await testResponse.json();
+        
+        if (!testResult.success && accountData.password) {
+            throw new Error(testResult.error || 'Connection test failed');
+        }
+        
+        // Update account
+        const updateResponse = await fetch(`/api/accounts/${accountId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(accountData)
+        });
+        
+        const updateResult = await updateResponse.json();
+        
+        if (!updateResult.success) {
+            throw new Error(updateResult.error || 'Failed to update account');
+        }
+        
+        // Show success
+        document.getElementById('testProgress').classList.add('hidden');
+        document.getElementById('testSuccess').classList.remove('hidden');
+        
+        // Update success message
+        const successMsg = document.querySelector('#testSuccess h3');
+        successMsg.textContent = 'Account updated successfully!';
+        
+        // Reset edit mode
+        window.editingAccountId = null;
+        document.getElementById('accountForm').onsubmit = handleAccountSubmit;
+        
+    } catch (error) {
+        // Show error
+        document.getElementById('testProgress').classList.add('hidden');
+        document.getElementById('testError').classList.remove('hidden');
+        document.getElementById('errorMessage').textContent = error.message;
+    }
 }
 
 // Test and save account
@@ -225,6 +336,9 @@ async function viewAccounts() {
                                     <span class="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">Active</span>
                                 </td>
                                 <td class="py-3 text-right">
+                                    <button onclick="editAccount('${account.id}')" class="text-blue-600 hover:text-blue-800 mr-2">
+                                        ✏️
+                                    </button>
                                     <button onclick="removeAccount('${account.id}')" class="text-red-600 hover:text-red-800">
                                         🗑️
                                     </button>
@@ -240,6 +354,92 @@ async function viewAccounts() {
     }
 }
 
+// Edit account
+async function editAccount(accountId) {
+    try {
+        // Get account details
+        const response = await fetch(`/api/accounts/${accountId}`);
+        const result = await response.json();
+        
+        if (!result.success) {
+            throw new Error(result.error || 'Failed to load account');
+        }
+        
+        const account = result.account;
+        
+        // Store editing account ID
+        window.editingAccountId = accountId;
+        
+        // Pre-fill form with account data
+        document.getElementById('accountName').value = account.name || '';
+        document.getElementById('email').value = account.user || '';
+        document.getElementById('password').value = ''; // Don't pre-fill password
+        document.getElementById('password').placeholder = 'Leave blank to keep current password';
+        document.getElementById('imapHost').value = account.host || '';
+        document.getElementById('imapPort').value = account.port || 993;
+        
+        // Pre-fill SMTP settings if available
+        if (account.smtp) {
+            document.getElementById('enableSmtp').checked = true;
+            document.getElementById('smtpSettings').classList.remove('hidden');
+            document.getElementById('smtpHost').value = account.smtp.host || '';
+            document.getElementById('smtpPort').value = account.smtp.port || 587;
+            document.getElementById('smtpSecure').checked = account.smtp.secure || false;
+            
+            // Check if using different auth
+            if (account.smtp.user && account.smtp.user !== account.user) {
+                document.getElementById('smtpSameAuth').checked = false;
+                document.getElementById('smtpAuthFields').classList.remove('hidden');
+                document.getElementById('smtpUser').value = account.smtp.user;
+                document.getElementById('smtpPassword').value = '';
+                document.getElementById('smtpPassword').placeholder = 'Leave blank to keep current password';
+            } else {
+                document.getElementById('smtpSameAuth').checked = true;
+                document.getElementById('smtpAuthFields').classList.add('hidden');
+            }
+        } else {
+            document.getElementById('enableSmtp').checked = false;
+            document.getElementById('smtpSettings').classList.add('hidden');
+        }
+        
+        // Try to detect provider
+        const domain = account.user.split('@')[1];
+        const detectedProvider = providers.find(p => 
+            p.domains.some(d => domain.endsWith(d))
+        );
+        selectedProvider = detectedProvider || providers.find(p => p.id === 'custom');
+        
+        // Show credentials form
+        goToStep(2);
+        
+        // Update form submit handler for edit mode
+        document.getElementById('accountForm').onsubmit = handleAccountUpdate;
+        
+        // Add a visual indicator that we're editing
+        const formTitle = document.querySelector('#credentialsForm h2');
+        formTitle.textContent = 'Edit account details';
+        
+        // Show test button in edit mode
+        document.getElementById('testButton').classList.remove('hidden');
+        
+        // Update submit button text
+        const submitButton = document.querySelector('#accountForm button[type="submit"]');
+        submitButton.innerHTML = 'Save Changes<span class="ml-2">→</span>';
+        
+        // Add cancel edit button
+        const backButton = document.querySelector('#credentialsForm button[onclick="goToStep(1)"]');
+        backButton.innerHTML = '<span class="mr-2">✕</span>Cancel';
+        backButton.onclick = () => {
+            window.editingAccountId = null;
+            document.getElementById('accountForm').onsubmit = handleAccountSubmit;
+            viewAccounts();
+        };
+        
+    } catch (error) {
+        alert('Failed to load account: ' + error.message);
+    }
+}
+
 // Remove account
 async function removeAccount(accountId) {
     if (!confirm('Are you sure you want to remove this account?')) return;
@@ -249,6 +449,61 @@ async function removeAccount(accountId) {
         viewAccounts(); // Refresh list
     } catch (error) {
         alert('Failed to remove account: ' + error.message);
+    }
+}
+
+// Test current settings
+async function testCurrentSettings() {
+    // Hide previous results
+    document.getElementById('inlineTestResult').classList.remove('hidden');
+    document.getElementById('inlineTestSuccess').classList.add('hidden');
+    document.getElementById('inlineTestError').classList.add('hidden');
+    
+    // Get current form values
+    const accountData = {
+        name: document.getElementById('accountName').value,
+        email: document.getElementById('email').value,
+        password: document.getElementById('password').value,
+        host: document.getElementById('imapHost').value,
+        port: parseInt(document.getElementById('imapPort').value),
+        tls: selectedProvider?.imapSecurity !== 'STARTTLS'
+    };
+    
+    // If editing and no password provided, we can't test
+    if (window.editingAccountId && !accountData.password) {
+        document.getElementById('inlineTestError').classList.remove('hidden');
+        document.getElementById('inlineErrorMessage').textContent = '❌ Please enter a password to test the connection';
+        return;
+    }
+    
+    // Disable test button during test
+    const testButton = document.getElementById('testButton');
+    const originalText = testButton.innerHTML;
+    testButton.disabled = true;
+    testButton.innerHTML = '<span class="mr-2">⏳</span>Testing...';
+    
+    try {
+        const response = await fetch('/api/test-connection', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(accountData)
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            document.getElementById('inlineTestSuccess').classList.remove('hidden');
+        } else {
+            document.getElementById('inlineTestError').classList.remove('hidden');
+            document.getElementById('inlineErrorMessage').textContent = '❌ ' + (result.error || 'Connection failed');
+        }
+    } catch (error) {
+        document.getElementById('inlineTestError').classList.remove('hidden');
+        document.getElementById('inlineErrorMessage').textContent = '❌ ' + error.message;
+    } finally {
+        // Re-enable test button
+        testButton.disabled = false;
+        testButton.innerHTML = originalText;
     }
 }
 
@@ -271,7 +526,72 @@ function toggleAdvanced() {
     advanced.classList.toggle('hidden');
 }
 
+function toggleSmtpSettings() {
+    const enabled = document.getElementById('enableSmtp').checked;
+    const smtpSettings = document.getElementById('smtpSettings');
+    
+    if (enabled) {
+        smtpSettings.classList.remove('hidden');
+        // Auto-fill SMTP settings based on IMAP if provider is selected
+        if (selectedProvider) {
+            const smtpHost = document.getElementById('smtpHost');
+            const smtpPort = document.getElementById('smtpPort');
+            
+            if (!smtpHost.value) {
+                // Convert IMAP host to SMTP host
+                smtpHost.value = selectedProvider.imapHost.replace('imap.', 'smtp.').replace('imap-', 'smtp-');
+            }
+            if (!smtpPort.value) {
+                smtpPort.value = '587'; // Default SMTP port
+            }
+        }
+    } else {
+        smtpSettings.classList.add('hidden');
+    }
+}
+
+function toggleSmtpAuth() {
+    const sameAuth = document.getElementById('smtpSameAuth').checked;
+    const authFields = document.getElementById('smtpAuthFields');
+    
+    if (sameAuth) {
+        authFields.classList.add('hidden');
+    } else {
+        authFields.classList.remove('hidden');
+    }
+}
+
 function showProviderSelection() {
+    // Reset form and edit mode
+    document.getElementById('accountForm').reset();
+    document.getElementById('password').placeholder = '';
+    window.editingAccountId = null;
+    document.getElementById('accountForm').onsubmit = handleAccountSubmit;
+    selectedProvider = null;
+    
+    // Reset form title
+    const formTitle = document.querySelector('#credentialsForm h2');
+    formTitle.textContent = 'Enter your account details';
+    
+    // Reset back button
+    const backButton = document.querySelector('#credentialsForm button[onclick*="goToStep"]');
+    if (backButton) {
+        backButton.innerHTML = '<span class="mr-2">←</span>Back';
+        backButton.onclick = () => goToStep(1);
+    }
+    
+    // Reset submit button text
+    const submitButton = document.querySelector('#accountForm button[type="submit"]');
+    if (submitButton) {
+        submitButton.innerHTML = 'Continue<span class="ml-2">→</span>';
+    }
+    
+    // Hide test button and results
+    document.getElementById('testButton').classList.add('hidden');
+    document.getElementById('inlineTestResult').classList.add('hidden');
+    document.getElementById('inlineTestSuccess').classList.add('hidden');
+    document.getElementById('inlineTestError').classList.add('hidden');
+    
     currentStep = 1;
     goToStep(1);
 }

@@ -46,6 +46,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.15.1",
+    "@types/nodemailer": "^6.4.17",
     "body-parser": "^2.2.0",
     "chalk": "^5.4.1",
     "commander": "^14.0.0",
@@ -54,6 +55,7 @@
     "express": "^5.1.0",
     "mailparser": "^3.7.4",
     "node-imap": "^0.9.6",
+    "nodemailer": "^7.0.5",
     "open": "^10.2.0",
     "ora": "^8.2.0",
     "zod": "^3.25.76"

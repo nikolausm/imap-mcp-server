@@ -53,7 +53,7 @@ export class WebUIServer {
     // Add new account
     this.app.post('/api/accounts', async (req, res) => {
       try {
-        const { name, email, password, host, port, tls } = req.body;
+        const { name, email, password, host, port, tls, smtp } = req.body;
         
         // Auto-detect provider if not specified
         let imapHost = host;
@@ -76,6 +76,7 @@ export class WebUIServer {
           user: email,
           password,
           tls: useTls !== false,
+          smtp: smtp || undefined,
         });
         
         res.json({ success: true, account });
@@ -133,6 +134,57 @@ export class WebUIServer {
         res.status(400).json({ 
           success: false, 
           error: error instanceof Error ? error.message : 'Failed to remove account' 
+        });
+      }
+    });
+
+    // Update account
+    this.app.put('/api/accounts/:id', async (req, res) => {
+      try {
+        const { name, email, password, host, port, tls, smtp } = req.body;
+        
+        const updates: any = {};
+        if (name !== undefined) updates.name = name;
+        if (email !== undefined) updates.user = email;
+        if (password !== undefined) updates.password = password;
+        if (host !== undefined) updates.host = host;
+        if (port !== undefined) updates.port = port;
+        if (tls !== undefined) updates.tls = tls;
+        if (smtp !== undefined) updates.smtp = smtp;
+        
+        const account = await this.accountManager.updateAccount(req.params.id, updates);
+        res.json({ success: true, account });
+      } catch (error) {
+        res.status(400).json({ 
+          success: false, 
+          error: error instanceof Error ? error.message : 'Failed to update account' 
+        });
+      }
+    });
+
+    // Get single account
+    this.app.get('/api/accounts/:id', async (req, res) => {
+      try {
+        const account = this.accountManager.getAccount(req.params.id);
+        if (!account) {
+          res.status(404).json({ success: false, error: 'Account not found' });
+        } else {
+          // Don't send passwords to client
+          const { password, ...accountWithoutPassword } = account;
+          const safeAccount = { ...accountWithoutPassword };
+          
+          // Remove SMTP password if present
+          if (safeAccount.smtp?.password) {
+            safeAccount.smtp = { ...safeAccount.smtp };
+            delete safeAccount.smtp.password;
+          }
+          
+          res.json({ success: true, account: safeAccount });
+        }
+      } catch (error) {
+        res.status(400).json({ 
+          success: false, 
+          error: error instanceof Error ? error.message : 'Failed to get account' 
         });
       }
     });

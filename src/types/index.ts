@@ -9,6 +9,19 @@ export interface ImapAccount {
   authTimeout?: number;
   connTimeout?: number;
   keepalive?: boolean;
+  smtp?: SmtpConfig;
+}
+
+export interface SmtpConfig {
+  host: string;
+  port: number;
+  secure: boolean;
+  user?: string;
+  password?: string;
+  authMethod?: 'PLAIN' | 'LOGIN' | 'CRAM-MD5' | 'XOAUTH2';
+  tls?: {
+    rejectUnauthorized?: boolean;
+  };
 }
 
 export interface EmailMessage {
@@ -57,4 +70,27 @@ export interface SearchCriteria {
 
 export interface ConnectionPool {
   [accountId: string]: any; // IMAP connection instance
+}
+
+export interface EmailComposer {
+  from: string;
+  to: string | string[];
+  cc?: string | string[];
+  bcc?: string | string[];
+  subject: string;
+  text?: string;
+  html?: string;
+  attachments?: EmailAttachment[];
+  replyTo?: string;
+  inReplyTo?: string;
+  references?: string | string[];
+}
+
+export interface EmailAttachment {
+  filename: string;
+  content?: string | Buffer;
+  path?: string;
+  contentType?: string;
+  contentDisposition?: 'attachment' | 'inline';
+  cid?: string;
 }

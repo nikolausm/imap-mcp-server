@@ -7,11 +7,13 @@ A powerful Model Context Protocol (MCP) server that provides seamless IMAP email
 - 🔐 **Secure Account Management**: Encrypted credential storage with AES-256 encryption
 - 🚀 **Connection Pooling**: Efficient IMAP connection management
 - 📧 **Comprehensive Email Operations**: Search, read, mark, delete emails
+- ✉️ **Email Sending**: Send, reply, and forward emails via SMTP
 - 📁 **Folder Management**: List folders, check status, get unread counts
 - 🔄 **Multiple Account Support**: Manage multiple IMAP accounts simultaneously
 - 🛡️ **Type-Safe**: Built with TypeScript for reliability
 - 🌐 **Web-Based Setup Wizard**: Easy account configuration with provider presets
 - 📱 **15+ Email Providers**: Pre-configured settings for Gmail, Outlook, Yahoo, and more
+- 🔗 **Auto SMTP Configuration**: Automatic SMTP settings based on IMAP provider
 
 ## Installation
 
@@ -187,6 +189,47 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
   - uid: Email UID
   ```
 
+- **imap_send_email**: Send a new email
+  ```
+  Parameters:
+  - accountId: Account ID to send from
+  - to: Recipient email address(es)
+  - subject: Email subject
+  - text: Plain text content (optional)
+  - html: HTML content (optional)
+  - cc: CC recipients (optional)
+  - bcc: BCC recipients (optional)
+  - replyTo: Reply-to address (optional)
+  - attachments: Array of attachments (optional)
+    - filename: Attachment filename
+    - content: Base64 encoded content
+    - path: File path to attach
+    - contentType: MIME type
+  ```
+
+- **imap_reply_to_email**: Reply to an existing email
+  ```
+  Parameters:
+  - accountId: Account ID
+  - folder: Folder containing the original email
+  - uid: UID of the email to reply to
+  - text: Plain text reply content (optional)
+  - html: HTML reply content (optional)
+  - replyAll: Reply to all recipients (default: false)
+  - attachments: Array of attachments (optional)
+  ```
+
+- **imap_forward_email**: Forward an existing email
+  ```
+  Parameters:
+  - accountId: Account ID
+  - folder: Folder containing the original email
+  - uid: UID of the email to forward
+  - to: Forward to email address(es)
+  - text: Additional text to include (optional)
+  - includeAttachments: Include original attachments (default: true)
+  ```
+
 ### Folder Operations
 
 - **imap_list_folders**: List all folders
@@ -237,11 +280,12 @@ src/
 ├── index.ts           # MCP server entry point
 ├── services/
 │   ├── imap-service.ts    # IMAP connection management
+│   ├── smtp-service.ts    # SMTP service for sending emails
 │   └── account-manager.ts # Account configuration
 ├── tools/
 │   ├── index.ts          # Tool registration
 │   ├── account-tools.ts  # Account management tools
-│   ├── email-tools.ts    # Email operation tools
+│   ├── email-tools.ts    # Email operation tools (including send/reply/forward)
 │   └── folder-tools.ts   # Folder operation tools
 └── types/
     └── index.ts          # TypeScript type definitions
@@ -258,7 +302,16 @@ src/
 3. **Search emails:**
    "Search for emails from boss@company.com in the last week"
 
-4. **Manage folders:**
+4. **Send an email:**
+   "Send an email to client@example.com with subject 'Project Update'"
+
+5. **Reply to emails:**
+   "Reply to the latest email from my boss"
+
+6. **Forward emails:**
+   "Forward the email with subject 'Meeting Notes' to team@company.com"
+
+7. **Manage folders:**
    "List all folders in my email account and show unread counts"
 
 ## Troubleshooting
@@ -268,6 +321,21 @@ src/
 - Ensure your IMAP server settings are correct
 - Check if your email provider requires app-specific passwords
 - Verify that IMAP is enabled in your email account settings
+- For sending emails, ensure your account has SMTP access enabled
+
+### SMTP Configuration
+
+The server automatically configures SMTP settings based on your IMAP provider. If you need custom SMTP settings, you can specify them when adding an account:
+
+```json
+{
+  "smtp": {
+    "host": "smtp.example.com",
+    "port": 587,
+    "secure": false
+  }
+}
+```
 
 ### Common IMAP Settings
 

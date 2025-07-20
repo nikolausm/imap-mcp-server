@@ -120,14 +120,58 @@
 
                         <div id="advancedSettings" class="hidden">
                             <h3 class="font-medium text-gray-900 mb-3">Advanced Settings</h3>
-                            <div class="grid grid-cols-2 gap-4 mb-4">
-                                <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-2">IMAP Server</label>
-                                    <input type="text" id="imapHost" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <div class="space-y-4">
+                                <div class="border-b pb-4">
+                                    <h4 class="text-sm font-medium text-gray-700 mb-2">IMAP Settings</h4>
+                                    <div class="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-2">IMAP Server</label>
+                                            <input type="text" id="imapHost" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                        </div>
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-2">IMAP Port</label>
+                                            <input type="number" id="imapPort" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                        </div>
+                                    </div>
                                 </div>
                                 <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-2">IMAP Port</label>
-                                    <input type="number" id="imapPort" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <h4 class="text-sm font-medium text-gray-700">SMTP Settings (for sending emails)</h4>
+                                        <label class="flex items-center">
+                                            <input type="checkbox" id="enableSmtp" class="mr-2" onchange="toggleSmtpSettings()">
+                                            <span class="text-sm text-gray-600">Enable SMTP</span>
+                                        </label>
+                                    </div>
+                                    <div id="smtpSettings" class="hidden space-y-4">
+                                        <div class="grid grid-cols-2 gap-4">
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-2">SMTP Server</label>
+                                                <input type="text" id="smtpHost" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-2">SMTP Port</label>
+                                                <input type="number" id="smtpPort" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="587">
+                                            </div>
+                                        </div>
+                                        <div class="flex items-center">
+                                            <input type="checkbox" id="smtpSecure" class="mr-2">
+                                            <label for="smtpSecure" class="text-sm text-gray-700">Use secure connection (TLS/SSL)</label>
+                                        </div>
+                                        <div class="flex items-center">
+                                            <input type="checkbox" id="smtpSameAuth" class="mr-2" checked onchange="toggleSmtpAuth()">
+                                            <label for="smtpSameAuth" class="text-sm text-gray-700">Use same credentials as IMAP</label>
+                                        </div>
+                                        <div id="smtpAuthFields" class="hidden grid grid-cols-2 gap-4">
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-2">SMTP Username</label>
+                                                <input type="text" id="smtpUser" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-2">SMTP Password</label>
+                                                <input type="password" id="smtpPassword" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -136,13 +180,28 @@
                             <span class="mr-1">⚙️</span>Advanced settings
                         </button>
 
+                        <!-- Test results -->
+                        <div id="inlineTestResult" class="hidden mb-4">
+                            <div id="inlineTestSuccess" class="hidden bg-green-50 border border-green-200 rounded-md p-3">
+                                <p class="text-green-800 text-sm"><span class="mr-1">✅</span>Connection successful!</p>
+                            </div>
+                            <div id="inlineTestError" class="hidden bg-red-50 border border-red-200 rounded-md p-3">
+                                <p class="text-red-800 text-sm" id="inlineErrorMessage"></p>
+                            </div>
+                        </div>
+
                         <div class="flex justify-between mt-6">
                             <button type="button" onclick="goToStep(1)" class="px-4 py-2 text-gray-600 hover:text-gray-900">
                                 <span class="mr-2">←</span>Back
                             </button>
-                            <button type="submit" class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                Continue<span class="ml-2">→</span>
-                            </button>
+                            <div class="flex gap-2">
+                                <button type="button" id="testButton" onclick="testCurrentSettings()" class="hidden px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500">
+                                    <span class="mr-2">🔍</span>Test Connection
+                                </button>
+                                <button type="submit" class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                    Continue<span class="ml-2">→</span>
+                                </button>
+                            </div>
                         </div>
                     </form>
                 </div>

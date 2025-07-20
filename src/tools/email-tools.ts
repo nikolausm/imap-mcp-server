@@ -1,12 +1,14 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { ImapService } from '../services/imap-service.js';
 import { AccountManager } from '../services/account-manager.js';
+import { SmtpService } from '../services/smtp-service.js';
 import { z } from 'zod';
 
 export function emailTools(
   server: McpServer,
   imapService: ImapService,
-  accountManager: AccountManager
+  accountManager: AccountManager,
+  smtpService: SmtpService
 ): void {
   // Search emails tool
   server.registerTool('imap_search_emails', {
@@ -163,6 +165,170 @@ export function emailTools(
         type: 'text',
         text: JSON.stringify({
           messages: sortedMessages,
+        }, null, 2)
+      }]
+    };
+  });
+
+  // Send email tool
+  server.registerTool('imap_send_email', {
+    description: 'Send an email using SMTP',
+    inputSchema: {
+      accountId: z.string().describe('Account ID to send from'),
+      to: z.union([z.string(), z.array(z.string())]).describe('Recipient email address(es)'),
+      subject: z.string().describe('Email subject'),
+      text: z.string().optional().describe('Plain text content'),
+      html: z.string().optional().describe('HTML content'),
+      cc: z.union([z.string(), z.array(z.string())]).optional().describe('CC recipients'),
+      bcc: z.union([z.string(), z.array(z.string())]).optional().describe('BCC recipients'),
+      replyTo: z.string().optional().describe('Reply-to address'),
+      attachments: z.array(z.object({
+        filename: z.string().describe('Attachment filename'),
+        content: z.string().optional().describe('Base64 encoded content'),
+        path: z.string().optional().describe('File path to attach'),
+        contentType: z.string().optional().describe('MIME type'),
+      })).optional().describe('Email attachments'),
+    }
+  }, async ({ accountId, to, subject, text, html, cc, bcc, replyTo, attachments }) => {
+    const account = await accountManager.getAccount(accountId);
+    if (!account) {
+      throw new Error(`Account ${accountId} not found`);
+    }
+
+    const emailComposer = {
+      from: account.user,
+      to,
+      subject,
+      text,
+      html,
+      cc,
+      bcc,
+      replyTo,
+      attachments: attachments?.map(att => ({
+        filename: att.filename,
+        content: att.content ? Buffer.from(att.content, 'base64') : undefined,
+        path: att.path,
+        contentType: att.contentType,
+      })),
+    };
+
+    const messageId = await smtpService.sendEmail(accountId, account, emailComposer);
+    
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: true,
+          messageId,
+          message: 'Email sent successfully',
+        }, null, 2)
+      }]
+    };
+  });
+
+  // Reply to email tool
+  server.registerTool('imap_reply_to_email', {
+    description: 'Reply to an existing email',
+    inputSchema: {
+      accountId: z.string().describe('Account ID'),
+      folder: z.string().default('INBOX').describe('Folder containing the original email'),
+      uid: z.number().describe('UID of the email to reply to'),
+      text: z.string().optional().describe('Plain text reply content'),
+      html: z.string().optional().describe('HTML reply content'),
+      replyAll: z.boolean().default(false).describe('Reply to all recipients'),
+      attachments: z.array(z.object({
+        filename: z.string().describe('Attachment filename'),
+        content: z.string().optional().describe('Base64 encoded content'),
+        path: z.string().optional().describe('File path to attach'),
+        contentType: z.string().optional().describe('MIME type'),
+      })).optional().describe('Email attachments'),
+    }
+  }, async ({ accountId, folder, uid, text, html, replyAll, attachments }) => {
+    const account = await accountManager.getAccount(accountId);
+    if (!account) {
+      throw new Error(`Account ${accountId} not found`);
+    }
+
+    // Get original email
+    const originalEmail = await imapService.getEmailContent(accountId, folder, uid);
+    
+    // Prepare reply
+    const recipients = [originalEmail.from];
+    if (replyAll) {
+      recipients.push(...originalEmail.to.filter(addr => addr !== account.user));
+    }
+
+    const emailComposer = {
+      from: account.user,
+      to: recipients,
+      subject: originalEmail.subject.startsWith('Re: ') ? originalEmail.subject : `Re: ${originalEmail.subject}`,
+      text,
+      html,
+      inReplyTo: originalEmail.messageId,
+      references: originalEmail.messageId,
+      attachments: attachments?.map(att => ({
+        filename: att.filename,
+        content: att.content ? Buffer.from(att.content, 'base64') : undefined,
+        path: att.path,
+        contentType: att.contentType,
+      })),
+    };
+
+    const messageId = await smtpService.sendEmail(accountId, account, emailComposer);
+    
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: true,
+          messageId,
+          message: 'Reply sent successfully',
+        }, null, 2)
+      }]
+    };
+  });
+
+  // Forward email tool
+  server.registerTool('imap_forward_email', {
+    description: 'Forward an existing email',
+    inputSchema: {
+      accountId: z.string().describe('Account ID'),
+      folder: z.string().default('INBOX').describe('Folder containing the original email'),
+      uid: z.number().describe('UID of the email to forward'),
+      to: z.union([z.string(), z.array(z.string())]).describe('Forward to email address(es)'),
+      text: z.string().optional().describe('Additional text to include'),
+      includeAttachments: z.boolean().default(true).describe('Include original attachments'),
+    }
+  }, async ({ accountId, folder, uid, to, text, includeAttachments }) => {
+    const account = await accountManager.getAccount(accountId);
+    if (!account) {
+      throw new Error(`Account ${accountId} not found`);
+    }
+
+    // Get original email
+    const originalEmail = await imapService.getEmailContent(accountId, folder, uid);
+    
+    // Prepare forwarded content
+    const forwardHeader = `\n\n---------- Forwarded message ----------\nFrom: ${originalEmail.from}\nDate: ${originalEmail.date.toLocaleString()}\nSubject: ${originalEmail.subject}\nTo: ${originalEmail.to.join(', ')}\n\n`;
+    
+    const emailComposer = {
+      from: account.user,
+      to,
+      subject: originalEmail.subject.startsWith('Fwd: ') ? originalEmail.subject : `Fwd: ${originalEmail.subject}`,
+      text: (text || '') + forwardHeader + (originalEmail.textContent || ''),
+      html: originalEmail.htmlContent,
+      references: originalEmail.messageId,
+    };
+
+    const messageId = await smtpService.sendEmail(accountId, account, emailComposer);
+    
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: true,
+          messageId,
+          message: 'Email forwarded successfully',
         }, null, 2)
       }]
     };
