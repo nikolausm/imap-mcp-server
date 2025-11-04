@@ -1,3 +1,9 @@
+export interface KeepAliveConfig {
+  interval?: number;      // TCP keepalive interval in ms (default: 10000)
+  idleInterval?: number;  // IMAP IDLE interval in ms (default: 1740000 = 29 minutes)
+  forceNoop?: boolean;    // Force NOOP instead of IDLE (default: true)
+}
+
 export interface ImapAccount {
   id: string;
   name: string;
@@ -8,7 +14,7 @@ export interface ImapAccount {
   tls: boolean;
   authTimeout?: number;
   connTimeout?: number;
-  keepalive?: boolean;
+  keepalive?: boolean | KeepAliveConfig;
   smtp?: SmtpConfig;
 }
 

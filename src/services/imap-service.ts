@@ -1,6 +1,6 @@
 import Imap from 'node-imap';
 import { simpleParser } from 'mailparser';
-import { ImapAccount, EmailMessage, EmailContent, Folder, SearchCriteria, ConnectionPool } from '../types/index.js';
+import { ImapAccount, EmailMessage, EmailContent, Folder, SearchCriteria, ConnectionPool, KeepAliveConfig } from '../types/index.js';
 import { promisify } from 'util';
 
 export class ImapService {
@@ -12,6 +12,9 @@ export class ImapService {
       return;
     }
 
+    // Build keepalive configuration
+    const keepaliveConfig = this.buildKeepAliveConfig(account.keepalive);
+
     const imap = new Imap({
       user: account.user,
       password: account.password,
@@ -20,21 +23,90 @@ export class ImapService {
       tls: account.tls,
       authTimeout: account.authTimeout || 3000,
       connTimeout: account.connTimeout || 10000,
-      keepalive: account.keepalive !== false,
+      keepalive: keepaliveConfig,
     });
+
+    // Set up connection monitoring
+    this.setupConnectionMonitoring(imap, account.id);
 
     return new Promise((resolve, reject) => {
       imap.once('ready', () => {
         this.activeConnections.set(account.id, imap);
+        console.log(`[IMAP] Connection established for account ${account.id}`);
         resolve();
       });
 
       imap.once('error', (err: Error) => {
+        console.error(`[IMAP] Connection error for account ${account.id}:`, err.message);
         reject(err);
       });
 
       imap.connect();
     });
+  }
+
+  private buildKeepAliveConfig(keepalive?: boolean | KeepAliveConfig): boolean | KeepAliveConfig {
+    // If keepalive is explicitly false, return false
+    if (keepalive === false) {
+      return false;
+    }
+
+    // If keepalive is a config object, merge with defaults
+    if (typeof keepalive === 'object') {
+      return {
+        interval: keepalive.interval || 10000,        // 10 seconds
+        idleInterval: keepalive.idleInterval || 1740000, // 29 minutes
+        forceNoop: keepalive.forceNoop !== false,     // true by default
+      };
+    }
+
+    // Default keepalive configuration (when true or undefined)
+    return {
+      interval: 10000,        // 10 seconds TCP keepalive
+      idleInterval: 1740000,  // 29 minutes IMAP keepalive (per RFC 2177)
+      forceNoop: true,        // Use NOOP instead of IDLE
+    };
+  }
+
+  private setupConnectionMonitoring(imap: Imap, accountId: string): void {
+    // Handle connection errors
+    imap.on('error', (err: Error) => {
+      console.error(`[IMAP] Error on connection ${accountId}:`, err.message);
+      this.activeConnections.delete(accountId);
+    });
+
+    // Handle connection end
+    imap.on('end', () => {
+      console.log(`[IMAP] Connection ended for account ${accountId}`);
+      this.activeConnections.delete(accountId);
+    });
+
+    // Handle connection close
+    imap.on('close', (hadError: boolean) => {
+      console.log(`[IMAP] Connection closed for account ${accountId}, hadError: ${hadError}`);
+      this.activeConnections.delete(accountId);
+    });
+  }
+
+  private isConnectionAlive(accountId: string): boolean {
+    const connection = this.activeConnections.get(accountId);
+    if (!connection) {
+      return false;
+    }
+
+    // Check if connection state is valid
+    const state = (connection as any).state;
+    return state === 'authenticated' || state === 'connected';
+  }
+
+  private async ensureConnection(accountId: string, account?: ImapAccount): Promise<void> {
+    if (!this.isConnectionAlive(accountId)) {
+      if (!account) {
+        throw new Error(`Connection lost for account ${accountId} and no account info provided for reconnection`);
+      }
+      console.log(`[IMAP] Connection not alive for ${accountId}, reconnecting...`);
+      await this.connect(account);
+    }
   }
 
   async disconnect(accountId: string): Promise<void> {
