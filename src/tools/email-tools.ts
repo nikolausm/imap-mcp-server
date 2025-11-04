@@ -132,13 +132,51 @@ export function emailTools(
     }
   }, async ({ accountId, folder, uid }) => {
     await imapService.deleteEmail(accountId, folder, uid);
-    
+
     return {
       content: [{
         type: 'text',
         text: JSON.stringify({
           success: true,
           message: `Email ${uid} deleted`,
+        }, null, 2)
+      }]
+    };
+  });
+
+  // Bulk delete emails tool
+  server.registerTool('imap_bulk_delete_emails', {
+    description: 'Bulk delete multiple emails by UIDs. Emails are marked as deleted and optionally expunged.',
+    inputSchema: {
+      accountId: z.string().describe('Account ID'),
+      folder: z.string().default('INBOX').describe('Folder name'),
+      uids: z.array(z.number()).describe('Array of email UIDs to delete'),
+      expunge: z.boolean().default(false).describe('Permanently expunge deleted emails (default: false, just marks as deleted)'),
+    }
+  }, async ({ accountId, folder, uids, expunge }) => {
+    if (uids.length === 0) {
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            success: true,
+            message: 'No emails to delete',
+            deletedCount: 0,
+          }, null, 2)
+        }]
+      };
+    }
+
+    await imapService.bulkDeleteEmails(accountId, folder, uids, expunge);
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: true,
+          message: `${uids.length} email(s) ${expunge ? 'deleted and expunged' : 'marked as deleted'}`,
+          deletedCount: uids.length,
+          expunged: expunge,
         }, null, 2)
       }]
     };

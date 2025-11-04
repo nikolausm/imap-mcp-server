@@ -213,7 +213,7 @@ export class ImapService {
   async deleteEmail(accountId: string, folderName: string, uid: number): Promise<void> {
     await this.selectFolder(accountId, folderName);
     const connection = this.getConnection(accountId);
-    
+
     return new Promise((resolve, reject) => {
       connection.addFlags(uid, '\\Deleted', (err: Error) => {
         if (err) {
@@ -224,6 +224,33 @@ export class ImapService {
           if (err) reject(err);
           else resolve();
         });
+      });
+    });
+  }
+
+  async bulkDeleteEmails(accountId: string, folderName: string, uids: number[], expunge: boolean = false): Promise<void> {
+    if (uids.length === 0) {
+      return;
+    }
+
+    await this.selectFolder(accountId, folderName);
+    const connection = this.getConnection(accountId);
+
+    return new Promise((resolve, reject) => {
+      connection.addFlags(uids, '\\Deleted', (err: Error) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+
+        if (expunge) {
+          connection.expunge((err: Error) => {
+            if (err) reject(err);
+            else resolve();
+          });
+        } else {
+          resolve();
+        }
       });
     });
   }
