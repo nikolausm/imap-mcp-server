@@ -1,3 +1,36 @@
+// Connection state tracking
+export enum ConnectionState {
+  DISCONNECTED = 'DISCONNECTED',
+  CONNECTING = 'CONNECTING',
+  CONNECTED = 'CONNECTED',
+  RECONNECTING = 'RECONNECTING',
+  ERROR = 'ERROR'
+}
+
+// Keepalive configuration
+export interface KeepAliveConfig {
+  interval?: number;      // TCP keepalive interval in ms (default: 10000)
+  idleInterval?: number;  // IMAP IDLE interval in ms (default: 1740000 = 29 minutes)
+  forceNoop?: boolean;    // Force NOOP instead of IDLE (default: true)
+}
+
+// Retry configuration
+export interface RetryConfig {
+  maxAttempts?: number;      // Max retry attempts (default: 5)
+  initialDelay?: number;     // Initial delay in ms (default: 1000)
+  maxDelay?: number;         // Max delay in ms (default: 60000)
+  backoffMultiplier?: number; // Backoff multiplier (default: 2)
+}
+
+// Connection metadata for tracking
+export interface ConnectionMetadata {
+  state: ConnectionState;
+  lastConnected?: Date;
+  lastError?: Error;
+  reconnectAttempts: number;
+  healthCheckInterval?: NodeJS.Timeout;
+}
+
 export interface ImapAccount {
   id: string;
   name: string;
@@ -8,7 +41,8 @@ export interface ImapAccount {
   tls: boolean;
   authTimeout?: number;
   connTimeout?: number;
-  keepalive?: boolean;
+  keepalive?: boolean | KeepAliveConfig;
+  retry?: RetryConfig;
   smtp?: SmtpConfig;
 }
 
@@ -93,4 +127,16 @@ export interface EmailAttachment {
   contentType?: string;
   contentDisposition?: 'attachment' | 'inline';
   cid?: string;
+}
+
+// Bulk operation types
+export type BulkMarkOperation = 'read' | 'unread' | 'flagged' | 'unflagged';
+
+export type BulkFetchFields = 'headers' | 'full' | 'body';
+
+export interface BulkOperationResult {
+  success: boolean;
+  processedCount: number;
+  failedCount: number;
+  errors?: Array<{ uid: number; error: string }>;
 }
