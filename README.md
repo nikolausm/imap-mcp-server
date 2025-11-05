@@ -254,6 +254,42 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
   - includeAttachments: Include original attachments (default: true)
   ```
 
+- **imap_copy_email**: Copy an email to another folder
+  ```
+  Parameters:
+  - accountId: Account ID
+  - sourceFolder: Source folder name (default: INBOX)
+  - uid: Email UID to copy
+  - targetFolder: Target folder name
+  ```
+
+- **imap_bulk_copy_emails**: Bulk copy multiple emails to another folder
+  ```
+  Parameters:
+  - accountId: Account ID
+  - sourceFolder: Source folder name (default: INBOX)
+  - uids: Array of email UIDs to copy
+  - targetFolder: Target folder name
+  ```
+
+- **imap_move_email**: Move an email to another folder
+  ```
+  Parameters:
+  - accountId: Account ID
+  - sourceFolder: Source folder name (default: INBOX)
+  - uid: Email UID to move
+  - targetFolder: Target folder name
+  ```
+
+- **imap_bulk_move_emails**: Bulk move multiple emails to another folder
+  ```
+  Parameters:
+  - accountId: Account ID
+  - sourceFolder: Source folder name (default: INBOX)
+  - uids: Array of email UIDs to move
+  - targetFolder: Target folder name
+  ```
+
 ### Folder Operations
 
 - **imap_list_folders**: List all folders

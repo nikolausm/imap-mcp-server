@@ -649,51 +649,19 @@ export class ImapService {
   }
 
   async markAsRead(accountId: string, folderName: string, uid: number): Promise<void> {
-    return this.withRetry(accountId, async () => {
-      await this.selectFolder(accountId, folderName);
-      const connection = this.getConnection(accountId);
-
-      return new Promise((resolve, reject) => {
-        connection.addFlags(uid, '\\Seen', (err: Error) => {
-          if (err) reject(err);
-          else resolve();
-        });
-      });
-    }, `markAsRead(uid:${uid})`);
+    // Refactored to call bulk operation internally (Issue #4)
+    await this.bulkMarkEmails(accountId, folderName, [uid], 'read');
   }
 
   async markAsUnread(accountId: string, folderName: string, uid: number): Promise<void> {
-    return this.withRetry(accountId, async () => {
-      await this.selectFolder(accountId, folderName);
-      const connection = this.getConnection(accountId);
-
-      return new Promise((resolve, reject) => {
-        connection.delFlags(uid, '\\Seen', (err: Error) => {
-          if (err) reject(err);
-          else resolve();
-        });
-      });
-    }, `markAsUnread(uid:${uid})`);
+    // Refactored to call bulk operation internally (Issue #4)
+    await this.bulkMarkEmails(accountId, folderName, [uid], 'unread');
   }
 
   async deleteEmail(accountId: string, folderName: string, uid: number): Promise<void> {
-    return this.withRetry(accountId, async () => {
-      await this.selectFolder(accountId, folderName);
-      const connection = this.getConnection(accountId);
-
-      return new Promise((resolve, reject) => {
-        connection.addFlags(uid, '\\Deleted', (err: Error) => {
-          if (err) {
-            reject(err);
-            return;
-          }
-          connection.expunge((err: Error) => {
-            if (err) reject(err);
-            else resolve();
-          });
-        });
-      });
-    }, `deleteEmail(uid:${uid})`);
+    // Refactored to call bulk operation internally (Issue #4)
+    // Note: Always expunges to maintain original behavior
+    await this.bulkDeleteEmails(accountId, folderName, [uid], true);
   }
 
   // Level 2: Bulk delete (from previous PR)
@@ -724,6 +692,73 @@ export class ImapService {
         });
       });
     }, `bulkDeleteEmails(${uids.length} emails)`);
+  }
+
+  // Issue #4: Bulk copy emails
+  async bulkCopyEmails(
+    accountId: string,
+    sourceFolder: string,
+    uids: number[],
+    targetFolder: string
+  ): Promise<BulkOperationResult> {
+    if (uids.length === 0) {
+      return { success: true, processedCount: 0, failedCount: 0 };
+    }
+
+    return this.withRetry(accountId, async () => {
+      await this.selectFolder(accountId, sourceFolder);
+      const connection = this.getConnection(accountId);
+
+      return new Promise<BulkOperationResult>((resolve, reject) => {
+        connection.copy(uids, targetFolder, (err: Error) => {
+          if (err) {
+            reject(err);
+          } else {
+            resolve({
+              success: true,
+              processedCount: uids.length,
+              failedCount: 0,
+            });
+          }
+        });
+      });
+    }, `bulkCopyEmails(${uids.length} emails to ${targetFolder})`);
+  }
+
+  // Issue #4: Bulk move emails (copy + delete)
+  async bulkMoveEmails(
+    accountId: string,
+    sourceFolder: string,
+    uids: number[],
+    targetFolder: string
+  ): Promise<BulkOperationResult> {
+    if (uids.length === 0) {
+      return { success: true, processedCount: 0, failedCount: 0 };
+    }
+
+    return this.withRetry(accountId, async () => {
+      // First copy to target folder
+      await this.bulkCopyEmails(accountId, sourceFolder, uids, targetFolder);
+
+      // Then mark as deleted (but don't expunge yet)
+      await this.bulkDeleteEmails(accountId, sourceFolder, uids, false);
+
+      // Return success result
+      return {
+        success: true,
+        processedCount: uids.length,
+        failedCount: 0,
+      };
+    }, `bulkMoveEmails(${uids.length} emails to ${targetFolder})`);
+  }
+
+  // Issue #4: Single operation wrappers for copy/move
+  async copyEmail(accountId: string, sourceFolder: string, uid: number, targetFolder: string): Promise<void> {
+    await this.bulkCopyEmails(accountId, sourceFolder, [uid], targetFolder);
+  }
+
+  async moveEmail(accountId: string, sourceFolder: string, uid: number, targetFolder: string): Promise<void> {
+    await this.bulkMoveEmails(accountId, sourceFolder, [uid], targetFolder);
   }
 
   private getConnection(accountId: string): Imap {
