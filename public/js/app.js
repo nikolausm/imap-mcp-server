@@ -418,10 +418,7 @@ async function editAccount(accountId) {
         // Add a visual indicator that we're editing
         const formTitle = document.querySelector('#credentialsForm h2');
         formTitle.textContent = 'Edit account details';
-        
-        // Show test button in edit mode
-        document.getElementById('testButton').classList.remove('hidden');
-        
+
         // Update submit button text
         const submitButton = document.querySelector('#accountForm button[type="submit"]');
         submitButton.innerHTML = 'Save Changes<span class="ml-2">→</span>';
@@ -458,7 +455,7 @@ async function testCurrentSettings() {
     document.getElementById('inlineTestResult').classList.remove('hidden');
     document.getElementById('inlineTestSuccess').classList.add('hidden');
     document.getElementById('inlineTestError').classList.add('hidden');
-    
+
     // Get current form values
     const accountData = {
         name: document.getElementById('accountName').value,
@@ -468,38 +465,61 @@ async function testCurrentSettings() {
         port: parseInt(document.getElementById('imapPort').value),
         tls: selectedProvider?.imapSecurity !== 'STARTTLS'
     };
-    
+
     // If editing and no password provided, we can't test
     if (window.editingAccountId && !accountData.password) {
+        document.getElementById('inlineTestResult').classList.remove('hidden');
         document.getElementById('inlineTestError').classList.remove('hidden');
-        document.getElementById('inlineErrorMessage').textContent = '❌ Please enter a password to test the connection';
+        document.getElementById('inlineErrorMessage').textContent = 'Please enter a password to test the connection';
+        document.getElementById('errorHelp').innerHTML = '';
         return;
     }
-    
+
     // Disable test button during test
     const testButton = document.getElementById('testButton');
     const originalText = testButton.innerHTML;
     testButton.disabled = true;
     testButton.innerHTML = '<span class="mr-2">⏳</span>Testing...';
-    
+
     try {
         const response = await fetch('/api/test-connection', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(accountData)
         });
-        
+
         const result = await response.json();
-        
+
         if (result.success) {
+            // Show success with details
             document.getElementById('inlineTestSuccess').classList.remove('hidden');
+
+            // Display connection details
+            const details = result.details || {};
+            const detailsHtml = `
+                <div>📊 <strong>Folders found:</strong> ${details.folderCount || 0}</div>
+                <div>⏱️ <strong>Connection time:</strong> ${details.connectionTime || 0}ms</div>
+                <div>🖥️ <strong>Server:</strong> ${details.serverHost}:${details.serverPort}</div>
+                <div>🔒 <strong>TLS:</strong> ${details.tlsEnabled ? 'Enabled' : 'Disabled'}</div>
+            `;
+            document.getElementById('connectionDetails').innerHTML = detailsHtml;
         } else {
+            // Show error with helpful message
             document.getElementById('inlineTestError').classList.remove('hidden');
-            document.getElementById('inlineErrorMessage').textContent = '❌ ' + (result.error || 'Connection failed');
+            document.getElementById('inlineErrorMessage').textContent = result.error || 'Connection failed';
+
+            // Show helpful troubleshooting tip
+            if (result.help) {
+                document.getElementById('errorHelp').innerHTML = result.help;
+                document.getElementById('errorHelp').classList.remove('hidden');
+            } else {
+                document.getElementById('errorHelp').innerHTML = '';
+            }
         }
     } catch (error) {
         document.getElementById('inlineTestError').classList.remove('hidden');
-        document.getElementById('inlineErrorMessage').textContent = '❌ ' + error.message;
+        document.getElementById('inlineErrorMessage').textContent = error.message;
+        document.getElementById('errorHelp').innerHTML = '💡 Network error. Check your internet connection and try again.';
     } finally {
         // Re-enable test button
         testButton.disabled = false;
@@ -586,8 +606,7 @@ function showProviderSelection() {
         submitButton.innerHTML = 'Continue<span class="ml-2">→</span>';
     }
     
-    // Hide test button and results
-    document.getElementById('testButton').classList.add('hidden');
+    // Hide test results (but keep test button visible)
     document.getElementById('inlineTestResult').classList.add('hidden');
     document.getElementById('inlineTestSuccess').classList.add('hidden');
     document.getElementById('inlineTestError').classList.add('hidden');
