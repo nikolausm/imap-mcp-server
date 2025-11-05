@@ -1,9 +1,12 @@
-# IMAP MCP Server
+# IMAP MCP Pro
 
-A powerful Model Context Protocol (MCP) server that provides seamless IMAP email integration with secure account management and connection pooling.
+An enterprise-grade Model Context Protocol (MCP) server that provides production-ready IMAP email integration with advanced reliability features, comprehensive monitoring, and secure account management.
+
+> **Professional Edition** - Enhanced fork with Level 1-3 reliability features, circuit breaker pattern, metrics, and bulk operations for commercial and large-scale deployments.
 
 ## Features
 
+### Core Features
 - 🔐 **Secure Account Management**: Encrypted credential storage with AES-256 encryption
 - 🚀 **Connection Pooling**: Efficient IMAP connection management
 - 📧 **Comprehensive Email Operations**: Search, read, mark, delete emails
@@ -15,26 +18,47 @@ A powerful Model Context Protocol (MCP) server that provides seamless IMAP email
 - 📱 **15+ Email Providers**: Pre-configured settings for Gmail, Outlook, Yahoo, and more
 - 🔗 **Auto SMTP Configuration**: Automatic SMTP settings based on IMAP provider
 
+### Enterprise Features (Pro Edition)
+
+#### Level 1: Enhanced Connectivity
+- ⚡ **Enhanced Keepalive**: RFC 2177 compliant NOOP commands every 29 minutes
+- 🔌 **Connection Monitoring**: Real-time connection health tracking
+- ✅ **Connection Validation**: Proactive connection state verification
+
+#### Level 2: Advanced Reliability
+- 🔄 **Automatic Reconnection**: Exponential backoff (1s → 2s → 4s → 8s → 60s max)
+- ♻️ **Retry Logic**: Transparent retry wrapper for all operations (max 5 attempts)
+- 🏥 **Health Checks**: Periodic NOOP every 29 minutes to prevent timeouts
+- 📊 **Connection State Machine**: DISCONNECTED → CONNECTING → CONNECTED → RECONNECTING → ERROR
+- ⚡ **Bulk Operations**: Efficient bulk delete, read, and mark operations
+
+#### Level 3: Production-Grade Resilience
+- 🛡️ **Circuit Breaker**: Prevents cascading failures (5 failures opens, 2 successes closes)
+- 📦 **Operation Queue**: Queues operations during outages, replays when reconnected (1000 max)
+- 📈 **Comprehensive Metrics**: Per-connection and per-operation metrics (ops, success rate, latency, uptime%)
+- 🎯 **Graceful Degradation**: Read-only mode, result caching (5-min TTL), fallback to last known good data
+- 🔍 **Enhanced Monitoring**: Real-time metrics via MCP tools (imap_get_metrics, imap_get_operation_metrics)
+
 ## Installation
 
 ### Quick Install (Recommended)
 
 #### macOS/Linux:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nikolausm/imap-mcp-server/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Temple-of-Epiphany/imap-mcp-pro/main/install.sh | bash
 ```
 
 #### Windows (PowerShell as Administrator):
 ```powershell
-iwr -useb https://raw.githubusercontent.com/nikolausm/imap-mcp-server/main/install.ps1 | iex
+iwr -useb https://raw.githubusercontent.com/Temple-of-Epiphany/imap-mcp-pro/main/install.ps1 | iex
 ```
 
 ### Manual Installation
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/nikolausm/imap-mcp-server.git
-cd imap-mcp-server
+git clone https://github.com/Temple-of-Epiphany/imap-mcp-pro.git
+cd imap-mcp-pro
 ```
 
 2. Install dependencies:
@@ -355,8 +379,38 @@ The server automatically configures SMTP settings based on your IMAP provider. I
 
 ## License
 
-ISC
+This software is available under a **Dual License Model**:
+
+### Non-Commercial License (FREE)
+Free for personal, educational, and non-profit use. See [LICENSE](LICENSE) for full terms.
+
+### Commercial License (PAID)
+Required for any commercial use, including:
+- Business email operations
+- SaaS products
+- Enterprise deployments
+- Revenue-generating services
+
+**Contact for Commercial License:** colin@bitterfield.com
+
+## Attribution
+
+This project is an enterprise-enhanced fork of the original IMAP MCP Server created by Michael Nikolaus.
+
+**Original Project:** https://github.com/nikolausm/imap-mcp-server
+**Original Author:** Michael Nikolaus
+**Original License:** MIT License (applies to base code only)
+
+Temple of Epiphany has added extensive enterprise features (Levels 1-3) which are subject to the dual-license model above.
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+We welcome contributions! For commercial use contributions, contributors agree that their contributions will be subject to the project's dual-license model.
+
+Please feel free to submit Pull Requests for:
+- Bug fixes
+- Documentation improvements
+- New features
+- Performance enhancements
+
+For major changes, please open an issue first to discuss what you would like to change.

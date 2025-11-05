@@ -1,21 +1,122 @@
-MIT License
+# IMAP MCP Pro License
 
-Copyright (c) 2024 Michael Nikolaus
+## Dual License Model
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+This software is available under a dual-license model:
+1. **Non-Commercial License** (free)
+2. **Commercial License** (requires purchase)
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+---
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+## Non-Commercial License
+
+Copyright (c) 2025 Temple of Epiphany / Colin Bitterfield
+Copyright (c) 2024 Michael Nikolaus (Original Base Code)
+
+### Terms
+
+Permission is hereby granted, free of charge, to any person or organization obtaining a copy of this software and associated documentation files (the "Software"), to use, copy, modify, and distribute the Software for **NON-COMMERCIAL PURPOSES ONLY**, subject to the following conditions:
+
+#### You MAY:
+- Use the Software for personal, educational, or research purposes
+- Use the Software for internal operations of non-profit organizations
+- Modify the Software for your own non-commercial use
+- Share modifications under the same non-commercial terms
+
+#### You MAY NOT:
+- Use the Software in any commercial product or service
+- Sell, sublicense, or distribute the Software commercially
+- Use the Software to provide services to third parties for profit
+- Deploy the Software in any revenue-generating application or service
+- Remove or modify this license or copyright notices
+
+### Definition of Commercial Use
+
+Commercial use includes, but is not limited to:
+- Using the Software in a product or service that is sold
+- Using the Software to provide paid services
+- Using the Software in an organization that generates revenue (except for internal operations of qualifying non-profits)
+- Deploying the Software in a commercial or production environment
+- Using the Software to support business operations that generate revenue
+
+### Non-Commercial Examples
+
+Examples of permitted non-commercial use:
+- Personal email management
+- Academic research projects
+- Non-profit organization internal email operations
+- Educational institution use for teaching
+- Open source project development
+- Testing and evaluation
+
+---
+
+## Commercial License
+
+For commercial use, including but not limited to:
+- Business email operations
+- SaaS products
+- Revenue-generating services
+- Enterprise deployments
+- Production environments for commercial entities
+
+**You must obtain a commercial license.**
+
+### Obtaining a Commercial License
+
+Commercial licenses are available for purchase from Temple of Epiphany.
+
+**Contact:** colin@bitterfield.com
+**Organization:** Temple of Epiphany
+**Website:** https://github.com/Temple-of-Epiphany
+
+Commercial license terms include:
+- Perpetual or subscription-based options
+- Support and maintenance
+- Priority bug fixes and feature requests
+- Production deployment rights
+- Legal protection and indemnification
+
+---
+
+## Disclaimer
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+---
+
+## Attribution
+
+This project is a fork and substantial extension of the original IMAP MCP Server created by Michael Nikolaus, which was licensed under the MIT License.
+
+**Original Project:** https://github.com/nikolausm/imap-mcp-server
+**Original Author:** Michael Nikolaus (https://github.com/nikolausm)
+**Original License:** MIT License (for base code only)
+
+### Original Work (MIT Licensed)
+The base IMAP MCP server implementation, including core email operations, account management, and folder operations. The original MIT license applies only to the unmodified base code from the original project.
+
+### Extended Work (Dual Licensed)
+All enterprise enhancements and modifications created by Temple of Epiphany are subject to this dual-license model:
+- Level 1-3 reliability features (auto-reconnection, retry logic, health checks)
+- Circuit breaker pattern for failure isolation
+- Comprehensive metrics and monitoring
+- Operation queue for offline resilience
+- Graceful degradation with caching
+- Bulk operations for efficiency
+- Web UI enhancements
+- Production-ready deployment features
+- All modifications and improvements to base code
+
+---
+
+## Compliance and Enforcement
+
+Unauthorized commercial use of this Software is a violation of this license and copyright law. Temple of Epiphany reserves the right to pursue legal action against violators.
+
+If you are unsure whether your use case requires a commercial license, please contact us at colin@bitterfield.com.
+
+---
+
+**Last Updated:** January 2025
+**Version:** 1.0

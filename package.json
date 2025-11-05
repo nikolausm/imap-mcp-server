@@ -1,7 +1,7 @@
 {
-  "name": "imap-mcp-server",
-  "version": "1.0.0",
-  "description": "A powerful Model Context Protocol (MCP) server for IMAP email integration with Claude",
+  "name": "@temple-of-epiphany/imap-mcp-pro",
+  "version": "2.0.0",
+  "description": "Enterprise-grade IMAP MCP server with Level 1-3 reliability features, circuit breaker, metrics, and bulk operations for commercial and large-scale deployments",
   "main": "dist/index.js",
   "bin": {
     "imap-mcp": "./dist/index.js",
@@ -21,18 +21,36 @@
     "email",
     "claude",
     "ai",
-    "model-context-protocol"
+    "model-context-protocol",
+    "enterprise",
+    "circuit-breaker",
+    "reliability",
+    "bulk-operations",
+    "monitoring",
+    "metrics",
+    "production"
   ],
-  "author": "Michael Nikolaus",
-  "license": "MIT",
+  "author": "Temple of Epiphany / Colin Bitterfield (colin@bitterfield.com)",
+  "contributors": [
+    {
+      "name": "Michael Nikolaus",
+      "url": "https://github.com/nikolausm"
+    },
+    {
+      "name": "Colin Bitterfield",
+      "email": "colin@bitterfield.com",
+      "url": "https://github.com/cbitterfield"
+    }
+  ],
+  "license": "SEE LICENSE IN LICENSE",
   "repository": {
     "type": "git",
-    "url": "https://github.com/michaelnikolaus/imap-mcp-server.git"
+    "url": "https://github.com/Temple-of-Epiphany/imap-mcp-pro.git"
   },
   "bugs": {
-    "url": "https://github.com/michaelnikolaus/imap-mcp-server/issues"
+    "url": "https://github.com/Temple-of-Epiphany/imap-mcp-pro/issues"
   },
-  "homepage": "https://github.com/michaelnikolaus/imap-mcp-server#readme",
+  "homepage": "https://github.com/Temple-of-Epiphany/imap-mcp-pro#readme",
   "type": "module",
   "devDependencies": {
     "@types/cors": "^2.8.19",
