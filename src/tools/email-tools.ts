@@ -453,6 +453,124 @@ export function emailTools(
     };
   });
 
+  // Issue #4: Copy email tool
+  server.registerTool('imap_copy_email', {
+    description: 'Copy an email to another folder',
+    inputSchema: {
+      accountId: z.string().describe('Account ID'),
+      sourceFolder: z.string().default('INBOX').describe('Source folder name'),
+      uid: z.number().describe('Email UID to copy'),
+      targetFolder: z.string().describe('Target folder name'),
+    }
+  }, async ({ accountId, sourceFolder, uid, targetFolder }) => {
+    await imapService.copyEmail(accountId, sourceFolder, uid, targetFolder);
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: true,
+          message: `Email ${uid} copied from ${sourceFolder} to ${targetFolder}`,
+        }, null, 2)
+      }]
+    };
+  });
+
+  // Issue #4: Bulk copy emails tool
+  server.registerTool('imap_bulk_copy_emails', {
+    description: 'Bulk copy multiple emails to another folder',
+    inputSchema: {
+      accountId: z.string().describe('Account ID'),
+      sourceFolder: z.string().default('INBOX').describe('Source folder name'),
+      uids: z.array(z.number()).describe('Array of email UIDs to copy'),
+      targetFolder: z.string().describe('Target folder name'),
+    }
+  }, async ({ accountId, sourceFolder, uids, targetFolder }) => {
+    if (uids.length === 0) {
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            success: true,
+            message: 'No emails to copy',
+            processedCount: 0,
+          }, null, 2)
+        }]
+      };
+    }
+
+    const result = await imapService.bulkCopyEmails(accountId, sourceFolder, uids, targetFolder);
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          ...result,
+          message: `Successfully copied ${result.processedCount} email(s) from ${sourceFolder} to ${targetFolder}`,
+        }, null, 2)
+      }]
+    };
+  });
+
+  // Issue #4: Move email tool
+  server.registerTool('imap_move_email', {
+    description: 'Move an email to another folder (copy + delete)',
+    inputSchema: {
+      accountId: z.string().describe('Account ID'),
+      sourceFolder: z.string().default('INBOX').describe('Source folder name'),
+      uid: z.number().describe('Email UID to move'),
+      targetFolder: z.string().describe('Target folder name'),
+    }
+  }, async ({ accountId, sourceFolder, uid, targetFolder }) => {
+    await imapService.moveEmail(accountId, sourceFolder, uid, targetFolder);
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: true,
+          message: `Email ${uid} moved from ${sourceFolder} to ${targetFolder}`,
+        }, null, 2)
+      }]
+    };
+  });
+
+  // Issue #4: Bulk move emails tool
+  server.registerTool('imap_bulk_move_emails', {
+    description: 'Bulk move multiple emails to another folder (copy + delete)',
+    inputSchema: {
+      accountId: z.string().describe('Account ID'),
+      sourceFolder: z.string().default('INBOX').describe('Source folder name'),
+      uids: z.array(z.number()).describe('Array of email UIDs to move'),
+      targetFolder: z.string().describe('Target folder name'),
+    }
+  }, async ({ accountId, sourceFolder, uids, targetFolder }) => {
+    if (uids.length === 0) {
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            success: true,
+            message: 'No emails to move',
+            processedCount: 0,
+          }, null, 2)
+        }]
+      };
+    }
+
+    const result = await imapService.bulkMoveEmails(accountId, sourceFolder, uids, targetFolder);
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          ...result,
+          message: `Successfully moved ${result.processedCount} email(s) from ${sourceFolder} to ${targetFolder}`,
+        }, null, 2)
+      }]
+    };
+  });
+
   // Level 3: Get connection metrics
   server.registerTool('imap_get_metrics', {
     description: 'Get connection metrics and health information for an account',

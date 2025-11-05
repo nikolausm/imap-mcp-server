@@ -5,6 +5,55 @@ All notable changes to IMAP MCP Pro will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2025-01-05
+
+### Unified Bulk Operations Architecture (Issue #4)
+
+This release implements a unified architecture where single operations call bulk operations internally, eliminating code duplication and establishing a consistent pattern.
+
+#### ♻️ Refactored Operations
+- **markAsRead**: Now calls `bulkMarkEmails([uid], 'read')` internally
+- **markAsUnread**: Now calls `bulkMarkEmails([uid], 'unread')` internally
+- **deleteEmail**: Now calls `bulkDeleteEmails([uid], true)` internally
+
+#### ✨ New Copy/Move Operations
+- **bulkCopyEmails**: Copy multiple emails to another folder efficiently
+- **bulkMoveEmails**: Move multiple emails (copy + mark deleted) efficiently
+- **copyEmail**: Single email copy wrapper (calls bulk internally)
+- **moveEmail**: Single email move wrapper (calls bulk internally)
+
+#### 🛠️ New MCP Tools (4)
+- `imap_copy_email` - Copy single email to another folder
+- `imap_bulk_copy_emails` - Copy multiple emails to another folder
+- `imap_move_email` - Move single email to another folder
+- `imap_bulk_move_emails` - Move multiple emails to another folder
+
+Total Tools: **27** (up from 23)
+
+#### 🎯 Benefits
+- **Less Code Duplication**: ~30 lines removed from single operations
+- **Consistent Behavior**: All operations use same retry/circuit breaker logic
+- **Easier Maintenance**: Changes in one place affect both single and bulk operations
+- **New Functionality**: Copy/move operations for better email management
+- **MSP-Ready**: Architecture supports multi-tenant account hierarchies
+
+#### 🧪 Testing
+- Added `test-tools.js` script to verify all 27 tools register correctly
+- Build passes without TypeScript errors
+- All tools tested and verified
+
+#### 📝 Files Modified
+- `src/services/imap-service.ts` - Refactored operations + new copy/move methods
+- `src/tools/email-tools.ts` - Added 4 new MCP tools
+- `test-tools.js` - New test script (27 tools expected)
+- `README.md` - Updated tool documentation
+- `CHANGELOG.md` - This file
+
+#### GitHub
+- Closes Issue #4: https://github.com/Temple-of-Epiphany/imap-mcp-pro/issues/4
+
+---
+
 ## [2.0.0] - 2025-01-05
 
 ### Major Release - IMAP MCP Pro
