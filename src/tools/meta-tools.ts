@@ -22,7 +22,7 @@ export function metaTools(server: McpServer): void {
         model: 'Dual-License',
         nonCommercial: 'FREE for personal, educational, and non-profit use',
         commercial: 'PAID license required for business use',
-        contact: 'colin@bitterfield.com'
+        contact: 'colin.bitterfield@templeofepiphany.com'
       },
       repository: {
         url: 'https://github.com/Temple-of-Epiphany/imap-mcp-pro',
@@ -80,7 +80,7 @@ export function metaTools(server: McpServer): void {
       },
       attribution: {
         organization: 'Temple of Epiphany',
-        maintainer: 'Colin Bitterfield (colin@bitterfield.com)',
+        maintainer: 'Colin Bitterfield (colin.bitterfield@templeofepiphany.com)',
         contributors: [
           'Colin Bitterfield',
           'Michael Nikolaus (original author)'

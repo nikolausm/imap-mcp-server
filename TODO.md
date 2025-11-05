@@ -3,7 +3,7 @@
 **Project**: IMAP MCP Pro (Enterprise Edition)
 **Organization**: Temple of Epiphany
 **Repository**: https://github.com/Temple-of-Epiphany/imap-mcp-pro
-**Contact**: colin@bitterfield.com
+**Contact**: colin.bitterfield@templeofepiphany.com
 **Date**: 2025-01-05
 
 ---
@@ -384,7 +384,7 @@ gh pr create --repo Temple-of-Epiphany/imap-mcp-pro
 
 **Organization**: Temple of Epiphany
 **Maintainer**: Colin Bitterfield
-**Email**: colin@bitterfield.com
+**Email**: colin.bitterfield@templeofepiphany.com
 **Repository**: https://github.com/Temple-of-Epiphany/imap-mcp-pro
 
 ---
@@ -401,7 +401,7 @@ gh pr create --repo Temple-of-Epiphany/imap-mcp-pro
 ### License Requirements
 - **Non-Commercial Use**: FREE (personal, educational, non-profit)
 - **Commercial Use**: PAID license required
-- Contact colin@bitterfield.com for commercial licensing
+- Contact colin.bitterfield@templeofepiphany.com for commercial licensing
 
 ### Next Session Resume Point
 Start with **Priority 1: Issue #4 - Unified Bulk Operations**. This is the most impactful change and sets the foundation for adding copy/move operations.

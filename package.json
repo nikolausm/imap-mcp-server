@@ -30,7 +30,7 @@
     "metrics",
     "production"
   ],
-  "author": "Temple of Epiphany / Colin Bitterfield (colin@bitterfield.com)",
+  "author": "Temple of Epiphany / Colin Bitterfield (colin.bitterfield@templeofepiphany.com)",
   "contributors": [
     {
       "name": "Michael Nikolaus",
@@ -38,7 +38,7 @@
     },
     {
       "name": "Colin Bitterfield",
-      "email": "colin@bitterfield.com",
+      "email": "colin.bitterfield@templeofepiphany.com",
       "url": "https://github.com/cbitterfield"
     }
   ],

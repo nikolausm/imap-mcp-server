@@ -281,6 +281,6 @@ Level 1 detects drops but doesn't auto-reconnect. Manual reconnection required u
 
 ## Authors
 
-- Colin Bitterfield (colin@bitterfield.com)
+- Colin Bitterfield (colin.bitterfield@templeofepiphany.com)
 - Implementation Date: 2025-01-04
 - Version: 0.1.0

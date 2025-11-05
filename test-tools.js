@@ -4,7 +4,7 @@
  * Test script to verify all MCP tools are registered correctly
  *
  * Author: Colin Bitterfield
- * Email: colin@bitterfield.com
+ * Email: colin.bitterfield@templeofepiphany.com
  * Version: 0.2.0
  * Date Created: 2025-01-05
  * Date Updated: 2025-11-05

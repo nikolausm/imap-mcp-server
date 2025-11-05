@@ -427,7 +427,7 @@ Required for any commercial use, including:
 - Enterprise deployments
 - Revenue-generating services
 
-**Contact for Commercial License:** colin@bitterfield.com
+**Contact for Commercial License:** colin.bitterfield@templeofepiphany.com
 
 ## Attribution
 

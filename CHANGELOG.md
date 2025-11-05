@@ -216,7 +216,7 @@ This major release transforms the project into an enterprise-grade commercial pr
 - **Dual-License Model** implemented:
   - FREE for non-commercial use (personal, educational, non-profit)
   - PAID commercial license for business use
-- **Contact**: colin@bitterfield.com for commercial licensing
+- **Contact**: colin.bitterfield@templeofepiphany.com for commercial licensing
 
 #### ⚡ Level 1: Enhanced Connectivity
 - **Enhanced Keepalive**: RFC 2177 compliant NOOP commands every 29 minutes
@@ -378,7 +378,7 @@ This project uses a **Dual-License Model**:
 
 See [LICENSE](LICENSE) for complete terms.
 
-**Contact**: colin@bitterfield.com
+**Contact**: colin.bitterfield@templeofepiphany.com
 
 ---
 
