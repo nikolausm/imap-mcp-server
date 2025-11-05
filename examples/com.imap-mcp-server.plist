@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Service identifier - must be unique -->
+    <key>Label</key>
+    <string>com.imap-mcp-server</string>
+
+    <!-- Command to run - Update npm path based on your installation -->
+    <key>ProgramArguments</key>
+    <array>
+        <!-- Update this path to match your npm location -->
+        <!-- Homebrew (Intel): /usr/local/bin/npm -->
+        <!-- Homebrew (Apple Silicon): /opt/homebrew/bin/npm -->
+        <!-- MacPorts: /opt/local/bin/npm -->
+        <!-- nvm: /Users/YOUR_USERNAME/.nvm/versions/node/vX.X.X/bin/npm -->
+        <string>/usr/local/bin/npm</string>
+        <string>run</string>
+        <!-- Use 'web' for HTTP server mode or 'start' for stdio mode -->
+        <string>web</string>
+    </array>
+
+    <!-- Working directory - Update to your installation path -->
+    <key>WorkingDirectory</key>
+    <string>/Users/YOUR_USERNAME/Projects/imap-mcp-server</string>
+
+    <!-- Start service when user logs in -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Restart service if it crashes -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- Optional: Throttle restart attempts if service crashes repeatedly -->
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+
+    <!-- Log files - Update paths as needed -->
+    <key>StandardOutPath</key>
+    <string>/Users/YOUR_USERNAME/Library/Logs/imap-mcp-server.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/YOUR_USERNAME/Library/Logs/imap-mcp-server.error.log</string>
+
+    <!-- Environment variables -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <!-- PATH should include node and npm binary locations -->
+        <!-- Update based on your Node.js installation -->
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+
+        <!-- Optional: Set NODE_ENV -->
+        <key>NODE_ENV</key>
+        <string>production</string>
+    </dict>
+
+    <!-- Optional: Set process priority (nice value, -20 to 20, lower = higher priority) -->
+    <key>Nice</key>
+    <integer>0</integer>
+
+    <!-- Optional: Limit CPU usage (0-100, percentage) -->
+    <!-- <key>ProcessType</key>
+    <string>Background</string> -->
+
+    <!-- Optional: Run service only when network is available -->
+    <!-- <key>LaunchOnlyOnce</key>
+    <false/> -->
+</dict>
+</plist>
