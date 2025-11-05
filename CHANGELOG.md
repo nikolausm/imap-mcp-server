@@ -5,6 +5,64 @@ All notable changes to IMAP MCP Pro will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2025-01-05
+
+### Web UI Connection Testing (Issue #5)
+
+This release significantly improves the user experience during account setup by adding comprehensive connection testing with detailed feedback.
+
+#### ✨ New Features
+- **Test Connection Button**: Now visible on all account forms (new and edit)
+- **Detailed Success Information**: Shows folder count, connection time, server details, and TLS status
+- **Smart Error Messages**: Context-aware error messages with actionable troubleshooting tips
+- **Real-time Feedback**: Test connection without leaving the setup form
+
+#### 🎯 Enhanced Connection Test Display
+
+**Success Display Shows:**
+- 📊 Number of folders found
+- ⏱️ Connection time in milliseconds
+- 🖥️ Server host and port
+- 🔒 TLS enabled/disabled status
+
+**Error Display Shows:**
+- Clear error message
+- Helpful troubleshooting tips based on error type:
+  - **Authentication failures**: Suggests app-specific passwords
+  - **Timeouts**: Recommends checking host/port/firewall
+  - **Connection refused**: Suggests verifying server and IMAP settings
+  - **SSL/TLS errors**: Recommends toggling TLS settings
+  - **DNS errors**: Suggests checking hostname spelling
+
+#### 🛠️ Technical Improvements
+- Enhanced `/api/test-connection` endpoint with detailed response
+- Connection time measurement
+- Error categorization with regex matching
+- Improved UI with better visual hierarchy
+
+#### 🎨 UI Enhancements
+- Test button always visible (previously only in edit mode)
+- Redesigned success/error display with icons and structure
+- Better spacing and readability
+- Responsive layout for all screen sizes
+
+#### 📝 Files Modified
+- `src/web/server.ts` - Enhanced API endpoint with details and helpful errors
+- `public/index.html` - Improved test result display UI
+- `public/js/app.js` - Updated frontend logic to show details
+- `CHANGELOG.md` - This file
+
+#### 🎉 Benefits
+- **Better UX**: Immediate feedback on credential correctness
+- **Faster Setup**: Test before saving reduces trial-and-error
+- **Self-Service Troubleshooting**: Users can diagnose common issues independently
+- **Reduced Support Burden**: Clear, actionable error messages
+
+#### GitHub
+- Closes Issue #5: https://github.com/Temple-of-Epiphany/imap-mcp-pro/issues/5
+
+---
+
 ## [2.1.0] - 2025-01-05
 
 ### Unified Bulk Operations Architecture (Issue #4)

@@ -90,9 +90,11 @@ export class WebUIServer {
 
     // Test connection
     this.app.post('/api/test-connection', async (req, res) => {
+      const startTime = Date.now();
+
       try {
         const { email, password, host, port, tls } = req.body;
-        
+
         // Create temporary account for testing
         const testAccount: ImapAccount = {
           id: 'test-' + Date.now(),
@@ -103,24 +105,53 @@ export class WebUIServer {
           password,
           tls: tls !== false,
         };
-        
+
         // Try to connect
         await this.imapService.connect(testAccount);
-        
+
         // Get folder list to verify connection works
         const folders = await this.imapService.listFolders(testAccount.id);
-        
+
+        // Calculate connection time
+        const connectionTime = Date.now() - startTime;
+
         // Disconnect
         await this.imapService.disconnect(testAccount.id);
-        
-        res.json({ 
-          success: true, 
-          folders: folders.map(f => f.name) 
+
+        res.json({
+          success: true,
+          details: {
+            folderCount: folders.length,
+            connectionTime: connectionTime,
+            serverHost: testAccount.host,
+            serverPort: testAccount.port,
+            tlsEnabled: testAccount.tls
+          }
         });
       } catch (error) {
-        res.status(400).json({ 
-          success: false, 
-          error: error instanceof Error ? error.message : 'Connection test failed' 
+        const errorMessage = error instanceof Error ? error.message : 'Connection test failed';
+
+        // Provide helpful error messages based on common issues
+        let helpText = '';
+
+        if (errorMessage.toLowerCase().includes('auth') || errorMessage.toLowerCase().includes('login') || errorMessage.toLowerCase().includes('invalid credentials')) {
+          helpText = '💡 **Authentication failed.** Check your password or use an app-specific password (required for Gmail, Yahoo, and some other providers).';
+        } else if (errorMessage.toLowerCase().includes('timeout') || errorMessage.toLowerCase().includes('timed out')) {
+          helpText = '💡 **Connection timeout.** Check that the host and port are correct. Verify your firewall allows IMAP connections. Try toggling the TLS setting.';
+        } else if (errorMessage.toLowerCase().includes('econnrefused') || errorMessage.toLowerCase().includes('connection refused')) {
+          helpText = '💡 **Connection refused.** Verify the server address is correct. Check if IMAP is enabled in your account settings. Try a different port (993 for TLS, 143 for non-TLS).';
+        } else if (errorMessage.toLowerCase().includes('ssl') || errorMessage.toLowerCase().includes('tls') || errorMessage.toLowerCase().includes('certificate')) {
+          helpText = '💡 **SSL/TLS error.** Try toggling the TLS setting. Some servers use port 143 without TLS, others use 993 with TLS.';
+        } else if (errorMessage.toLowerCase().includes('enotfound') || errorMessage.toLowerCase().includes('getaddrinfo')) {
+          helpText = '💡 **Server not found.** Check that the host name is spelled correctly. Verify you have an internet connection.';
+        } else {
+          helpText = '💡 **Connection failed.** Double-check all settings and try again. If using Gmail or Yahoo, you may need an app-specific password.';
+        }
+
+        res.status(400).json({
+          success: false,
+          error: errorMessage,
+          help: helpText
         });
       }
     });

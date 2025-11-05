@@ -182,11 +182,24 @@
 
                         <!-- Test results -->
                         <div id="inlineTestResult" class="hidden mb-4">
-                            <div id="inlineTestSuccess" class="hidden bg-green-50 border border-green-200 rounded-md p-3">
-                                <p class="text-green-800 text-sm"><span class="mr-1">✅</span>Connection successful!</p>
+                            <div id="inlineTestSuccess" class="hidden bg-green-50 border border-green-200 rounded-md p-4">
+                                <div class="flex items-start">
+                                    <span class="text-green-600 text-2xl mr-3">✅</span>
+                                    <div class="flex-1">
+                                        <p class="text-green-800 font-semibold mb-2">Connection successful!</p>
+                                        <div id="connectionDetails" class="text-green-700 text-sm space-y-1"></div>
+                                    </div>
+                                </div>
                             </div>
-                            <div id="inlineTestError" class="hidden bg-red-50 border border-red-200 rounded-md p-3">
-                                <p class="text-red-800 text-sm" id="inlineErrorMessage"></p>
+                            <div id="inlineTestError" class="hidden bg-red-50 border border-red-200 rounded-md p-4">
+                                <div class="flex items-start">
+                                    <span class="text-red-600 text-2xl mr-3">❌</span>
+                                    <div class="flex-1">
+                                        <p class="text-red-800 font-semibold mb-2">Connection failed</p>
+                                        <p class="text-red-700 text-sm mb-2" id="inlineErrorMessage"></p>
+                                        <div id="errorHelp" class="text-red-600 text-sm bg-red-100 rounded p-2 mt-2"></div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
@@ -195,7 +208,7 @@
                                 <span class="mr-2">←</span>Back
                             </button>
                             <div class="flex gap-2">
-                                <button type="button" id="testButton" onclick="testCurrentSettings()" class="hidden px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500">
+                                <button type="button" id="testButton" onclick="testCurrentSettings()" class="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500">
                                     <span class="mr-2">🔍</span>Test Connection
                                 </button>
                                 <button type="submit" class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
