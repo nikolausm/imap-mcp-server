@@ -405,6 +405,51 @@ export class ImapService {
     }, `selectFolder(${folderName})`);
   }
 
+  async createFolder(accountId: string, folderName: string): Promise<void> {
+    return this.withRetry(accountId, async () => {
+      const connection = this.getConnection(accountId);
+      return new Promise<void>((resolve, reject) => {
+        connection.addBox(folderName, (err: Error | null) => {
+          if (err) {
+            reject(err);
+          } else {
+            resolve();
+          }
+        });
+      });
+    }, `createFolder(${folderName})`);
+  }
+
+  async deleteFolder(accountId: string, folderName: string): Promise<void> {
+    return this.withRetry(accountId, async () => {
+      const connection = this.getConnection(accountId);
+      return new Promise<void>((resolve, reject) => {
+        connection.delBox(folderName, (err: Error | null) => {
+          if (err) {
+            reject(err);
+          } else {
+            resolve();
+          }
+        });
+      });
+    }, `deleteFolder(${folderName})`);
+  }
+
+  async renameFolder(accountId: string, oldName: string, newName: string): Promise<void> {
+    return this.withRetry(accountId, async () => {
+      const connection = this.getConnection(accountId);
+      return new Promise<void>((resolve, reject) => {
+        connection.renameBox(oldName, newName, (err: Error | null) => {
+          if (err) {
+            reject(err);
+          } else {
+            resolve();
+          }
+        });
+      });
+    }, `renameFolder(${oldName} -> ${newName})`);
+  }
+
   async searchEmails(accountId: string, folderName: string, criteria: SearchCriteria): Promise<EmailMessage[]> {
     return this.withRetry(accountId, async () => {
       await this.selectFolder(accountId, folderName);

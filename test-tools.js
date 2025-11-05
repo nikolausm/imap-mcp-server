@@ -5,9 +5,9 @@
  *
  * Author: Colin Bitterfield
  * Email: colin@bitterfield.com
- * Version: 0.1.0
+ * Version: 0.2.0
  * Date Created: 2025-01-05
- * Date Updated: 2025-01-05
+ * Date Updated: 2025-11-05
  */
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -17,13 +17,14 @@ import { SmtpService } from './dist/services/smtp-service.js';
 import { accountTools } from './dist/tools/account-tools.js';
 import { emailTools } from './dist/tools/email-tools.js';
 import { folderTools } from './dist/tools/folder-tools.js';
+import { metaTools } from './dist/tools/meta-tools.js';
 
 console.log('🧪 Testing IMAP MCP Pro Tool Registration\n');
 
 // Create mock services
 const server = new McpServer({
   name: 'imap-mcp-pro-test',
-  version: '2.0.0',
+  version: '2.4.0',
 });
 
 const accountManager = new AccountManager();
@@ -44,9 +45,10 @@ server.registerTool = function(name, ...args) {
   return originalRegisterTool(name, ...args);
 };
 
-accountTools(server, imapService, accountManager);
+accountTools(server, accountManager, imapService);
 emailTools(server, imapService, accountManager, smtpService);
-folderTools(server, imapService);
+folderTools(server, imapService, accountManager);
+metaTools(server);
 
 // Get registered tools
 const tools = registeredTools;
@@ -86,11 +88,18 @@ const expectedTools = {
     'imap_list_folders',
     'imap_folder_status',
     'imap_get_unread_count',
+    'imap_create_folder',
+    'imap_delete_folder',
+    'imap_rename_folder',
   ],
   'Metrics & Monitoring': [
     'imap_get_metrics',
     'imap_get_operation_metrics',
     'imap_reset_metrics',
+  ],
+  'Meta/Discovery Tools (Issue #16)': [
+    'imap_about',
+    'imap_list_tools',
   ],
 };
 

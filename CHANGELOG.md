@@ -5,6 +5,98 @@ All notable changes to IMAP MCP Pro will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.0] - 2025-11-05
+
+### Service Discovery & Folder Management (Issues #16, #19)
+
+This release adds self-documenting capabilities and complete folder lifecycle management.
+
+#### ✨ New Features
+
+**Service Discovery & Meta Tools (Issue #16)**
+- **imap_about Tool**: Returns comprehensive service metadata
+  - Service name, description, and version
+  - License model (Dual-License)
+  - Repository URLs and documentation links
+  - Feature highlights (Level 1-3 reliability, bulk operations, etc.)
+  - Total tool count and categorization
+  - Attribution and contributor information
+- **imap_list_tools Tool**: Returns detailed manifest of all available tools
+  - Lists all 32 MCP tools with descriptions
+  - Filterable by category (account, email, bulk, folder, sending, metrics, meta)
+  - Shows parameters for each tool
+  - Categorized by function for easy discovery
+
+**Folder Management Operations (Issue #19)**
+- **imap_create_folder Tool**: Create new folders/mailboxes
+  - Supports hierarchy using "/" delimiter (e.g., "Archive/2024")
+  - Full error handling for invalid folder names
+- **imap_delete_folder Tool**: Delete existing folders/mailboxes
+  - Removes folders completely from IMAP server
+  - Validates folder exists before deletion
+- **imap_rename_folder Tool**: Rename folders/mailboxes
+  - Maintains folder hierarchy
+  - Updates all folder references atomically
+
+#### 🎯 Enhanced Claude Integration
+
+**Claude can now answer questions like:**
+- "Tell me about the IMAP MCP service"
+- "What version is the IMAP MCP service?"
+- "What functions are available in IMAP MCP?"
+- "Show me all bulk operation tools"
+- "List email sending tools"
+
+**Claude can now manage folders:**
+- "Create a new folder called Projects"
+- "Rename the Old folder to Archive"
+- "Delete the Spam folder"
+
+#### 🛠️ Technical Improvements
+- New file: `src/tools/meta-tools.ts` for service discovery
+- Added folder management methods to `ImapService`:
+  - `createFolder(accountId, folderName)`
+  - `deleteFolder(accountId, folderName)`
+  - `renameFolder(accountId, oldName, newName)`
+- Updated MCP server name from 'imap-mcp-server' to 'imap-mcp-pro'
+- Updated test-tools.js to verify 32 total tools (up from 27)
+- All operations use retry wrapper and circuit breaker pattern
+
+#### 📊 Tool Count
+- **Total Tools**: 32 (up from 27)
+- **New Tools**: 5
+  - `imap_about` - Service information and metadata
+  - `imap_list_tools` - Tool discovery and listing
+  - `imap_create_folder` - Create new folders
+  - `imap_delete_folder` - Delete folders
+  - `imap_rename_folder` - Rename folders
+
+#### 📝 Files Modified
+- `src/tools/meta-tools.ts` - NEW: Meta/discovery tools
+- `src/tools/folder-tools.ts` - Added 3 new folder management tools
+- `src/services/imap-service.ts` - Added folder management methods
+- `src/tools/index.ts` - Registered meta tools
+- `src/index.ts` - Updated server name and version
+- `package.json` - Version bump to 2.4.0
+- `test-tools.js` - Updated to test 32 tools
+- `CHANGELOG.md` - This file
+
+#### 🎉 Benefits
+- **Self-Documenting**: Service describes itself to Claude
+- **Version Awareness**: Claude always knows current version
+- **Discovery**: Users explore capabilities through conversation
+- **Complete Folder Management**: Full lifecycle operations (create, delete, rename)
+- **Organization**: Users can create custom folder structures
+- **Cleanup**: Delete unused folders
+- **Flexibility**: Rename folders as needs change
+
+#### GitHub
+- Closes Issue #16: https://github.com/Temple-of-Epiphany/imap-mcp-pro/issues/16
+- Closes Issue #19: https://github.com/Temple-of-Epiphany/imap-mcp-pro/issues/19
+- Addresses Issue #11: Version Query Tool (via imap_about)
+
+---
+
 ## [2.2.0] - 2025-01-05
 
 ### Web UI Connection Testing (Issue #5)

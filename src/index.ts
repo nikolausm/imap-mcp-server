@@ -21,8 +21,8 @@ const originalWrite = process.stdout.write.bind(process.stdout);
 dotenv.config();
 
 const server = new McpServer({
-  name: 'imap-mcp-server',
-  version: '1.0.0',
+  name: 'imap-mcp-pro',
+  version: '2.4.0',
 });
 
 const imapService = new ImapService();

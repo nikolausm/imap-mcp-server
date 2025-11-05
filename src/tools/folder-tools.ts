@@ -97,4 +97,68 @@ export function folderTools(
       }]
     };
   });
+
+  // Create folder tool
+  server.registerTool('imap_create_folder', {
+    description: 'Create a new folder/mailbox in an IMAP account',
+    inputSchema: {
+      accountId: z.string().describe('Account ID'),
+      folderName: z.string().describe('Name of the folder to create (use "/" for hierarchy, e.g., "Archive/2024")'),
+    }
+  }, async ({ accountId, folderName }) => {
+    await imapService.createFolder(accountId, folderName);
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: true,
+          message: `Folder "${folderName}" created successfully`,
+        }, null, 2)
+      }]
+    };
+  });
+
+  // Delete folder tool
+  server.registerTool('imap_delete_folder', {
+    description: 'Delete a folder/mailbox from an IMAP account',
+    inputSchema: {
+      accountId: z.string().describe('Account ID'),
+      folderName: z.string().describe('Name of the folder to delete'),
+    }
+  }, async ({ accountId, folderName }) => {
+    await imapService.deleteFolder(accountId, folderName);
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: true,
+          message: `Folder "${folderName}" deleted successfully`,
+        }, null, 2)
+      }]
+    };
+  });
+
+  // Rename folder tool
+  server.registerTool('imap_rename_folder', {
+    description: 'Rename a folder/mailbox in an IMAP account',
+    inputSchema: {
+      accountId: z.string().describe('Account ID'),
+      oldName: z.string().describe('Current name of the folder'),
+      newName: z.string().describe('New name for the folder'),
+    }
+  }, async ({ accountId, oldName, newName }) => {
+    await imapService.renameFolder(accountId, oldName, newName);
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: true,
+          message: `Folder renamed from "${oldName}" to "${newName}" successfully`,
+        }, null, 2)
+      }]
+    };
+  });
 }
