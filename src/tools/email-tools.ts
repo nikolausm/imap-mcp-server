@@ -359,7 +359,7 @@ export function emailTools(
     };
 
     const messageId = await smtpService.sendEmail(accountId, account, emailComposer);
-    
+
     return {
       content: [{
         type: 'text',
@@ -367,6 +367,87 @@ export function emailTools(
           success: true,
           messageId,
           message: 'Email forwarded successfully',
+        }, null, 2)
+      }]
+    };
+  });
+
+  // Level 2: Bulk get emails tool
+  server.registerTool('imap_bulk_get_emails', {
+    description: 'Bulk fetch multiple emails at once for better performance',
+    inputSchema: {
+      accountId: z.string().describe('Account ID'),
+      folder: z.string().default('INBOX').describe('Folder name'),
+      uids: z.array(z.number()).describe('Array of email UIDs to fetch'),
+      fields: z.enum(['headers', 'full', 'body']).default('headers').describe('Fields to fetch: headers (metadata only), body (with text), or full (everything)'),
+    }
+  }, async ({ accountId, folder, uids, fields }) => {
+    if (uids.length === 0) {
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            success: true,
+            message: 'No emails to fetch',
+            emails: [],
+            count: 0,
+          }, null, 2)
+        }]
+      };
+    }
+
+    const emails = await imapService.bulkGetEmails(accountId, folder, uids, fields);
+
+    // Limit content for response size
+    const limitedEmails = emails.map(email => ({
+      ...email,
+      textContent: email.textContent?.substring(0, 5000),
+      htmlContent: email.htmlContent?.substring(0, 5000),
+    }));
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: true,
+          count: emails.length,
+          emails: limitedEmails,
+        }, null, 2)
+      }]
+    };
+  });
+
+  // Level 2: Bulk mark emails tool
+  server.registerTool('imap_bulk_mark_emails', {
+    description: 'Bulk mark multiple emails as read, unread, flagged, or unflagged',
+    inputSchema: {
+      accountId: z.string().describe('Account ID'),
+      folder: z.string().default('INBOX').describe('Folder name'),
+      uids: z.array(z.number()).describe('Array of email UIDs to mark'),
+      operation: z.enum(['read', 'unread', 'flagged', 'unflagged']).describe('Mark operation to perform'),
+    }
+  }, async ({ accountId, folder, uids, operation }) => {
+    if (uids.length === 0) {
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            success: true,
+            message: 'No emails to mark',
+            processedCount: 0,
+          }, null, 2)
+        }]
+      };
+    }
+
+    const result = await imapService.bulkMarkEmails(accountId, folder, uids, operation);
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          ...result,
+          message: `Successfully marked ${result.processedCount} email(s) as ${operation}`,
         }, null, 2)
       }]
     };
