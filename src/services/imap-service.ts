@@ -13,7 +13,15 @@ import {
   ConnectionMetadata,
   BulkMarkOperation,
   BulkFetchFields,
-  BulkOperationResult
+  BulkOperationResult,
+  CircuitState,
+  CircuitBreakerConfig,
+  CircuitBreakerState,
+  QueuedOperation,
+  OperationQueueConfig,
+  ConnectionMetrics,
+  OperationMetrics,
+  DegradationConfig
 } from '../types/index.js';
 
 export class ImapService {
@@ -21,6 +29,11 @@ export class ImapService {
   private activeConnections: Map<string, Imap> = new Map();
   private connectionMetadata: Map<string, ConnectionMetadata> = new Map();
   private accountStore: Map<string, ImapAccount> = new Map();
+
+  // Level 3: Operation queue
+  private operationQueue: QueuedOperation[] = [];
+  private queueProcessorInterval?: NodeJS.Timeout;
+  private operationMetrics: Map<string, OperationMetrics> = new Map();
 
   // Level 2: Connection with state tracking and auto-reconnect
   async connect(account: ImapAccount, isReconnect = false): Promise<void> {
@@ -164,23 +177,42 @@ export class ImapService {
     });
   }
 
-  // Level 2: Retry wrapper for operations
+  // Level 2+3: Retry wrapper for operations with circuit breaker and metrics
   private async withRetry<T>(
     accountId: string,
     operation: () => Promise<T>,
     operationName: string
   ): Promise<T> {
+    // Level 3: Check circuit breaker before attempting
+    if (!this.checkCircuitBreaker(accountId)) {
+      this.recordCircuitFailure(accountId);
+      throw new Error(`Circuit breaker OPEN for ${accountId}, operation rejected`);
+    }
+
     const account = this.accountStore.get(accountId);
     const retryConfig = this.getRetryConfig(account?.retry);
 
     let lastError: Error | undefined;
+    const startTime = Date.now();
 
     for (let attempt = 0; attempt <= retryConfig.maxAttempts; attempt++) {
       try {
-        return await operation();
+        const result = await operation();
+
+        // Level 3: Record success metrics
+        const latency = Date.now() - startTime;
+        this.recordOperationMetrics(operationName, latency, true, accountId);
+        this.recordCircuitSuccess(accountId);
+        this.exitDegradationMode(accountId);
+
+        return result;
       } catch (error) {
         lastError = error as Error;
         console.error(`[IMAP] ${operationName} failed (attempt ${attempt + 1}/${retryConfig.maxAttempts + 1}):`, error);
+
+        // Level 3: Record failure
+        this.recordCircuitFailure(accountId);
+        this.enterDegradationMode(accountId);
 
         if (attempt < retryConfig.maxAttempts) {
           // Check if it's a connection error
@@ -198,6 +230,10 @@ export class ImapService {
         }
       }
     }
+
+    // Level 3: Record final failure metrics
+    const latency = Date.now() - startTime;
+    this.recordOperationMetrics(operationName, latency, false, accountId);
 
     throw lastError || new Error(`${operationName} failed after ${retryConfig.maxAttempts} attempts`);
   }
@@ -237,7 +273,27 @@ export class ImapService {
     if (!metadata) {
       metadata = {
         state,
-        reconnectAttempts: 0
+        reconnectAttempts: 0,
+        // Level 3: Initialize circuit breaker
+        circuitBreaker: {
+          state: CircuitState.CLOSED,
+          failures: 0,
+          successes: 0,
+          failureTimestamps: []
+        },
+        // Level 3: Initialize metrics
+        metrics: {
+          totalOperations: 0,
+          successfulOperations: 0,
+          failedOperations: 0,
+          averageLatency: 0,
+          uptimePercentage: 100,
+          connectionUptime: 0,
+          totalDowntime: 0,
+          lastMetricsReset: new Date()
+        },
+        // Level 3: Initialize cache
+        cacheData: new Map()
       };
       this.connectionMetadata.set(accountId, metadata);
     } else {
@@ -739,5 +795,354 @@ export class ImapService {
   // Get connection state (useful for debugging)
   getConnectionState(accountId: string): ConnectionState {
     return this.connectionMetadata.get(accountId)?.state || ConnectionState.DISCONNECTED;
+  }
+
+  // ==================== Level 3: Circuit Breaker Pattern ====================
+
+  private getCircuitBreakerConfig(config?: CircuitBreakerConfig): Required<CircuitBreakerConfig> {
+    return {
+      failureThreshold: config?.failureThreshold || 5,
+      successThreshold: config?.successThreshold || 2,
+      timeout: config?.timeout || 60000,
+      monitoringWindow: config?.monitoringWindow || 120000
+    };
+  }
+
+  private checkCircuitBreaker(accountId: string): boolean {
+    const metadata = this.connectionMetadata.get(accountId);
+    if (!metadata?.circuitBreaker) return true;
+
+    const circuit = metadata.circuitBreaker;
+    const now = new Date();
+
+    // If circuit is OPEN, check if timeout has passed
+    if (circuit.state === CircuitState.OPEN) {
+      if (circuit.nextAttemptTime && now >= circuit.nextAttemptTime) {
+        circuit.state = CircuitState.HALF_OPEN;
+        circuit.successes = 0;
+        console.error(`[IMAP] Circuit breaker for ${accountId} entering HALF_OPEN state`);
+        return true;
+      }
+      console.error(`[IMAP] Circuit breaker OPEN for ${accountId}, rejecting operation`);
+      return false;
+    }
+
+    return true;
+  }
+
+  private recordCircuitSuccess(accountId: string): void {
+    const metadata = this.connectionMetadata.get(accountId);
+    if (!metadata?.circuitBreaker) return;
+
+    const account = this.accountStore.get(accountId);
+    const config = this.getCircuitBreakerConfig(account?.circuitBreaker);
+    const circuit = metadata.circuitBreaker;
+
+    circuit.successes++;
+    circuit.failures = 0;
+
+    if (circuit.state === CircuitState.HALF_OPEN && circuit.successes >= config.successThreshold) {
+      circuit.state = CircuitState.CLOSED;
+      circuit.failureTimestamps = [];
+      console.error(`[IMAP] Circuit breaker for ${accountId} closed after ${circuit.successes} successes`);
+    }
+  }
+
+  private recordCircuitFailure(accountId: string): void {
+    const metadata = this.connectionMetadata.get(accountId);
+    if (!metadata?.circuitBreaker) return;
+
+    const account = this.accountStore.get(accountId);
+    const config = this.getCircuitBreakerConfig(account?.circuitBreaker);
+    const circuit = metadata.circuitBreaker;
+    const now = new Date();
+
+    circuit.failures++;
+    circuit.successes = 0;
+    circuit.lastFailureTime = now;
+    circuit.failureTimestamps.push(now);
+
+    // Remove old timestamps outside monitoring window
+    const windowStart = new Date(now.getTime() - config.monitoringWindow);
+    circuit.failureTimestamps = circuit.failureTimestamps.filter(t => t >= windowStart);
+
+    // Check if we should open the circuit
+    if (circuit.failureTimestamps.length >= config.failureThreshold) {
+      circuit.state = CircuitState.OPEN;
+      circuit.nextAttemptTime = new Date(now.getTime() + config.timeout);
+      console.error(`[IMAP] Circuit breaker OPENED for ${accountId} after ${circuit.failureTimestamps.length} failures`);
+    }
+  }
+
+  // ==================== Level 3: Operation Queue ====================
+
+  private getQueueConfig(config?: OperationQueueConfig): Required<OperationQueueConfig> {
+    return {
+      maxSize: config?.maxSize || 1000,
+      maxRetries: config?.maxRetries || 3,
+      processingInterval: config?.processingInterval || 5000,
+      enablePriority: config?.enablePriority !== false
+    };
+  }
+
+  private queueOperation(accountId: string, operation: string, args: any[], priority = 0): string {
+    const account = this.accountStore.get(accountId);
+    const config = this.getQueueConfig(account?.operationQueue);
+
+    if (this.operationQueue.length >= config.maxSize) {
+      throw new Error(`Operation queue full (max: ${config.maxSize})`);
+    }
+
+    const queuedOp: QueuedOperation = {
+      id: `${accountId}-${operation}-${Date.now()}-${Math.random()}`,
+      accountId,
+      operation,
+      args,
+      timestamp: new Date(),
+      retries: 0,
+      priority
+    };
+
+    this.operationQueue.push(queuedOp);
+
+    // Sort by priority if enabled
+    if (config.enablePriority) {
+      this.operationQueue.sort((a, b) => b.priority - a.priority);
+    }
+
+    // Start queue processor if not already running
+    this.startQueueProcessor();
+
+    console.error(`[IMAP] Queued operation ${operation} for ${accountId} (queue size: ${this.operationQueue.length})`);
+    return queuedOp.id;
+  }
+
+  private startQueueProcessor(): void {
+    if (this.queueProcessorInterval) return;
+
+    this.queueProcessorInterval = setInterval(async () => {
+      await this.processQueue();
+    }, 5000); // Process every 5 seconds
+  }
+
+  private stopQueueProcessor(): void {
+    if (this.queueProcessorInterval) {
+      clearInterval(this.queueProcessorInterval);
+      this.queueProcessorInterval = undefined;
+    }
+  }
+
+  private async processQueue(): Promise<void> {
+    if (this.operationQueue.length === 0) {
+      this.stopQueueProcessor();
+      return;
+    }
+
+    const operation = this.operationQueue.shift();
+    if (!operation) return;
+
+    const account = this.accountStore.get(operation.accountId);
+    if (!account) {
+      console.error(`[IMAP] Account ${operation.accountId} not found for queued operation`);
+      return;
+    }
+
+    const config = this.getQueueConfig(account.operationQueue);
+    const metadata = this.connectionMetadata.get(operation.accountId);
+
+    // Only process if connection is available
+    if (metadata?.state !== ConnectionState.CONNECTED) {
+      if (operation.retries < config.maxRetries) {
+        operation.retries++;
+        this.operationQueue.push(operation); // Re-queue
+        console.error(`[IMAP] Re-queuing operation ${operation.operation} for ${operation.accountId} (retry ${operation.retries}/${config.maxRetries})`);
+      } else {
+        console.error(`[IMAP] Discarding operation ${operation.operation} for ${operation.accountId} after ${operation.retries} retries`);
+      }
+      return;
+    }
+
+    console.error(`[IMAP] Processing queued operation ${operation.operation} for ${operation.accountId}`);
+    // Note: Actual operation execution would happen here based on operation type
+    // For now, this is a framework for queuing - specific operations would need handlers
+  }
+
+  // ==================== Level 3: Metrics and Monitoring ====================
+
+  private recordOperationMetrics(operationName: string, latency: number, success: boolean, accountId: string): void {
+    // Update per-operation metrics
+    let opMetrics = this.operationMetrics.get(operationName);
+    if (!opMetrics) {
+      opMetrics = {
+        operationName,
+        count: 0,
+        successCount: 0,
+        failureCount: 0,
+        totalLatency: 0,
+        averageLatency: 0,
+        minLatency: Infinity,
+        maxLatency: 0
+      };
+      this.operationMetrics.set(operationName, opMetrics);
+    }
+
+    opMetrics.count++;
+    opMetrics.totalLatency += latency;
+    opMetrics.averageLatency = opMetrics.totalLatency / opMetrics.count;
+    opMetrics.minLatency = Math.min(opMetrics.minLatency, latency);
+    opMetrics.maxLatency = Math.max(opMetrics.maxLatency, latency);
+    opMetrics.lastExecuted = new Date();
+
+    if (success) {
+      opMetrics.successCount++;
+    } else {
+      opMetrics.failureCount++;
+    }
+
+    // Update connection metrics
+    const metadata = this.connectionMetadata.get(accountId);
+    if (metadata?.metrics) {
+      const metrics = metadata.metrics;
+      metrics.totalOperations++;
+      metrics.lastOperationTime = new Date();
+
+      if (success) {
+        metrics.successfulOperations++;
+      } else {
+        metrics.failedOperations++;
+      }
+
+      // Update average latency
+      const totalLatency = (metrics.averageLatency * (metrics.totalOperations - 1)) + latency;
+      metrics.averageLatency = totalLatency / metrics.totalOperations;
+
+      // Calculate uptime percentage
+      const totalOps = metrics.totalOperations;
+      if (totalOps > 0) {
+        metrics.uptimePercentage = (metrics.successfulOperations / totalOps) * 100;
+      }
+    }
+  }
+
+  getMetrics(accountId: string): ConnectionMetrics | undefined {
+    return this.connectionMetadata.get(accountId)?.metrics;
+  }
+
+  getOperationMetrics(operationName?: string): OperationMetrics[] {
+    if (operationName) {
+      const metrics = this.operationMetrics.get(operationName);
+      return metrics ? [metrics] : [];
+    }
+    return Array.from(this.operationMetrics.values());
+  }
+
+  resetMetrics(accountId: string): void {
+    const metadata = this.connectionMetadata.get(accountId);
+    if (metadata?.metrics) {
+      metadata.metrics = {
+        totalOperations: 0,
+        successfulOperations: 0,
+        failedOperations: 0,
+        averageLatency: 0,
+        uptimePercentage: 100,
+        connectionUptime: 0,
+        totalDowntime: 0,
+        lastMetricsReset: new Date()
+      };
+    }
+  }
+
+  // ==================== Level 3: Graceful Degradation ====================
+
+  private getDegradationConfig(config?: DegradationConfig): Required<DegradationConfig> {
+    return {
+      enableReadOnlyMode: config?.enableReadOnlyMode !== false,
+      enableCaching: config?.enableCaching !== false,
+      cacheTimeout: config?.cacheTimeout || 300000, // 5 minutes
+      fallbackToLastKnown: config?.fallbackToLastKnown !== false,
+      maxDegradationTime: config?.maxDegradationTime || 3600000 // 1 hour
+    };
+  }
+
+  private async getCachedData<T>(accountId: string, cacheKey: string): Promise<T | null> {
+    const metadata = this.connectionMetadata.get(accountId);
+    if (!metadata?.cacheData) return null;
+
+    const account = this.accountStore.get(accountId);
+    const config = this.getDegradationConfig(account?.degradation);
+
+    if (!config.enableCaching) return null;
+
+    const cached = metadata.cacheData.get(cacheKey);
+    if (!cached) return null;
+
+    const now = new Date();
+    const age = now.getTime() - cached.timestamp.getTime();
+
+    if (age > config.cacheTimeout) {
+      metadata.cacheData.delete(cacheKey);
+      return null;
+    }
+
+    console.error(`[IMAP] Returning cached data for ${cacheKey} (age: ${Math.round(age / 1000)}s)`);
+    return cached.data as T;
+  }
+
+  private setCachedData(accountId: string, cacheKey: string, data: any): void {
+    const metadata = this.connectionMetadata.get(accountId);
+    if (!metadata?.cacheData) return;
+
+    const account = this.accountStore.get(accountId);
+    const config = this.getDegradationConfig(account?.degradation);
+
+    if (!config.enableCaching) return;
+
+    metadata.cacheData.set(cacheKey, {
+      data,
+      timestamp: new Date()
+    });
+  }
+
+  private checkDegradationMode(accountId: string): boolean {
+    const metadata = this.connectionMetadata.get(accountId);
+    if (!metadata) return false;
+
+    const account = this.accountStore.get(accountId);
+    const config = this.getDegradationConfig(account?.degradation);
+
+    // Check if we've been in degraded mode too long
+    if (metadata.degradationStartTime) {
+      const now = new Date();
+      const degradationTime = now.getTime() - metadata.degradationStartTime.getTime();
+
+      if (degradationTime > config.maxDegradationTime) {
+        console.error(`[IMAP] Max degradation time exceeded for ${accountId}, forcing full reconnection`);
+        metadata.degradationStartTime = undefined;
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  private enterDegradationMode(accountId: string): void {
+    const metadata = this.connectionMetadata.get(accountId);
+    if (!metadata) return;
+
+    if (!metadata.degradationStartTime) {
+      metadata.degradationStartTime = new Date();
+      console.error(`[IMAP] Entering degradation mode for ${accountId}`);
+    }
+  }
+
+  private exitDegradationMode(accountId: string): void {
+    const metadata = this.connectionMetadata.get(accountId);
+    if (!metadata) return;
+
+    if (metadata.degradationStartTime) {
+      const duration = new Date().getTime() - metadata.degradationStartTime.getTime();
+      console.error(`[IMAP] Exiting degradation mode for ${accountId} after ${Math.round(duration / 1000)}s`);
+      metadata.degradationStartTime = undefined;
+    }
   }
 }

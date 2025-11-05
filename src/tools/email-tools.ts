@@ -452,4 +452,86 @@ export function emailTools(
       }]
     };
   });
+
+  // Level 3: Get connection metrics
+  server.registerTool('imap_get_metrics', {
+    description: 'Get connection metrics and health information for an account',
+    inputSchema: {
+      accountId: z.string().describe('Account ID'),
+    }
+  }, async ({ accountId }) => {
+    const metrics = imapService.getMetrics(accountId);
+    const connectionState = imapService.getConnectionState(accountId);
+
+    if (!metrics) {
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            success: false,
+            message: `No metrics found for account ${accountId}`,
+          }, null, 2)
+        }]
+      };
+    }
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: true,
+          accountId,
+          connectionState,
+          metrics: {
+            ...metrics,
+            lastOperationTime: metrics.lastOperationTime?.toISOString(),
+            lastMetricsReset: metrics.lastMetricsReset.toISOString(),
+          },
+        }, null, 2)
+      }]
+    };
+  });
+
+  // Level 3: Get operation metrics
+  server.registerTool('imap_get_operation_metrics', {
+    description: 'Get detailed metrics for IMAP operations',
+    inputSchema: {
+      operationName: z.string().optional().describe('Specific operation name (optional, returns all if not specified)'),
+    }
+  }, async ({ operationName }) => {
+    const metrics = imapService.getOperationMetrics(operationName);
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: true,
+          operations: metrics.map(m => ({
+            ...m,
+            lastExecuted: m.lastExecuted?.toISOString(),
+          })),
+        }, null, 2)
+      }]
+    };
+  });
+
+  // Level 3: Reset metrics
+  server.registerTool('imap_reset_metrics', {
+    description: 'Reset connection metrics for an account',
+    inputSchema: {
+      accountId: z.string().describe('Account ID'),
+    }
+  }, async ({ accountId }) => {
+    imapService.resetMetrics(accountId);
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: true,
+          message: `Metrics reset for account ${accountId}`,
+        }, null, 2)
+      }]
+    };
+  });
 }
