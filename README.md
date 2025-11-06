@@ -104,6 +104,7 @@ The setup wizard includes pre-configured settings for:
 - IONOS (1&1)
 - ProtonMail (with Bridge)
 - Fastmail
+- Hostinger
 - Zoho Mail
 - AOL Mail
 - mailbox.org
