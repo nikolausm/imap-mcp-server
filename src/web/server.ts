@@ -4,25 +4,40 @@ import bodyParser from 'body-parser';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import open from 'open';
-import { AccountManager } from '../services/account-manager.js';
+import { DatabaseService } from '../services/database-service.js';
 import { ImapService } from '../services/imap-service.js';
 import { emailProviders, getProviderByEmail } from '../providers/email-providers.js';
 import { ImapAccount } from '../types/index.js';
+import crypto from 'crypto';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export class WebUIServer {
   private app: express.Application;
-  private accountManager: AccountManager;
+  private db: DatabaseService;
   private imapService: ImapService;
   private port: number;
+  private defaultUserId: string;
 
   constructor(port: number = 3000) {
     this.app = express();
     this.port = port;
-    this.accountManager = new AccountManager();
+    this.db = new DatabaseService();
     this.imapService = new ImapService();
+
+    // Get or create default user
+    let defaultUser = this.db.getUserByUsername('default');
+    if (!defaultUser) {
+      defaultUser = this.db.createUser({
+        user_id: crypto.randomUUID(),
+        username: 'default',
+        email: undefined,
+        organization: 'Personal',
+        is_active: true
+      });
+    }
+    this.defaultUserId = defaultUser.user_id;
     
     this.setupMiddleware();
     this.setupRoutes();
@@ -43,8 +58,22 @@ export class WebUIServer {
     // Get all accounts
     this.app.get('/api/accounts', (req, res) => {
       try {
-        const accounts = this.accountManager.getAllAccounts();
-        res.json(accounts);
+        const accounts = this.db.listDecryptedAccountsForUser(this.defaultUserId);
+        // Convert to web UI format (use username instead of user field)
+        const webAccounts = accounts.map(acc => ({
+          id: acc.account_id,
+          name: acc.name,
+          user: acc.username,
+          host: acc.host,
+          port: acc.port,
+          tls: acc.tls,
+          smtp: acc.smtp_host ? {
+            host: acc.smtp_host,
+            port: acc.smtp_port,
+            tls: acc.smtp_secure
+          } : undefined
+        }));
+        res.json(webAccounts);
       } catch (error) {
         res.status(500).json({ error: 'Failed to fetch accounts' });
       }
@@ -54,12 +83,12 @@ export class WebUIServer {
     this.app.post('/api/accounts', async (req, res) => {
       try {
         const { name, email, password, host, port, tls, smtp } = req.body;
-        
+
         // Auto-detect provider if not specified
         let imapHost = host;
         let imapPort = port;
         let useTls = tls;
-        
+
         if (!host && email) {
           const provider = getProviderByEmail(email);
           if (provider) {
@@ -68,22 +97,35 @@ export class WebUIServer {
             useTls = provider.imapSecurity !== 'STARTTLS';
           }
         }
-        
-        const account = await this.accountManager.addAccount({
+
+        const account = this.db.createAccount({
+          user_id: this.defaultUserId,
           name: name || email,
           host: imapHost,
           port: imapPort || 993,
-          user: email,
+          username: email,
           password,
           tls: useTls !== false,
-          smtp: smtp || undefined,
+          smtp_host: smtp?.host,
+          smtp_port: smtp?.port,
+          smtp_username: smtp?.user || email,
+          smtp_password: smtp?.password,
+          smtp_secure: smtp?.tls,
+          is_active: true
         });
-        
-        res.json({ success: true, account });
+
+        res.json({ success: true, account: {
+          id: account.account_id,
+          name: account.name,
+          user: account.username,
+          host: account.host,
+          port: account.port,
+          tls: account.tls
+        }});
       } catch (error) {
-        res.status(400).json({ 
-          success: false, 
-          error: error instanceof Error ? error.message : 'Failed to add account' 
+        res.status(400).json({
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to add account'
         });
       }
     });
@@ -159,12 +201,13 @@ export class WebUIServer {
     // Remove account
     this.app.delete('/api/accounts/:id', async (req, res) => {
       try {
-        await this.accountManager.removeAccount(req.params.id);
+        await this.imapService.disconnect(req.params.id);
+        this.db.deleteAccount(req.params.id);
         res.json({ success: true });
       } catch (error) {
-        res.status(400).json({ 
-          success: false, 
-          error: error instanceof Error ? error.message : 'Failed to remove account' 
+        res.status(400).json({
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to remove account'
         });
       }
     });
@@ -173,22 +216,40 @@ export class WebUIServer {
     this.app.put('/api/accounts/:id', async (req, res) => {
       try {
         const { name, email, password, host, port, tls, smtp } = req.body;
-        
+
         const updates: any = {};
         if (name !== undefined) updates.name = name;
-        if (email !== undefined) updates.user = email;
+        if (email !== undefined) updates.username = email;
         if (password !== undefined) updates.password = password;
         if (host !== undefined) updates.host = host;
         if (port !== undefined) updates.port = port;
         if (tls !== undefined) updates.tls = tls;
-        if (smtp !== undefined) updates.smtp = smtp;
-        
-        const account = await this.accountManager.updateAccount(req.params.id, updates);
-        res.json({ success: true, account });
+        if (smtp?.host !== undefined) updates.smtp_host = smtp.host;
+        if (smtp?.port !== undefined) updates.smtp_port = smtp.port;
+        if (smtp?.user !== undefined) updates.smtp_username = smtp.user;
+        if (smtp?.password !== undefined) updates.smtp_password = smtp.password;
+        if (smtp?.tls !== undefined) updates.smtp_secure = smtp.tls;
+
+        this.db.updateAccount(req.params.id, updates);
+        const account = this.db.getAccount(req.params.id);
+
+        if (!account) {
+          res.status(404).json({ success: false, error: 'Account not found after update' });
+          return;
+        }
+
+        res.json({ success: true, account: {
+          id: account.account_id,
+          name: account.name,
+          user: account.username,
+          host: account.host,
+          port: account.port,
+          tls: account.tls
+        }});
       } catch (error) {
-        res.status(400).json({ 
-          success: false, 
-          error: error instanceof Error ? error.message : 'Failed to update account' 
+        res.status(400).json({
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to update account'
         });
       }
     });
@@ -196,33 +257,44 @@ export class WebUIServer {
     // Get single account
     this.app.get('/api/accounts/:id', async (req, res) => {
       try {
-        const account = this.accountManager.getAccount(req.params.id);
+        const account = this.db.getAccount(req.params.id);
         if (!account) {
           res.status(404).json({ success: false, error: 'Account not found' });
         } else {
-          // Don't send passwords to client
-          const { password, ...accountWithoutPassword } = account;
-          const safeAccount = { ...accountWithoutPassword };
-          
-          // Remove SMTP password if present
-          if (safeAccount.smtp?.password) {
-            safeAccount.smtp = { ...safeAccount.smtp };
-            delete safeAccount.smtp.password;
-          }
-          
+          // Don't send encrypted passwords to client
+          const safeAccount = {
+            id: account.account_id,
+            name: account.name,
+            user: account.username,
+            host: account.host,
+            port: account.port,
+            tls: account.tls,
+            smtp: account.smtp_host ? {
+              host: account.smtp_host,
+              port: account.smtp_port,
+              user: account.smtp_username,
+              tls: account.smtp_secure
+            } : undefined
+          };
+
           res.json({ success: true, account: safeAccount });
         }
       } catch (error) {
-        res.status(400).json({ 
-          success: false, 
-          error: error instanceof Error ? error.message : 'Failed to get account' 
+        res.status(400).json({
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to get account'
         });
       }
     });
 
     // Health check
     this.app.get('/api/health', (req, res) => {
-      res.json({ status: 'ok', version: '1.0.0' });
+      res.json({
+        status: 'ok',
+        version: '2.6.0',
+        database: 'SQLite3 with AES-256-GCM encryption',
+        features: ['multi-tenant', 'account-sharing', 'encrypted-storage']
+      });
     });
   }
 

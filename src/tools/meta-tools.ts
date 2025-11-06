@@ -15,8 +15,8 @@ export function metaTools(server: McpServer): void {
     const about = {
       service: {
         name: 'IMAP MCP Pro',
-        description: 'Enterprise-grade IMAP MCP server with Level 1-3 reliability features, circuit breaker, metrics, and bulk operations for commercial and large-scale deployments',
-        version: '2.4.0',
+        description: 'Enterprise-grade IMAP MCP server with Level 1-3 reliability features, circuit breaker, metrics, bulk operations, and SQLite3 database with AES-256-GCM encryption for commercial and large-scale deployments',
+        version: '2.6.0',
         packageName: '@temple-of-epiphany/imap-mcp-pro'
       },
       license: {
@@ -57,22 +57,30 @@ export function metaTools(server: McpServer): void {
           'Connection state machine monitoring'
         ],
         security: [
-          'AES-256-CBC encrypted account storage',
-          'Secure credential management',
+          'SQLite3 database with AES-256-GCM encryption at rest',
+          'Unique IV per encrypted field with integrity protection',
+          'Secure encryption key storage with 0o600 permissions',
+          'Multi-tenant user management with role-based access control',
+          'Account sharing with granular permissions (MSP support)',
           'TLS/SSL support for IMAP and SMTP'
+        ],
+        database: [
+          'SQLite3 with better-sqlite3 for robust persistence',
+          'Encrypted account credentials (IMAP and SMTP)',
+          'Multi-tenant architecture for MSP deployments',
+          'User management with organizations and roles',
+          'Account sharing across users',
+          'Transactional integrity for multi-row operations'
         ]
       },
       capabilities: {
-        totalTools: 32,
+        totalTools: 41,
         toolCategories: [
+          'User Management (9 tools) - NEW in v2.6.0',
           'Account Management (5 tools)',
-          'Email Operations (9 tools)',
-          'Bulk Operations (4 tools)',
-          'Copy/Move Operations (4 tools)',
+          'Email Operations (18 tools)',
           'Folder Operations (6 tools)',
-          'Email Sending (2 tools)',
-          'Metrics & Monitoring (3 tools)',
-          'Meta/Discovery (2 tools)'
+          'Meta/Discovery (3 tools)'
         ],
         bulkOperations: true,
         circuitBreaker: true,
@@ -102,13 +110,69 @@ export function metaTools(server: McpServer): void {
   server.registerTool('imap_list_tools', {
     description: 'List all available MCP tools with descriptions and parameters',
     inputSchema: {
-      category: z.enum(['all', 'account', 'email', 'bulk', 'folder', 'sending', 'metrics', 'meta'])
+      category: z.enum(['all', 'user', 'account', 'email', 'bulk', 'folder', 'sending', 'metrics', 'meta'])
         .optional()
         .default('all')
         .describe('Filter tools by category (default: all)')
     }
   }, withErrorHandling(async ({ category }) => {
     const allTools = [
+      // User Management Tools (9) - NEW in v2.6.0
+      {
+        category: 'user',
+        name: 'imap_create_user',
+        description: 'Create a new user in the database',
+        parameters: ['username', 'email', 'organization', 'role']
+      },
+      {
+        category: 'user',
+        name: 'imap_list_users',
+        description: 'List all users in the database',
+        parameters: []
+      },
+      {
+        category: 'user',
+        name: 'imap_get_user',
+        description: 'Get user details by username',
+        parameters: ['username']
+      },
+      {
+        category: 'user',
+        name: 'imap_db_add_account',
+        description: 'Add IMAP account to database with encryption',
+        parameters: ['userId', 'name', 'host', 'port', 'username', 'password', 'tls', 'smtpHost', 'smtpPort']
+      },
+      {
+        category: 'user',
+        name: 'imap_db_list_accounts',
+        description: 'List accounts for a user from database',
+        parameters: ['userId']
+      },
+      {
+        category: 'user',
+        name: 'imap_db_get_account',
+        description: 'Get decrypted account details from database',
+        parameters: ['accountId']
+      },
+      {
+        category: 'user',
+        name: 'imap_db_remove_account',
+        description: 'Remove account from database',
+        parameters: ['accountId']
+      },
+      {
+        category: 'user',
+        name: 'imap_share_account',
+        description: 'Share account with another user (MSP feature)',
+        parameters: ['accountId', 'targetUserId', 'role']
+      },
+      {
+        category: 'user',
+        name: 'imap_unshare_account',
+        description: 'Revoke account access from user',
+        parameters: ['accountId', 'targetUserId']
+      },
+
       // Account Management Tools (5)
       {
         category: 'account',
