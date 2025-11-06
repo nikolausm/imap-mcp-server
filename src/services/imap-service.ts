@@ -33,16 +33,148 @@ import {
   DegradationConfig,
   RetryConfig
 } from '../types/index.js';
+import { LRUCache } from '../utils/memory-manager.js';
 
 export class ImapService {
   private activeConnections: Map<string, ImapFlow> = new Map();
   private connectionMetadata: Map<string, ConnectionMetadata> = new Map();
   private accountStore: Map<string, ImapAccount> = new Map();
 
-  // Level 3: Operation queue
+  // Level 3: Operation queue with size limit (Issue #22 - prevent unbounded growth)
   private operationQueue: QueuedOperation[] = [];
+  private readonly MAX_QUEUE_SIZE = 1000;
   private queueProcessorInterval?: NodeJS.Timeout;
-  private operationMetrics: Map<string, OperationMetrics> = new Map();
+  private operationMetrics: LRUCache<string, OperationMetrics>;
+
+  constructor() {
+    // Initialize LRU cache for operation metrics (max 1000 entries)
+    // This prevents unbounded memory growth (Issue #22)
+    this.operationMetrics = new LRUCache({
+      maxSize: 1000,
+      onEvict: (key, value) => {
+        console.error(`[ImapService] Evicted metrics for: ${key}`);
+      }
+    });
+
+    // Start operation queue processor (Issue #21)
+    this.startQueueProcessor();
+  }
+
+  /**
+   * Queue an operation for later processing (when connection is unavailable)
+   * Implements size limit to prevent unbounded growth (Issue #22)
+   */
+  private queueOperation(operation: QueuedOperation): void {
+    if (this.operationQueue.length >= this.MAX_QUEUE_SIZE) {
+      // Remove oldest operation (FIFO)
+      const removed = this.operationQueue.shift();
+      console.error(`[ImapService] Queue full, dropped operation: ${removed?.operation}`);
+    }
+    this.operationQueue.push(operation);
+    console.error(`[ImapService] Queued operation: ${operation.operation} (queue size: ${this.operationQueue.length})`);
+  }
+
+  /**
+   * Start the operation queue processor (Issue #21)
+   * Processes queued operations at regular intervals
+   */
+  private startQueueProcessor(): void {
+    const processingInterval = 5000; // Process every 5 seconds
+
+    this.queueProcessorInterval = setInterval(async () => {
+      await this.processQueue();
+    }, processingInterval);
+
+    console.error('[ImapService] Operation queue processor started');
+  }
+
+  /**
+   * Process queued operations (Issue #21)
+   * Attempts to execute operations that were queued due to connection issues
+   */
+  private async processQueue(): Promise<void> {
+    if (this.operationQueue.length === 0) {
+      return;
+    }
+
+    console.error(`[ImapService] Processing queue (${this.operationQueue.length} operations pending)`);
+
+    // Sort by priority (higher first) and timestamp (older first)
+    this.operationQueue.sort((a, b) => {
+      if (a.priority !== b.priority) {
+        return b.priority - a.priority; // Higher priority first
+      }
+      return a.timestamp.getTime() - b.timestamp.getTime(); // Older first
+    });
+
+    // Process operations
+    const processedIndices: number[] = [];
+
+    for (let i = 0; i < this.operationQueue.length; i++) {
+      const op = this.operationQueue[i];
+
+      // Check if connection is available
+      const metadata = this.connectionMetadata.get(op.accountId);
+      if (!metadata || metadata.state !== ConnectionState.CONNECTED) {
+        continue; // Skip if not connected
+      }
+
+      // Check max retries
+      if (op.retries >= 3) {
+        console.error(`[ImapService] Dropping operation ${op.operation} after ${op.retries} retries`);
+        processedIndices.push(i);
+        continue;
+      }
+
+      try {
+        // Execute the operation based on its type
+        await this.executeQueuedOperation(op);
+        processedIndices.push(i);
+        console.error(`[ImapService] Successfully executed queued operation: ${op.operation}`);
+      } catch (error) {
+        console.error(`[ImapService] Failed to execute queued operation ${op.operation}:`, error);
+        op.retries++;
+
+        // Move to end of queue if still has retries
+        if (op.retries < 3) {
+          this.operationQueue.splice(i, 1);
+          this.operationQueue.push(op);
+          processedIndices.push(i);
+        }
+      }
+    }
+
+    // Remove processed operations (in reverse order to maintain indices)
+    for (let i = processedIndices.length - 1; i >= 0; i--) {
+      this.operationQueue.splice(processedIndices[i], 1);
+    }
+  }
+
+  /**
+   * Execute a queued operation (Issue #21)
+   * Dynamically calls the appropriate method based on operation type
+   */
+  private async executeQueuedOperation(op: QueuedOperation): Promise<void> {
+    const methodName = op.operation as keyof ImapService;
+    const method = this[methodName];
+
+    if (typeof method === 'function') {
+      await (method as Function).apply(this, op.args);
+    } else {
+      throw new Error(`Unknown operation: ${op.operation}`);
+    }
+  }
+
+  /**
+   * Stop the queue processor (cleanup)
+   */
+  destroy(): void {
+    if (this.queueProcessorInterval) {
+      clearInterval(this.queueProcessorInterval);
+      this.queueProcessorInterval = undefined;
+      console.error('[ImapService] Operation queue processor stopped');
+    }
+  }
 
   /**
    * Level 2: Connect with auto-reconnect and state tracking

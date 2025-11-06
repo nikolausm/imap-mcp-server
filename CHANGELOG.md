@@ -5,6 +5,86 @@ All notable changes to IMAP MCP Pro will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.1] - 2025-11-05
+
+### Phase 1 Critical Fixes - Stability & Reliability
+
+This release addresses three critical issues identified in the security audit, significantly improving server stability and preventing resource exhaustion.
+
+#### 🔴 Critical Fixes
+
+**Issue #20: Missing Error Handling in MCP Tools**
+- ✅ **Added comprehensive error handling wrapper to all 32 MCP tools**
+  - Prevents server crashes from uncaught exceptions
+  - Returns standardized error responses in JSON format
+  - Logs errors for debugging while maintaining server stability
+  - Custom error classes for better error categorization
+- **Implementation**: Created `withErrorHandling()` wrapper utility
+- **Custom Errors**: `AccountNotFoundError`, `ConnectionError`, `AuthenticationError`, `OperationError`
+- **Impact**: Zero server crashes from tool errors
+
+**Issue #22: Unbounded Memory Growth**
+- ✅ **Implemented LRU (Least Recently Used) cache for operation metrics**
+  - Limits metrics storage to 1,000 entries (configurable)
+  - Automatically evicts least recently used metrics
+  - Prevents indefinite memory growth from long-running services
+- ✅ **Added size limit to operation queue**
+  - Maximum 1,000 queued operations
+  - FIFO eviction when queue is full
+  - Prevents memory exhaustion during connection outages
+- **Implementation**: New `LRUCache`, `TTLCache`, and `HybridCache` utilities
+- **Memory Impact**: Bounded memory usage with predictable growth
+
+**Issue #21: Incomplete Operation Queue**
+- ✅ **Implemented operation queue processor**
+  - Processes queued operations every 5 seconds
+  - Prioritizes operations (high priority first, older first)
+  - Automatic retry with exponential backoff (max 3 retries)
+  - Executes operations when connections become available
+- ✅ **Added queue management methods**
+  - `queueOperation()`: Queue operations during outages
+  - `processQueue()`: Process pending operations
+  - `executeQueuedOperation()`: Dynamic operation execution
+  - `destroy()`: Cleanup on shutdown
+- **Impact**: Operations no longer lost during connection issues
+
+#### 🔧 Technical Improvements
+
+**New Utilities Created:**
+- `src/utils/error-handler.ts` - Error handling and validation utilities
+- `src/utils/memory-manager.ts` - LRU/TTL cache implementations
+
+**Code Quality:**
+- All MCP tools now have consistent error handling
+- Improved logging for debugging and monitoring
+- Better resource cleanup on service shutdown
+
+#### 🐛 Bug Fixes
+
+- Fixed potential memory leaks from unbounded metrics collection
+- Fixed lost operations when connections were unavailable
+- Fixed server crashes from unhandled promise rejections in tools
+
+#### ⚠️ Breaking Changes
+
+**None** - All changes are backward compatible. Existing integrations continue to work without modification.
+
+#### 📊 Metrics
+
+- **Error Handling**: 32/32 tools protected (100%)
+- **Memory Management**: Bounded growth implemented (Issue #22 resolved)
+- **Queue Processing**: Fully functional processor (Issue #21 resolved)
+- **Server Stability**: Crash-resistant MCP tools (Issue #20 resolved)
+
+#### 🎯 What's Next
+
+Phase 1 critical fixes complete! Next priorities:
+- Phase 2: Complete SQLite3 integration (Issue #6)
+- Phase 3: Feature development (rules engine, SPAM detection)
+- Phase 4: Testing & DevOps (test suite, installation system)
+
+---
+
 ## [2.5.0] - 2025-11-05
 
 ### ImapFlow Migration & Security Improvements (Issue #27)

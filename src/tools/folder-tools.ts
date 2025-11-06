@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { ImapService } from '../services/imap-service.js';
 import { AccountManager } from '../services/account-manager.js';
 import { z } from 'zod';
+import { withErrorHandling } from '../utils/error-handler.js';
 
 export function folderTools(
   server: McpServer,
@@ -14,7 +15,7 @@ export function folderTools(
     inputSchema: {
       accountId: z.string().describe('Account ID'),
     }
-  }, async ({ accountId }) => {
+  }, withErrorHandling(async ({ accountId }) => {
     const folders = await imapService.listFolders(accountId);
     
     return {
@@ -30,7 +31,7 @@ export function folderTools(
         }, null, 2)
       }]
     };
-  });
+  }));
 
   // Get folder status tool
   server.registerTool('imap_folder_status', {
@@ -39,7 +40,7 @@ export function folderTools(
       accountId: z.string().describe('Account ID'),
       folder: z.string().describe('Folder name'),
     }
-  }, async ({ accountId, folder }) => {
+  }, withErrorHandling(async ({ accountId, folder }) => {
     const box = await imapService.selectFolder(accountId, folder);
     
     return {
@@ -59,7 +60,7 @@ export function folderTools(
         }, null, 2)
       }]
     };
-  });
+  }));
 
   // Get unread count tool
   server.registerTool('imap_get_unread_count', {
@@ -68,7 +69,7 @@ export function folderTools(
       accountId: z.string().describe('Account ID'),
       folders: z.array(z.string()).optional().describe('List of folders to check (default: all)'),
     }
-  }, async ({ accountId, folders }) => {
+  }, withErrorHandling(async ({ accountId, folders }) => {
     const allFolders = await imapService.listFolders(accountId);
     const foldersToCheck = folders || allFolders.map(f => f.name);
     
@@ -96,7 +97,7 @@ export function folderTools(
         }, null, 2)
       }]
     };
-  });
+  }));
 
   // Create folder tool
   server.registerTool('imap_create_folder', {
@@ -105,7 +106,7 @@ export function folderTools(
       accountId: z.string().describe('Account ID'),
       folderName: z.string().describe('Name of the folder to create (use "/" for hierarchy, e.g., "Archive/2024")'),
     }
-  }, async ({ accountId, folderName }) => {
+  }, withErrorHandling(async ({ accountId, folderName }) => {
     await imapService.createFolder(accountId, folderName);
 
     return {
@@ -117,7 +118,7 @@ export function folderTools(
         }, null, 2)
       }]
     };
-  });
+  }));
 
   // Delete folder tool
   server.registerTool('imap_delete_folder', {
@@ -126,7 +127,7 @@ export function folderTools(
       accountId: z.string().describe('Account ID'),
       folderName: z.string().describe('Name of the folder to delete'),
     }
-  }, async ({ accountId, folderName }) => {
+  }, withErrorHandling(async ({ accountId, folderName }) => {
     await imapService.deleteFolder(accountId, folderName);
 
     return {
@@ -138,7 +139,7 @@ export function folderTools(
         }, null, 2)
       }]
     };
-  });
+  }));
 
   // Rename folder tool
   server.registerTool('imap_rename_folder', {
@@ -148,7 +149,7 @@ export function folderTools(
       oldName: z.string().describe('Current name of the folder'),
       newName: z.string().describe('New name for the folder'),
     }
-  }, async ({ accountId, oldName, newName }) => {
+  }, withErrorHandling(async ({ accountId, oldName, newName }) => {
     await imapService.renameFolder(accountId, oldName, newName);
 
     return {
@@ -160,5 +161,5 @@ export function folderTools(
         }, null, 2)
       }]
     };
-  });
+  }));
 }

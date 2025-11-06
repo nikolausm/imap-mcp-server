@@ -3,6 +3,7 @@ import { ImapService } from '../services/imap-service.js';
 import { AccountManager } from '../services/account-manager.js';
 import { SmtpService } from '../services/smtp-service.js';
 import { z } from 'zod';
+import { withErrorHandling } from '../utils/error-handler.js';
 
 export function emailTools(
   server: McpServer,
@@ -26,7 +27,7 @@ export function emailTools(
       flagged: z.boolean().optional().describe('Filter by flagged status'),
       limit: z.number().optional().default(50).describe('Maximum number of results'),
     }
-  }, async ({ accountId, folder, limit, ...searchCriteria }) => {
+  }, withErrorHandling(async ({ accountId, folder, limit, ...searchCriteria }) => {
     const criteria: any = {};
     
     if (searchCriteria.from) criteria.from = searchCriteria.from;
@@ -51,7 +52,7 @@ export function emailTools(
         }, null, 2)
       }]
     };
-  });
+  }));
 
   // Get email content tool
   server.registerTool('imap_get_email', {
@@ -61,7 +62,7 @@ export function emailTools(
       folder: z.string().default('INBOX').describe('Folder name'),
       uid: z.number().describe('Email UID'),
     }
-  }, async ({ accountId, folder, uid }) => {
+  }, withErrorHandling(async ({ accountId, folder, uid }) => {
     const email = await imapService.getEmailContent(accountId, folder, uid);
     
     return {
@@ -76,7 +77,7 @@ export function emailTools(
         }, null, 2)
       }]
     };
-  });
+  }));
 
   // Mark email as read tool
   server.registerTool('imap_mark_as_read', {
@@ -86,7 +87,7 @@ export function emailTools(
       folder: z.string().default('INBOX').describe('Folder name'),
       uid: z.number().describe('Email UID'),
     }
-  }, async ({ accountId, folder, uid }) => {
+  }, withErrorHandling(async ({ accountId, folder, uid }) => {
     await imapService.markAsRead(accountId, folder, uid);
     
     return {
@@ -98,7 +99,7 @@ export function emailTools(
         }, null, 2)
       }]
     };
-  });
+  }));
 
   // Mark email as unread tool
   server.registerTool('imap_mark_as_unread', {
@@ -108,7 +109,7 @@ export function emailTools(
       folder: z.string().default('INBOX').describe('Folder name'),
       uid: z.number().describe('Email UID'),
     }
-  }, async ({ accountId, folder, uid }) => {
+  }, withErrorHandling(async ({ accountId, folder, uid }) => {
     await imapService.markAsUnread(accountId, folder, uid);
     
     return {
@@ -120,7 +121,7 @@ export function emailTools(
         }, null, 2)
       }]
     };
-  });
+  }));
 
   // Delete email tool
   server.registerTool('imap_delete_email', {
@@ -130,7 +131,7 @@ export function emailTools(
       folder: z.string().default('INBOX').describe('Folder name'),
       uid: z.number().describe('Email UID'),
     }
-  }, async ({ accountId, folder, uid }) => {
+  }, withErrorHandling(async ({ accountId, folder, uid }) => {
     await imapService.deleteEmail(accountId, folder, uid);
 
     return {
@@ -142,7 +143,7 @@ export function emailTools(
         }, null, 2)
       }]
     };
-  });
+  }));
 
   // Bulk delete emails tool
   server.registerTool('imap_bulk_delete_emails', {
@@ -153,7 +154,7 @@ export function emailTools(
       uids: z.array(z.number()).describe('Array of email UIDs to delete'),
       expunge: z.boolean().default(false).describe('Permanently expunge deleted emails (default: false, just marks as deleted)'),
     }
-  }, async ({ accountId, folder, uids, expunge }) => {
+  }, withErrorHandling(async ({ accountId, folder, uids, expunge }) => {
     if (uids.length === 0) {
       return {
         content: [{
@@ -180,7 +181,7 @@ export function emailTools(
         }, null, 2)
       }]
     };
-  });
+  }));
 
   // Get latest emails tool
   server.registerTool('imap_get_latest_emails', {
@@ -190,7 +191,7 @@ export function emailTools(
       folder: z.string().default('INBOX').describe('Folder name'),
       count: z.number().default(10).describe('Number of emails to retrieve'),
     }
-  }, async ({ accountId, folder, count }) => {
+  }, withErrorHandling(async ({ accountId, folder, count }) => {
     const messages = await imapService.searchEmails(accountId, folder, {});
     
     // Sort by date descending and take the latest
@@ -206,7 +207,7 @@ export function emailTools(
         }, null, 2)
       }]
     };
-  });
+  }));
 
   // Send email tool
   server.registerTool('imap_send_email', {
@@ -227,7 +228,7 @@ export function emailTools(
         contentType: z.string().optional().describe('MIME type'),
       })).optional().describe('Email attachments'),
     }
-  }, async ({ accountId, to, subject, text, html, cc, bcc, replyTo, attachments }) => {
+  }, withErrorHandling(async ({ accountId, to, subject, text, html, cc, bcc, replyTo, attachments }) => {
     const account = await accountManager.getAccount(accountId);
     if (!account) {
       throw new Error(`Account ${accountId} not found`);
@@ -262,7 +263,7 @@ export function emailTools(
         }, null, 2)
       }]
     };
-  });
+  }));
 
   // Reply to email tool
   server.registerTool('imap_reply_to_email', {
@@ -281,7 +282,7 @@ export function emailTools(
         contentType: z.string().optional().describe('MIME type'),
       })).optional().describe('Email attachments'),
     }
-  }, async ({ accountId, folder, uid, text, html, replyAll, attachments }) => {
+  }, withErrorHandling(async ({ accountId, folder, uid, text, html, replyAll, attachments }) => {
     const account = await accountManager.getAccount(accountId);
     if (!account) {
       throw new Error(`Account ${accountId} not found`);
@@ -324,7 +325,7 @@ export function emailTools(
         }, null, 2)
       }]
     };
-  });
+  }));
 
   // Forward email tool
   server.registerTool('imap_forward_email', {
@@ -337,7 +338,7 @@ export function emailTools(
       text: z.string().optional().describe('Additional text to include'),
       includeAttachments: z.boolean().default(true).describe('Include original attachments'),
     }
-  }, async ({ accountId, folder, uid, to, text, includeAttachments }) => {
+  }, withErrorHandling(async ({ accountId, folder, uid, to, text, includeAttachments }) => {
     const account = await accountManager.getAccount(accountId);
     if (!account) {
       throw new Error(`Account ${accountId} not found`);
@@ -370,7 +371,7 @@ export function emailTools(
         }, null, 2)
       }]
     };
-  });
+  }));
 
   // Level 2: Bulk get emails tool
   server.registerTool('imap_bulk_get_emails', {
@@ -381,7 +382,7 @@ export function emailTools(
       uids: z.array(z.number()).describe('Array of email UIDs to fetch'),
       fields: z.enum(['headers', 'full', 'body']).default('headers').describe('Fields to fetch: headers (metadata only), body (with text), or full (everything)'),
     }
-  }, async ({ accountId, folder, uids, fields }) => {
+  }, withErrorHandling(async ({ accountId, folder, uids, fields }) => {
     if (uids.length === 0) {
       return {
         content: [{
@@ -415,7 +416,7 @@ export function emailTools(
         }, null, 2)
       }]
     };
-  });
+  }));
 
   // Level 2: Bulk mark emails tool
   server.registerTool('imap_bulk_mark_emails', {
@@ -426,7 +427,7 @@ export function emailTools(
       uids: z.array(z.number()).describe('Array of email UIDs to mark'),
       operation: z.enum(['read', 'unread', 'flagged', 'unflagged']).describe('Mark operation to perform'),
     }
-  }, async ({ accountId, folder, uids, operation }) => {
+  }, withErrorHandling(async ({ accountId, folder, uids, operation }) => {
     if (uids.length === 0) {
       return {
         content: [{
@@ -451,7 +452,7 @@ export function emailTools(
         }, null, 2)
       }]
     };
-  });
+  }));
 
   // Issue #4: Copy email tool
   server.registerTool('imap_copy_email', {
@@ -462,7 +463,7 @@ export function emailTools(
       uid: z.number().describe('Email UID to copy'),
       targetFolder: z.string().describe('Target folder name'),
     }
-  }, async ({ accountId, sourceFolder, uid, targetFolder }) => {
+  }, withErrorHandling(async ({ accountId, sourceFolder, uid, targetFolder }) => {
     await imapService.copyEmail(accountId, sourceFolder, uid, targetFolder);
 
     return {
@@ -474,7 +475,7 @@ export function emailTools(
         }, null, 2)
       }]
     };
-  });
+  }));
 
   // Issue #4: Bulk copy emails tool
   server.registerTool('imap_bulk_copy_emails', {
@@ -485,7 +486,7 @@ export function emailTools(
       uids: z.array(z.number()).describe('Array of email UIDs to copy'),
       targetFolder: z.string().describe('Target folder name'),
     }
-  }, async ({ accountId, sourceFolder, uids, targetFolder }) => {
+  }, withErrorHandling(async ({ accountId, sourceFolder, uids, targetFolder }) => {
     if (uids.length === 0) {
       return {
         content: [{
@@ -510,7 +511,7 @@ export function emailTools(
         }, null, 2)
       }]
     };
-  });
+  }));
 
   // Issue #4: Move email tool
   server.registerTool('imap_move_email', {
@@ -521,7 +522,7 @@ export function emailTools(
       uid: z.number().describe('Email UID to move'),
       targetFolder: z.string().describe('Target folder name'),
     }
-  }, async ({ accountId, sourceFolder, uid, targetFolder }) => {
+  }, withErrorHandling(async ({ accountId, sourceFolder, uid, targetFolder }) => {
     await imapService.moveEmail(accountId, sourceFolder, uid, targetFolder);
 
     return {
@@ -533,7 +534,7 @@ export function emailTools(
         }, null, 2)
       }]
     };
-  });
+  }));
 
   // Issue #4: Bulk move emails tool
   server.registerTool('imap_bulk_move_emails', {
@@ -544,7 +545,7 @@ export function emailTools(
       uids: z.array(z.number()).describe('Array of email UIDs to move'),
       targetFolder: z.string().describe('Target folder name'),
     }
-  }, async ({ accountId, sourceFolder, uids, targetFolder }) => {
+  }, withErrorHandling(async ({ accountId, sourceFolder, uids, targetFolder }) => {
     if (uids.length === 0) {
       return {
         content: [{
@@ -569,7 +570,7 @@ export function emailTools(
         }, null, 2)
       }]
     };
-  });
+  }));
 
   // Level 3: Get connection metrics
   server.registerTool('imap_get_metrics', {
@@ -577,7 +578,7 @@ export function emailTools(
     inputSchema: {
       accountId: z.string().describe('Account ID'),
     }
-  }, async ({ accountId }) => {
+  }, withErrorHandling(async ({ accountId }) => {
     const metrics = await imapService.getMetrics(accountId);
 
     if (!metrics) {
@@ -605,7 +606,7 @@ export function emailTools(
         }, null, 2)
       }]
     };
-  });
+  }));
 
   // Level 3: Get operation metrics
   server.registerTool('imap_get_operation_metrics', {
@@ -614,7 +615,7 @@ export function emailTools(
       accountId: z.string().describe('Account ID'),
       operationName: z.string().optional().describe('Specific operation name (optional, returns all if not specified)'),
     }
-  }, async ({ accountId, operationName }) => {
+  }, withErrorHandling(async ({ accountId, operationName }) => {
     const metrics = imapService.getOperationMetrics(accountId, operationName);
 
     return {
@@ -629,7 +630,7 @@ export function emailTools(
         }, null, 2)
       }]
     };
-  });
+  }));
 
   // Level 3: Reset metrics
   server.registerTool('imap_reset_metrics', {
@@ -637,7 +638,7 @@ export function emailTools(
     inputSchema: {
       accountId: z.string().describe('Account ID'),
     }
-  }, async ({ accountId }) => {
+  }, withErrorHandling(async ({ accountId }) => {
     imapService.resetMetrics(accountId);
 
     return {
@@ -649,5 +650,5 @@ export function emailTools(
         }, null, 2)
       }]
     };
-  });
+  }));
 }

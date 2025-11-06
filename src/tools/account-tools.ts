@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { AccountManager } from '../services/account-manager.js';
 import { ImapService } from '../services/imap-service.js';
 import { z } from 'zod';
+import { withErrorHandling, AccountNotFoundError, validateOneOf } from '../utils/error-handler.js';
 
 export function accountTools(
   server: McpServer,
@@ -19,7 +20,7 @@ export function accountTools(
       password: z.string().describe('Password for authentication'),
       tls: z.boolean().default(true).describe('Use TLS/SSL (default: true)'),
     }
-  }, async ({ name, host, port, user, password, tls }) => {
+  }, withErrorHandling(async ({ name, host, port, user, password, tls }) => {
     const account = await accountManager.addAccount({
       name,
       host,
@@ -28,7 +29,7 @@ export function accountTools(
       password,
       tls,
     });
-    
+
     return {
       content: [{
         type: 'text',
@@ -39,15 +40,15 @@ export function accountTools(
         }, null, 2)
       }]
     };
-  });
+  }));
 
   // List accounts tool
   server.registerTool('imap_list_accounts', {
     description: 'List all configured IMAP accounts',
     inputSchema: {}
-  }, async () => {
+  }, withErrorHandling(async () => {
     const accounts = accountManager.getAllAccounts();
-    
+
     return {
       content: [{
         type: 'text',
@@ -63,7 +64,7 @@ export function accountTools(
         }, null, 2)
       }]
     };
-  });
+  }));
 
   // Remove account tool
   server.registerTool('imap_remove_account', {
@@ -71,10 +72,10 @@ export function accountTools(
     inputSchema: {
       accountId: z.string().describe('ID of the account to remove'),
     }
-  }, async ({ accountId }) => {
+  }, withErrorHandling(async ({ accountId }) => {
     await imapService.disconnect(accountId);
     await accountManager.removeAccount(accountId);
-    
+
     return {
       content: [{
         type: 'text',
@@ -84,7 +85,7 @@ export function accountTools(
         }, null, 2)
       }]
     };
-  });
+  }));
 
   // Connect to account tool
   server.registerTool('imap_connect', {
@@ -93,23 +94,22 @@ export function accountTools(
       accountId: z.string().optional().describe('Account ID to connect to'),
       accountName: z.string().optional().describe('Account name to connect to'),
     }
-  }, async ({ accountId, accountName }) => {
+  }, withErrorHandling(async ({ accountId, accountName }) => {
+    validateOneOf({ accountId, accountName }, ['accountId', 'accountName']);
+
     let account;
-    
     if (accountId) {
       account = accountManager.getAccount(accountId);
     } else if (accountName) {
       account = accountManager.getAccountByName(accountName);
-    } else {
-      throw new Error('Either accountId or accountName must be provided');
     }
-    
+
     if (!account) {
-      throw new Error('Account not found');
+      throw new AccountNotFoundError(accountId || accountName || 'unknown');
     }
-    
+
     await imapService.connect(account);
-    
+
     return {
       content: [{
         type: 'text',
@@ -120,7 +120,7 @@ export function accountTools(
         }, null, 2)
       }]
     };
-  });
+  }));
 
   // Disconnect from account tool
   server.registerTool('imap_disconnect', {
@@ -128,9 +128,9 @@ export function accountTools(
     inputSchema: {
       accountId: z.string().describe('Account ID to disconnect from'),
     }
-  }, async ({ accountId }) => {
+  }, withErrorHandling(async ({ accountId }) => {
     await imapService.disconnect(accountId);
-    
+
     return {
       content: [{
         type: 'text',
@@ -140,5 +140,5 @@ export function accountTools(
         }, null, 2)
       }]
     };
-  });
+  }));
 }

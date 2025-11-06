@@ -1,5 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import { withErrorHandling } from '../utils/error-handler.js';
 
 /**
  * Meta tools for service discovery and information
@@ -10,7 +11,7 @@ export function metaTools(server: McpServer): void {
   server.registerTool('imap_about', {
     description: 'Get comprehensive information about the IMAP MCP Pro service including version, features, and capabilities',
     inputSchema: {}
-  }, async () => {
+  }, withErrorHandling(async () => {
     const about = {
       service: {
         name: 'IMAP MCP Pro',
@@ -95,7 +96,7 @@ export function metaTools(server: McpServer): void {
         text: JSON.stringify(about, null, 2)
       }]
     };
-  });
+  }));
 
   // List tools - returns detailed manifest of all available tools
   server.registerTool('imap_list_tools', {
@@ -106,7 +107,7 @@ export function metaTools(server: McpServer): void {
         .default('all')
         .describe('Filter tools by category (default: all)')
     }
-  }, async ({ category }) => {
+  }, withErrorHandling(async ({ category }) => {
     const allTools = [
       // Account Management Tools (5)
       {
@@ -338,5 +339,5 @@ export function metaTools(server: McpServer): void {
         text: JSON.stringify(response, null, 2)
       }]
     };
-  });
+  }));
 }
