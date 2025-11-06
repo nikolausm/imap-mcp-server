@@ -361,12 +361,35 @@ export class DatabaseService {
       fields.push('tls = @tls');
       values.tls = updates.tls ? 1 : 0;
     }
+    if (updates.smtp_host !== undefined) {
+      fields.push('smtp_host = @smtp_host');
+      values.smtp_host = updates.smtp_host;
+    }
+    if (updates.smtp_port !== undefined) {
+      fields.push('smtp_port = @smtp_port');
+      values.smtp_port = updates.smtp_port;
+    }
+    if (updates.smtp_username !== undefined) {
+      fields.push('smtp_username = @smtp_username');
+      values.smtp_username = updates.smtp_username;
+    }
+    if (updates.smtp_secure !== undefined) {
+      fields.push('smtp_secure = @smtp_secure');
+      values.smtp_secure = updates.smtp_secure ? 1 : 0;
+    }
     if (updates.smtp_password !== undefined) {
-      const smtpPasswordData = this.encrypt(updates.smtp_password);
-      fields.push('smtp_password_encrypted = @smtp_password_encrypted');
-      fields.push('smtp_encryption_iv = @smtp_encryption_iv');
-      values.smtp_password_encrypted = smtpPasswordData.encrypted;
-      values.smtp_encryption_iv = smtpPasswordData.iv;
+      if (updates.smtp_password === null) {
+        // Clear SMTP password
+        fields.push('smtp_password_encrypted = NULL');
+        fields.push('smtp_encryption_iv = NULL');
+      } else {
+        // Update SMTP password
+        const smtpPasswordData = this.encrypt(updates.smtp_password);
+        fields.push('smtp_password_encrypted = @smtp_password_encrypted');
+        fields.push('smtp_encryption_iv = @smtp_encryption_iv');
+        values.smtp_password_encrypted = smtpPasswordData.encrypted;
+        values.smtp_encryption_iv = smtpPasswordData.iv;
+      }
     }
     if (updates.is_active !== undefined) {
       fields.push('is_active = @is_active');

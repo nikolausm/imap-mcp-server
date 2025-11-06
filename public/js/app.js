@@ -181,7 +181,7 @@ async function handleAccountUpdate(e) {
         delete accountData.password;
     }
 
-    // Add SMTP configuration if enabled
+    // Add SMTP configuration if enabled, or explicitly set to null if disabled
     if (document.getElementById('enableSmtp').checked) {
         accountData.smtp = {
             host: document.getElementById('smtpHost').value,
@@ -197,6 +197,9 @@ async function handleAccountUpdate(e) {
                 accountData.smtp.password = smtpPassword;
             }
         }
+    } else {
+        // Explicitly set to null to clear SMTP configuration
+        accountData.smtp = null;
     }
 
     goToStep(3);

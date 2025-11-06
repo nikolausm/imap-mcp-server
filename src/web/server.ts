@@ -225,11 +225,25 @@ export class WebUIServer {
         if (host !== undefined) updates.host = host;
         if (port !== undefined) updates.port = port;
         if (tls !== undefined) updates.tls = tls;
-        if (smtp?.host !== undefined) updates.smtp_host = smtp.host;
-        if (smtp?.port !== undefined) updates.smtp_port = smtp.port;
-        if (smtp?.user !== undefined) updates.smtp_username = smtp.user;
-        if (smtp?.password !== undefined) updates.smtp_password = smtp.password;
-        if (smtp?.tls !== undefined) updates.smtp_secure = smtp.tls;
+
+        // Handle SMTP configuration
+        if ('smtp' in req.body) {
+          if (smtp) {
+            // SMTP is enabled - update fields
+            if (smtp.host !== undefined) updates.smtp_host = smtp.host;
+            if (smtp.port !== undefined) updates.smtp_port = smtp.port;
+            if (smtp.user !== undefined) updates.smtp_username = smtp.user;
+            if (smtp.password !== undefined) updates.smtp_password = smtp.password;
+            if (smtp.tls !== undefined) updates.smtp_secure = smtp.tls;
+          } else {
+            // SMTP is disabled - clear all SMTP fields
+            updates.smtp_host = null;
+            updates.smtp_port = null;
+            updates.smtp_username = null;
+            updates.smtp_password = null;
+            updates.smtp_secure = null;
+          }
+        }
 
         this.db.updateAccount(req.params.id, updates);
         const account = this.db.getAccount(req.params.id);
