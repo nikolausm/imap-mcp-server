@@ -111,7 +111,7 @@ export class WebUIServer {
           smtp_port: smtp?.port,
           smtp_username: smtp?.user || email,
           smtp_password: smtp?.password,
-          smtp_secure: smtp?.tls,
+          smtp_secure: smtp?.secure ?? smtp?.tls, // Accept both 'secure' and 'tls' field names
           is_active: true
         });
 
@@ -234,7 +234,9 @@ export class WebUIServer {
             if (smtp.port !== undefined) updates.smtp_port = smtp.port;
             if (smtp.user !== undefined) updates.smtp_username = smtp.user;
             if (smtp.password !== undefined) updates.smtp_password = smtp.password;
-            if (smtp.tls !== undefined) updates.smtp_secure = smtp.tls;
+            // Accept both 'secure' and 'tls' field names for TLS/SSL setting
+            if (smtp.secure !== undefined) updates.smtp_secure = smtp.secure;
+            else if (smtp.tls !== undefined) updates.smtp_secure = smtp.tls;
           } else {
             // SMTP is disabled - clear all SMTP fields
             updates.smtp_host = null;
