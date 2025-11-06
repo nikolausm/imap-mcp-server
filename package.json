@@ -8,7 +8,7 @@
     "imap-setup": "./dist/setup.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && mkdir -p dist/database && cp src/database/schema.sql dist/database/",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "setup": "tsx src/setup.ts",
