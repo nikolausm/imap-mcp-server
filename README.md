@@ -39,6 +39,41 @@ An enterprise-grade Model Context Protocol (MCP) server that provides production
 - 🎯 **Graceful Degradation**: Read-only mode, result caching (5-min TTL), fallback to last known good data
 - 🔍 **Enhanced Monitoring**: Real-time metrics via MCP tools (imap_get_metrics, imap_get_operation_metrics)
 
+### Multi-Tenant / MSP Deployments
+
+**🏢 Commercial License Available for MSPs**
+
+IMAP MCP Pro supports multi-user configurations for Managed Service Providers (MSPs) with a commercial license:
+
+- 👥 **User Isolation**: Complete data isolation between customers
+- 🔐 **Per-Customer Authentication**: Separate credentials for each tenant
+- 🛡️ **Role-Based Access Control**: Admin and user roles with granular permissions
+- 📊 **Usage Tracking**: Per-customer API usage and metrics
+- 🎛️ **Centralized Management**: Manage multiple customer deployments from single installation
+
+**Configuration:**
+```json
+{
+  "mcpServers": {
+    "imap-customer-a": {
+      "env": {
+        "MCP_USER_ID": "customer-a"
+      }
+    },
+    "imap-customer-b": {
+      "env": {
+        "MCP_USER_ID": "customer-b"
+      }
+    }
+  }
+}
+```
+
+**Contact for Commercial Licensing:**
+- Email: colin@bitterfield.com
+- Commercial license required for MSP/multi-tenant deployments
+- Single-user deployments remain under Apache 2.0 license
+
 ## Installation
 
 ### Quick Install (Recommended)
