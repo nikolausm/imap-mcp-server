@@ -7,10 +7,11 @@ let currentStep = 1;
 document.addEventListener('DOMContentLoaded', async () => {
     await loadProviders();
     renderProviders();
-    
-    // Setup form handler
-    document.getElementById('accountForm').addEventListener('submit', handleAccountSubmit);
-    
+    await loadVersionInfo();
+
+    // Set initial form handler (managed via onsubmit property to support add/edit mode switching)
+    document.getElementById('accountForm').onsubmit = handleAccountSubmit;
+
     // Clear test results when form fields change
     const formFields = ['email', 'password', 'imapHost', 'imapPort'];
     formFields.forEach(fieldId => {
@@ -29,6 +30,24 @@ async function loadProviders() {
         providers = await response.json();
     } catch (error) {
         console.error('Failed to load providers:', error);
+    }
+}
+
+// Load version info from API
+async function loadVersionInfo() {
+    try {
+        const response = await fetch('/api/health');
+        const health = await response.json();
+        const versionElement = document.getElementById('mcpVersion');
+        if (versionElement && health.version) {
+            versionElement.textContent = `v${health.version}`;
+        }
+    } catch (error) {
+        console.error('Failed to load version info:', error);
+        const versionElement = document.getElementById('mcpVersion');
+        if (versionElement) {
+            versionElement.textContent = 'Unknown';
+        }
     }
 }
 
