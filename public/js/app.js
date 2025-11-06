@@ -166,7 +166,7 @@ function goToStep(step) {
 // Handle account update
 async function handleAccountUpdate(e) {
     e.preventDefault();
-    
+
     const accountData = {
         name: document.getElementById('accountName').value,
         email: document.getElementById('email').value,
@@ -175,12 +175,30 @@ async function handleAccountUpdate(e) {
         port: parseInt(document.getElementById('imapPort').value),
         tls: selectedProvider?.imapSecurity !== 'STARTTLS'
     };
-    
+
     // Only include password if it was changed
     if (!accountData.password) {
         delete accountData.password;
     }
-    
+
+    // Add SMTP configuration if enabled
+    if (document.getElementById('enableSmtp').checked) {
+        accountData.smtp = {
+            host: document.getElementById('smtpHost').value,
+            port: parseInt(document.getElementById('smtpPort').value) || 587,
+            tls: document.getElementById('smtpSecure').checked
+        };
+
+        // Add SMTP auth if not using same credentials
+        if (!document.getElementById('smtpSameAuth').checked) {
+            accountData.smtp.user = document.getElementById('smtpUser').value;
+            const smtpPassword = document.getElementById('smtpPassword').value;
+            if (smtpPassword) {
+                accountData.smtp.password = smtpPassword;
+            }
+        }
+    }
+
     goToStep(3);
     await updateAndTestAccount(window.editingAccountId, accountData);
 }
@@ -355,7 +373,8 @@ async function viewAccounts() {
                         <tr class="border-b">
                             <th class="text-left pb-2">Name</th>
                             <th class="text-left pb-2">Email</th>
-                            <th class="text-left pb-2">Server</th>
+                            <th class="text-left pb-2">IMAP Server</th>
+                            <th class="text-left pb-2">SMTP Server</th>
                             <th class="text-left pb-2">Status</th>
                             <th class="text-right pb-2">Actions</th>
                         </tr>
@@ -366,6 +385,7 @@ async function viewAccounts() {
                                 <td class="py-3">${account.name}</td>
                                 <td class="py-3">${account.user}</td>
                                 <td class="py-3">${account.host}</td>
+                                <td class="py-3">${account.smtp ? account.smtp.host : '<span class="text-gray-400">N/A</span>'}</td>
                                 <td class="py-3">
                                     <span class="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">Active</span>
                                 </td>
