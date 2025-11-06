@@ -25,7 +25,7 @@ endif
 # Platform-specific paths
 ifeq ($(UNAME_S),Darwin)
     # macOS
-    PLATFORM := macos
+    PLATFORM := darwin
     ifeq ($(INSTALL_TYPE),system)
         INSTALL_DIR := /opt/imap-mcp-pro
         CONFIG_DIR := /etc/imap-mcp

@@ -689,11 +689,9 @@ function addAnotherAccount() {
 }
 
 function closeWindow() {
-    if (window.close) {
-        window.close();
-    } else {
-        alert('Account added successfully! You can close this window.');
-    }
+    // Instead of closing window, show the accounts list
+    // This provides better UX for browser tabs vs popup windows
+    viewAccounts();
 }
 
 // Test a single account
@@ -861,4 +859,59 @@ function displayAllTestResults(results) {
             ${resultsHtml}
         </div>
     `;
+}
+
+// Settings Management
+async function viewSettings() {
+    // Hide other panels
+    document.getElementById('accountsList').classList.add('hidden');
+    document.getElementById('addAccountForm').classList.add('hidden');
+
+    // Show settings panel
+    document.getElementById('settingsPanel').classList.remove('hidden');
+
+    // Load current settings
+    await loadSettings();
+}
+
+async function loadSettings() {
+    try {
+        const response = await fetch('/api/settings');
+        const result = await response.json();
+
+        if (result.success && result.settings) {
+            // Populate form fields with current settings
+            document.getElementById('cleantalkApiKey').value = result.settings.cleantalkApiKey || '';
+        }
+    } catch (error) {
+        console.error('Failed to load settings:', error);
+    }
+}
+
+async function saveSettings() {
+    const cleantalkApiKey = document.getElementById('cleantalkApiKey').value.trim();
+
+    try {
+        const response = await fetch('/api/settings', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                cleantalkApiKey
+            })
+        });
+
+        const result = await response.json();
+
+        if (!result.success) {
+            throw new Error(result.error || 'Failed to save settings');
+        }
+
+        alert('Settings saved successfully!');
+        viewAccounts(); // Return to accounts list
+    } catch (error) {
+        console.error('Failed to save settings:', error);
+        alert('Failed to save settings: ' + error.message);
+    }
 }

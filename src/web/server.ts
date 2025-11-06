@@ -30,19 +30,23 @@ export class WebUIServer {
     this.db = new DatabaseService();
     this.imapService = new ImapService();
 
-    // Get or create default user
-    let defaultUser = this.db.getUserByUsername('default');
-    if (!defaultUser) {
-      defaultUser = this.db.createUser({
+    // Use same user resolution logic as MCP server (from tool-context.ts)
+    // Get username from environment (set in MCP config) or fall back to 'default'
+    const username = process.env.MCP_USER_ID || 'default';
+
+    // Get or create user
+    let user = this.db.getUserByUsername(username);
+    if (!user) {
+      user = this.db.createUser({
         user_id: crypto.randomUUID(),
-        username: 'default',
+        username: username,
         email: undefined,
         organization: 'Personal',
         is_active: true
       });
     }
-    this.defaultUserId = defaultUser.user_id;
-    
+    this.defaultUserId = user.user_id;
+
     this.setupMiddleware();
     this.setupRoutes();
   }
@@ -92,7 +96,12 @@ export class WebUIServer {
     this.app.use(bodyParser.json());
     this.app.use(globalLimiter);
     this.app.use(speedLimiter);
-    this.app.use(express.static(path.join(__dirname, '../../public')));
+
+    // Serve static files from public directory
+    // In development: __dirname = src/web, public is at ../../public
+    // In production: __dirname = web (inside install dir), public is at ../public
+    const publicPath = path.join(__dirname, '../public');
+    this.app.use(express.static(publicPath));
   }
 
   private setupRoutes(): void {
@@ -467,14 +476,56 @@ export class WebUIServer {
       }
     });
 
+    // Get settings
+    this.app.get('/api/settings', (req, res) => {
+      try {
+        const fs = require('fs');
+        const settingsFile = path.join(process.env.CONFIG_DIR || path.join(process.env.HOME || '~', '.imap-mcp'), 'settings.json');
+
+        if (fs.existsSync(settingsFile)) {
+          const settings = JSON.parse(fs.readFileSync(settingsFile, 'utf-8'));
+          res.json({ success: true, settings });
+        } else {
+          res.json({ success: true, settings: {} });
+        }
+      } catch (error) {
+        res.status(500).json({
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to load settings'
+        });
+      }
+    });
+
+    // Save settings
+    this.app.post('/api/settings', (req, res) => {
+      try {
+        const fs = require('fs');
+        const settingsFile = path.join(process.env.CONFIG_DIR || path.join(process.env.HOME || '~', '.imap-mcp'), 'settings.json');
+
+        // Create config directory if it doesn't exist
+        const configDir = path.dirname(settingsFile);
+        if (!fs.existsSync(configDir)) {
+          fs.mkdirSync(configDir, { recursive: true });
+        }
+
+        fs.writeFileSync(settingsFile, JSON.stringify(req.body, null, 2));
+        res.json({ success: true });
+      } catch (error) {
+        res.status(500).json({
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to save settings'
+        });
+      }
+    });
+
     // Health check
     this.app.get('/api/health', (req, res) => {
       res.json({
         status: 'ok',
-        mcpVersion: '2.6.0',
-        uiVersion: '2.6.0',
+        mcpVersion: '2.8.0',
+        uiVersion: '2.8.0',
         database: 'SQLite3 with AES-256-GCM encryption',
-        features: ['multi-tenant', 'account-sharing', 'encrypted-storage']
+        features: ['multi-tenant', 'account-sharing', 'encrypted-storage', 'cleantalk-integration']
       });
     });
   }

@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.templeofepiphany.imap-mcp-pro</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>NODE_PATH</string>
+        <string>INSTALL_DIR/web/server.js</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>INSTALL_DIR</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>NODE_ENV</key>
+        <string>production</string>
+        <key>LOG_LEVEL</key>
+        <string>info</string>
+        <key>DATA_DIR</key>
+        <string>__DATA_DIR__</string>
+        <key>CONFIG_DIR</key>
+        <string>__CONFIG_DIR__</string>
+        <key>MCP_USER_ID</key>
+        <string>__MCP_USER_ID__</string>
+        <key>IMAP_MCP_VERSION</key>
+        <string>__IMAP_MCP_VERSION__</string>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>LOG_DIR/web-ui.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>LOG_DIR/web-ui-error.log</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+        <key>Crashed</key>
+        <true/>
+    </dict>
+
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+
+    <key>ProcessType</key>
+    <string>Interactive</string>
+</dict>
+</plist>

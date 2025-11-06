@@ -44,3 +44,4 @@ When adding new IMAP operations:
 3. Ensure proper error handling and connection management
 4. Update types if needed in `src/types/index.ts`
 - Later this library will be used for MSP services so each master account will have it's own subordinate email accounts. Security will need to be maintained. Do not make coding choices that will preclude this in the future.
+- We are only going to test/unstall released versions. Either with a make install or a make update.

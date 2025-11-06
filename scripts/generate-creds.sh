@@ -45,31 +45,47 @@ EOF
 chmod 600 "$CREDS_FILE"
 
 # Initialize database with user
-DB_FILE="$DATA_DIR/database.db"
+# Note: DatabaseService hardcodes path to ~/.imap-mcp/data.db
+DB_FILE="$HOME/.imap-mcp/data.db"
 
-if [ ! -f "$DB_FILE" ]; then
-    echo "Initializing database..."
+echo "Initializing database..."
 
-    # Create user in database (using Node.js to access DatabaseService)
-    node -e "
+# Create user in database (using Node.js to access DatabaseService)
+# Handle case where user already exists
+node -e "
 const { DatabaseService } = require('./dist/services/database-service.js');
 const crypto = require('crypto');
 
 const db = new DatabaseService();
-const userId = crypto.randomUUID();
 
-// Create default user
-const user = db.createUser({
-  user_id: userId,
-  username: '$MCP_USER_ID',
-  email: undefined,
-  organization: 'Personal',
-  is_active: true
-});
-
-console.log('User created:', user.username);
-"
-fi
+try {
+  // Check if user already exists
+  const existingUser = db.getUserByUsername('$MCP_USER_ID');
+  if (existingUser) {
+    console.log('User already exists:', existingUser.username);
+  }
+} catch (error) {
+  // User doesn't exist, create it
+  try {
+    const userId = crypto.randomUUID();
+    const user = db.createUser({
+      user_id: userId,
+      username: '$MCP_USER_ID',
+      email: undefined,
+      organization: 'Personal',
+      is_active: true
+    });
+    console.log('User created:', user.username);
+  } catch (createError) {
+    // If it's a UNIQUE constraint error, user was created by another process
+    if (createError.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+      console.log('User already exists (created concurrently)');
+    } else {
+      throw createError;
+    }
+  }
+}
+" || true
 
 echo "✓ Credentials generated and saved to: $CREDS_FILE"
 echo "✓ Database initialized at: $DB_FILE"
