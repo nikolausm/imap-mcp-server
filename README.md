@@ -189,11 +189,57 @@ Add the IMAP MCP server to your Claude Desktop configuration file:
     "imap": {
       "command": "node",
       "args": ["/path/to/ImapClient/dist/index.js"],
-      "env": {}
+      "env": {
+        "MCP_USER_ID": "default",
+        "PORT": "3000",
+        "NODE_ENV": "production"
+      }
     }
   }
 }
 ```
+
+### Environment Variables
+
+The following environment variables can be configured in your Claude Desktop configuration:
+
+| Variable | Description | Default | Required |
+|----------|-------------|---------|----------|
+| `MCP_USER_ID` | User identifier for multi-tenant deployments. Isolates accounts and data per user. | `default` | No |
+| `PORT` | Port number for the Web UI server | `3000` | No |
+| `NODE_ENV` | Node environment mode. Set to `development` for detailed error stack traces. | `production` | No |
+| `IMAP_MCP_VERSION` | Version identifier (automatically set by installer) | (package version) | No |
+
+**Example multi-user configuration:**
+
+```json
+{
+  "mcpServers": {
+    "imap-work": {
+      "command": "node",
+      "args": ["/path/to/imap-mcp-pro/dist/index.js"],
+      "env": {
+        "MCP_USER_ID": "work",
+        "PORT": "3000"
+      }
+    },
+    "imap-personal": {
+      "command": "node",
+      "args": ["/path/to/imap-mcp-pro/dist/index.js"],
+      "env": {
+        "MCP_USER_ID": "personal",
+        "PORT": "3001"
+      }
+    }
+  }
+}
+```
+
+**Note:** Each `MCP_USER_ID` creates separate:
+- Account storage (database)
+- CleanTalk API key configuration
+- Web UI instance (on specified PORT)
+- Session data and credentials
 
 ## Usage
 

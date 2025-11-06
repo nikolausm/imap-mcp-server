@@ -476,44 +476,93 @@ export class WebUIServer {
       }
     });
 
-    // Get settings
-    this.app.get('/api/settings', (req, res) => {
+    // Get CleanTalk API keys for user
+    this.app.get('/api/cleantalk/keys', (req, res) => {
       try {
-        const fs = require('fs');
-        const settingsFile = path.join(process.env.CONFIG_DIR || path.join(process.env.HOME || '~', '.imap-mcp'), 'settings.json');
+        const stmt = this.db['db'].prepare(`
+          SELECT id, api_key, is_active, daily_limit, daily_usage,
+                 usage_reset_at, last_used, created_at, notes
+          FROM cleantalk_keys
+          WHERE user_id = ?
+          ORDER BY created_at DESC
+        `);
 
-        if (fs.existsSync(settingsFile)) {
-          const settings = JSON.parse(fs.readFileSync(settingsFile, 'utf-8'));
-          res.json({ success: true, settings });
-        } else {
-          res.json({ success: true, settings: {} });
-        }
+        const keys = stmt.all(this.defaultUserId) as any[];
+
+        res.json({
+          success: true,
+          keys: keys.map(k => ({
+            id: k.id,
+            apiKey: k.api_key.substring(0, 8) + '...' + k.api_key.substring(k.api_key.length - 4), // Masked
+            isActive: k.is_active === 1,
+            dailyLimit: k.daily_limit,
+            dailyUsage: k.daily_usage,
+            usageResetAt: k.usage_reset_at,
+            lastUsed: k.last_used,
+            createdAt: k.created_at,
+            notes: k.notes
+          }))
+        });
       } catch (error) {
         res.status(500).json({
           success: false,
-          error: error instanceof Error ? error.message : 'Failed to load settings'
+          error: error instanceof Error ? error.message : 'Failed to load CleanTalk keys'
         });
       }
     });
 
-    // Save settings
-    this.app.post('/api/settings', (req, res) => {
+    // Add CleanTalk API key
+    this.app.post('/api/cleantalk/keys', (req, res) => {
       try {
-        const fs = require('fs');
-        const settingsFile = path.join(process.env.CONFIG_DIR || path.join(process.env.HOME || '~', '.imap-mcp'), 'settings.json');
+        const { apiKey, dailyLimit, notes } = req.body;
 
-        // Create config directory if it doesn't exist
-        const configDir = path.dirname(settingsFile);
-        if (!fs.existsSync(configDir)) {
-          fs.mkdirSync(configDir, { recursive: true });
+        if (!apiKey || apiKey.trim().length === 0) {
+          return res.status(400).json({
+            success: false,
+            error: 'API key is required'
+          });
         }
 
-        fs.writeFileSync(settingsFile, JSON.stringify(req.body, null, 2));
-        res.json({ success: true });
+        this.db['db'].prepare(`
+          INSERT INTO cleantalk_keys (user_id, api_key, daily_limit, notes, is_active)
+          VALUES (?, ?, ?, ?, 1)
+        `).run(this.defaultUserId, apiKey.trim(), dailyLimit || 1000, notes || null);
+
+        res.json({
+          success: true,
+          message: 'CleanTalk API key added successfully'
+        });
       } catch (error) {
         res.status(500).json({
           success: false,
-          error: error instanceof Error ? error.message : 'Failed to save settings'
+          error: error instanceof Error ? error.message : 'Failed to add CleanTalk key'
+        });
+      }
+    });
+
+    // Delete CleanTalk API key
+    this.app.delete('/api/cleantalk/keys/:keyId', (req, res) => {
+      try {
+        const keyId = parseInt(req.params.keyId);
+
+        if (isNaN(keyId)) {
+          return res.status(400).json({
+            success: false,
+            error: 'Invalid key ID'
+          });
+        }
+
+        this.db['db'].prepare('DELETE FROM cleantalk_keys WHERE id = ? AND user_id = ?')
+          .run(keyId, this.defaultUserId);
+
+        res.json({
+          success: true,
+          message: 'CleanTalk API key deleted successfully'
+        });
+      } catch (error) {
+        res.status(500).json({
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to delete CleanTalk key'
         });
       }
     });

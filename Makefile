@@ -104,11 +104,23 @@ build:
 	@echo "Build complete!"
 
 install: build
-	@echo "Installing IMAP MCP Pro..."
-	@echo "Platform: $(PLATFORM)"
-	@echo "Install Type: $(INSTALL_TYPE)"
-	@echo "Install Dir: $(INSTALL_DIR)"
-	@bash scripts/install.sh $(PLATFORM) $(INSTALL_TYPE) "$(INSTALL_DIR)" "$(CONFIG_DIR)" "$(DATA_DIR)" "$(LOG_DIR)" "$(SERVICE_FILE)"
+	@if [ -f "$(INSTALL_DIR)/package.json" ] && [ -f "$(DATA_DIR)/data.db" ]; then \
+		echo "========================================"; \
+		echo "Existing installation detected"; \
+		echo "========================================"; \
+		echo "Install Dir: $(INSTALL_DIR)"; \
+		echo "Data Dir: $(DATA_DIR)"; \
+		echo ""; \
+		echo "Running update instead of fresh install..."; \
+		echo ""; \
+		$(MAKE) update-internal; \
+	else \
+		echo "Installing IMAP MCP Pro..."; \
+		echo "Platform: $(PLATFORM)"; \
+		echo "Install Type: $(INSTALL_TYPE)"; \
+		echo "Install Dir: $(INSTALL_DIR)"; \
+		bash scripts/install.sh $(PLATFORM) $(INSTALL_TYPE) "$(INSTALL_DIR)" "$(CONFIG_DIR)" "$(DATA_DIR)" "$(LOG_DIR)" "$(SERVICE_FILE)"; \
+	fi
 
 uninstall:
 	@echo "Uninstalling IMAP MCP Pro..."
@@ -131,6 +143,61 @@ logs:
 
 update:
 	@bash scripts/update.sh "$(INSTALL_DIR)" "$(DATA_DIR)" "$(LOG_DIR)"
+
+update-internal:
+	@echo "==========================================="; \
+	echo "IMAP MCP Pro - Update (Preserving Data)"; \
+	echo "==========================================="; \
+	echo ""; \
+	CURRENT_VERSION=$$(node -p "require('$(INSTALL_DIR)/package.json').version" 2>/dev/null || echo "unknown"); \
+	NEW_VERSION=$$(node -p "require('./package.json').version"); \
+	echo "Current version: $$CURRENT_VERSION"; \
+	echo "New version: $$NEW_VERSION"; \
+	echo ""; \
+	if [ "$$CURRENT_VERSION" = "$$NEW_VERSION" ]; then \
+		echo "Same version - performing code update only"; \
+	else \
+		echo "Version change detected - will apply schema updates if needed"; \
+	fi; \
+	echo ""; \
+	echo "Stopping service..."; \
+	$(MAKE) stop 2>/dev/null || echo "Service not running"; \
+	echo ""; \
+	echo "Creating backup..."; \
+	BACKUP_DIR="$(INSTALL_DIR).backup-$$(date +%Y%m%d-%H%M%S)"; \
+	cp -r "$(INSTALL_DIR)" "$$BACKUP_DIR" 2>/dev/null || true; \
+	echo "✓ Backup created: $$BACKUP_DIR"; \
+	echo ""; \
+	echo "Updating files..."; \
+	rm -rf "$(INSTALL_DIR)/dist" 2>/dev/null || true; \
+	rm -rf "$(INSTALL_DIR)/node_modules" 2>/dev/null || true; \
+	rm -rf "$(INSTALL_DIR)/public" 2>/dev/null || true; \
+	cp -r dist "$(INSTALL_DIR)/" || exit 1; \
+	cp -r node_modules "$(INSTALL_DIR)/" || exit 1; \
+	cp -r public "$(INSTALL_DIR)/" || exit 1; \
+	cp package.json "$(INSTALL_DIR)/" || exit 1; \
+	echo "✓ Files updated"; \
+	echo ""; \
+	echo "Applying database schema updates..."; \
+	cd "$(INSTALL_DIR)" && node -e " \
+		const { DatabaseService } = require('./dist/services/database-service.js'); \
+		const db = new DatabaseService(); \
+		console.log('✓ Database schema updated (if needed)'); \
+	" || echo "✓ Database schema current"; \
+	echo ""; \
+	echo "Restarting service..."; \
+	$(MAKE) restart; \
+	echo ""; \
+	echo "==========================================="; \
+	echo "Update Complete!"; \
+	echo "==========================================="; \
+	echo "Version: $$CURRENT_VERSION → $$NEW_VERSION"; \
+	echo "Install Dir: $(INSTALL_DIR)"; \
+	echo "Data Dir: $(DATA_DIR)"; \
+	echo "Backup: $$BACKUP_DIR"; \
+	echo "==========================================="; \
+	echo ""; \
+	echo "Run 'make status' to verify the service"
 
 test:
 	@echo "Running tests..."

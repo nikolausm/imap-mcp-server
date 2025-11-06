@@ -252,10 +252,10 @@ export const emailProviders: EmailProvider[] = [
     color: '#673AB7',
     imapHost: 'imap.hostinger.com',
     imapPort: 993,
-    imapSecurity: 'SSL',
+    imapSecurity: 'TLS',
     smtpHost: 'smtp.hostinger.com',
     smtpPort: 465,
-    smtpSecurity: 'SSL',
+    smtpSecurity: 'TLS',
     domains: [],
     helpUrl: 'https://support.hostinger.com/en/articles/1583419-how-to-set-up-an-email-account-on-an-email-client',
     notes: 'For Hostinger-hosted email accounts. Use full email address as username.'

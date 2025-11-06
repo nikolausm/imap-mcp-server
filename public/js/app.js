@@ -183,10 +183,11 @@ async function handleAccountUpdate(e) {
 
     // Add SMTP configuration if enabled, or explicitly set to null if disabled
     if (document.getElementById('enableSmtp').checked) {
+        const smtpPortValue = parseInt(document.getElementById('smtpPort').value);
         accountData.smtp = {
             host: document.getElementById('smtpHost').value,
-            port: parseInt(document.getElementById('smtpPort').value) || 587,
-            tls: document.getElementById('smtpSecure').checked
+            port: smtpPortValue || 587, // Fallback to 587 only if port is invalid/missing
+            secure: document.getElementById('smtpSecure').checked
         };
 
         // Add SMTP auth if not using same credentials
@@ -221,9 +222,10 @@ async function handleAccountSubmit(e) {
     
     // Add SMTP configuration if enabled
     if (document.getElementById('enableSmtp').checked) {
+        const smtpPortValue = parseInt(document.getElementById('smtpPort').value);
         accountData.smtp = {
             host: document.getElementById('smtpHost').value,
-            port: parseInt(document.getElementById('smtpPort').value) || 587,
+            port: smtpPortValue || 587, // Fallback to 587 only if port is invalid/missing
             secure: document.getElementById('smtpSecure').checked
         };
         
@@ -609,27 +611,24 @@ function toggleAdvanced() {
 function toggleSmtpSettings() {
     const enabled = document.getElementById('enableSmtp').checked;
     const smtpSettings = document.getElementById('smtpSettings');
-    
+
     if (enabled) {
         smtpSettings.classList.remove('hidden');
-        // Auto-fill SMTP settings based on IMAP if provider is selected
+        // Auto-fill SMTP settings based on provider configuration
         if (selectedProvider) {
             const smtpHost = document.getElementById('smtpHost');
             const smtpPort = document.getElementById('smtpPort');
             const smtpSecure = document.getElementById('smtpSecure');
 
-            if (!smtpHost.value) {
-                // Use provider's SMTP host if available, otherwise convert IMAP host
-                smtpHost.value = selectedProvider.smtpHost || selectedProvider.imapHost.replace('imap.', 'smtp.').replace('imap-', 'smtp-');
-            }
-            if (!smtpPort.value) {
-                // Use provider's SMTP port if available, otherwise default to 587
-                smtpPort.value = selectedProvider.smtpPort || '587';
-            }
+            // Always populate from provider settings to ensure consistency
+            // Use provider's SMTP host if available, otherwise convert IMAP host
+            smtpHost.value = selectedProvider.smtpHost || selectedProvider.imapHost.replace('imap.', 'smtp.').replace('imap-', 'smtp-');
+
+            // Use provider's SMTP port if available, otherwise default to 587
+            smtpPort.value = selectedProvider.smtpPort || '587';
+
             // Set TLS checkbox based on provider's SMTP security setting
-            if (selectedProvider.smtpSecurity === 'SSL' || selectedProvider.smtpSecurity === 'TLS') {
-                smtpSecure.checked = true;
-            }
+            smtpSecure.checked = (selectedProvider.smtpSecurity === 'SSL' || selectedProvider.smtpSecurity === 'TLS');
         }
     } else {
         smtpSettings.classList.add('hidden');
@@ -864,54 +863,112 @@ function displayAllTestResults(results) {
 // Settings Management
 async function viewSettings() {
     // Hide other panels
+    document.getElementById('providerSelection').classList.add('hidden');
+    document.getElementById('credentialsForm').classList.add('hidden');
+    document.getElementById('testConnection').classList.add('hidden');
     document.getElementById('accountsList').classList.add('hidden');
-    document.getElementById('addAccountForm').classList.add('hidden');
 
     // Show settings panel
     document.getElementById('settingsPanel').classList.remove('hidden');
 
-    // Load current settings
-    await loadSettings();
+    // Load current CleanTalk keys
+    await loadCleanTalkKeys();
 }
 
-async function loadSettings() {
+async function loadCleanTalkKeys() {
     try {
-        const response = await fetch('/api/settings');
+        const response = await fetch('/api/cleantalk/keys');
         const result = await response.json();
 
-        if (result.success && result.settings) {
-            // Populate form fields with current settings
-            document.getElementById('cleantalkApiKey').value = result.settings.cleantalkApiKey || '';
+        if (result.success && result.keys) {
+            const keysContainer = document.getElementById('cleantalkKeysList');
+
+            if (result.keys.length === 0) {
+                keysContainer.innerHTML = '<p class="text-sm text-gray-500">No CleanTalk API keys configured</p>';
+            } else {
+                keysContainer.innerHTML = result.keys.map(key => `
+                    <div class="border border-gray-200 rounded-lg p-3 flex justify-between items-center">
+                        <div>
+                            <p class="font-mono text-sm">${key.apiKey}</p>
+                            <p class="text-xs text-gray-500">Usage: ${key.dailyUsage}/${key.dailyLimit} today</p>
+                            ${key.lastUsed ? `<p class="text-xs text-gray-400">Last used: ${new Date(key.lastUsed).toLocaleString()}</p>` : ''}
+                        </div>
+                        <button onclick="deleteCleanTalkKey(${key.id})"
+                            class="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600 text-sm">
+                            Delete
+                        </button>
+                    </div>
+                `).join('');
+            }
         }
     } catch (error) {
-        console.error('Failed to load settings:', error);
+        console.error('Failed to load CleanTalk keys:', error);
     }
 }
 
-async function saveSettings() {
-    const cleantalkApiKey = document.getElementById('cleantalkApiKey').value.trim();
+async function addCleanTalkKey() {
+    const apiKey = document.getElementById('cleantalkApiKey').value.trim();
+    const dailyLimit = parseInt(document.getElementById('cleantalkDailyLimit').value) || 1000;
+
+    if (!apiKey) {
+        alert('Please enter a CleanTalk API key');
+        return;
+    }
 
     try {
-        const response = await fetch('/api/settings', {
+        const response = await fetch('/api/cleantalk/keys', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                cleantalkApiKey
+                apiKey,
+                dailyLimit
             })
         });
 
         const result = await response.json();
 
         if (!result.success) {
-            throw new Error(result.error || 'Failed to save settings');
+            throw new Error(result.error || 'Failed to add CleanTalk key');
         }
 
-        alert('Settings saved successfully!');
-        viewAccounts(); // Return to accounts list
+        // Clear form
+        document.getElementById('cleantalkApiKey').value = '';
+        document.getElementById('cleantalkDailyLimit').value = '1000';
+
+        // Reload keys list
+        await loadCleanTalkKeys();
+
+        alert('CleanTalk API key added successfully!');
     } catch (error) {
-        console.error('Failed to save settings:', error);
-        alert('Failed to save settings: ' + error.message);
+        console.error('Failed to add CleanTalk key:', error);
+        alert('Failed to add CleanTalk key: ' + error.message);
+    }
+}
+
+async function deleteCleanTalkKey(keyId) {
+    if (!confirm('Are you sure you want to delete this CleanTalk API key?')) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/cleantalk/keys/${keyId}`, {
+            method: 'DELETE'
+        });
+
+        const result = await response.json();
+
+        if (!result.success) {
+            throw new Error(result.error || 'Failed to delete CleanTalk key');
+        }
+
+        // Reload keys list
+        await loadCleanTalkKeys();
+
+        alert('CleanTalk API key deleted successfully!');
+    } catch (error) {
+        console.error('Failed to delete CleanTalk key:', error);
+        alert('Failed to delete CleanTalk key: ' + error.message);
     }
 }

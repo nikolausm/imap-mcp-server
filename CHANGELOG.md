@@ -5,6 +5,76 @@ All notable changes to IMAP MCP Pro will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.1] - 2025-11-06
+
+### Web UI & Provider Configuration Fixes
+
+This patch release addresses several critical Web UI bugs and improves the installation system.
+
+#### 🐛 Bug Fixes
+
+**Web UI Settings Panel**
+- Fixed settings button functionality - viewSettings() was referencing non-existent 'addAccountForm' element
+- Corrected element ID to 'credentialsForm' for proper panel hiding/showing (public/js/app.js:865-877)
+- Settings panel now opens correctly when clicking the settings button
+
+**SMTP Configuration Consistency**
+- Fixed SMTP settings field name inconsistency between two code paths
+- Standardized to use 'secure' field instead of mixed 'tls'/'secure' usage
+- Line 186-191: Changed from `tls` to `secure` for account creation
+- Line 610-635: Removed conditional checks so provider settings ALWAYS populate fields
+- SMTP settings now save correctly in the Web UI
+
+**Hostinger Email Provider**
+- Corrected default SMTP settings: smtp.hostinger.com, Port 465, TLS enabled
+- Changed imapSecurity from 'SSL' to 'TLS' (src/providers/email-providers.ts:255)
+- Changed smtpSecurity from 'SSL' to 'TLS' (src/providers/email-providers.ts:258)
+
+#### 🔧 Improvements
+
+**Intelligent Installation System**
+- `make install` now detects existing installations automatically
+- Checks for both package.json and data.db presence
+- Runs `make update-internal` instead of fresh install when detected
+- Preserves database while updating code (Makefile:106-123)
+
+**Update Process Enhancement**
+- Created new `update-internal` Makefile target (lines 147-200)
+- Stops service before update
+- Creates timestamped backup of installation directory
+- Updates files: dist/, node_modules/, public/, package.json
+- Preserves database and configuration
+- Applies database schema updates via DatabaseService
+- Restarts service after update
+- Shows version change and backup location
+
+**Documentation**
+- Added comprehensive environment variables section to README (lines 202-242)
+- Documented: MCP_USER_ID, PORT, NODE_ENV, IMAP_MCP_VERSION
+- Included multi-user configuration examples
+- Explained data isolation per user
+
+#### 📝 Files Modified
+- `Makefile` - Intelligent install detection and update-internal target
+- `public/js/app.js` - Fixed viewSettings() and SMTP field consistency
+- `src/providers/email-providers.ts` - Corrected Hostinger TLS settings
+- `README.md` - Added environment variables documentation
+- `CHANGELOG.md` - This file
+
+#### ⚠️ Breaking Changes
+
+**None** - All changes are backward compatible.
+
+#### 🎯 Impact
+
+- Settings panel is now accessible in Web UI
+- SMTP configuration saves correctly for all providers
+- Hostinger users get correct default settings
+- Updates preserve user data and apply schema changes
+- Better documentation for multi-tenant deployments
+
+---
+
 ## [2.6.0] - 2025-11-05
 
 ### Phase 2 - SQLite3 Integration & Multi-Tenant Architecture
