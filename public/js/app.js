@@ -616,13 +616,19 @@ function toggleSmtpSettings() {
         if (selectedProvider) {
             const smtpHost = document.getElementById('smtpHost');
             const smtpPort = document.getElementById('smtpPort');
-            
+            const smtpSecure = document.getElementById('smtpSecure');
+
             if (!smtpHost.value) {
-                // Convert IMAP host to SMTP host
-                smtpHost.value = selectedProvider.imapHost.replace('imap.', 'smtp.').replace('imap-', 'smtp-');
+                // Use provider's SMTP host if available, otherwise convert IMAP host
+                smtpHost.value = selectedProvider.smtpHost || selectedProvider.imapHost.replace('imap.', 'smtp.').replace('imap-', 'smtp-');
             }
             if (!smtpPort.value) {
-                smtpPort.value = '587'; // Default SMTP port
+                // Use provider's SMTP port if available, otherwise default to 587
+                smtpPort.value = selectedProvider.smtpPort || '587';
+            }
+            // Set TLS checkbox based on provider's SMTP security setting
+            if (selectedProvider.smtpSecurity === 'SSL' || selectedProvider.smtpSecurity === 'TLS') {
+                smtpSecure.checked = true;
             }
         }
     } else {
