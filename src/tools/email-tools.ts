@@ -242,7 +242,14 @@ export function emailTools(
       port: dbAccount.port,
       user: dbAccount.username,
       password: dbAccount.password,
-      tls: dbAccount.tls
+      tls: dbAccount.tls,
+      smtp: dbAccount.smtp_host ? {
+        host: dbAccount.smtp_host,
+        port: dbAccount.smtp_port!,
+        secure: dbAccount.smtp_secure || false,
+        user: dbAccount.smtp_username,
+        password: dbAccount.smtp_password
+      } : undefined
     };
 
     const emailComposer = {
@@ -307,7 +314,14 @@ export function emailTools(
       port: dbAccount.port,
       user: dbAccount.username,
       password: dbAccount.password,
-      tls: dbAccount.tls
+      tls: dbAccount.tls,
+      smtp: dbAccount.smtp_host ? {
+        host: dbAccount.smtp_host,
+        port: dbAccount.smtp_port!,
+        secure: dbAccount.smtp_secure || false,
+        user: dbAccount.smtp_username,
+        password: dbAccount.smtp_password
+      } : undefined
     };
 
     // Get original email
@@ -374,7 +388,14 @@ export function emailTools(
       port: dbAccount.port,
       user: dbAccount.username,
       password: dbAccount.password,
-      tls: dbAccount.tls
+      tls: dbAccount.tls,
+      smtp: dbAccount.smtp_host ? {
+        host: dbAccount.smtp_host,
+        port: dbAccount.smtp_port!,
+        secure: dbAccount.smtp_secure || false,
+        user: dbAccount.smtp_username,
+        password: dbAccount.smtp_password
+      } : undefined
     };
 
     // Get original email
