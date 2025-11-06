@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS users (
   username TEXT UNIQUE NOT NULL,
   email TEXT,
   organization TEXT,
+  role TEXT CHECK(role IN ('admin', 'user')) DEFAULT 'user', -- Issue #32: User roles/groups
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   is_active BOOLEAN DEFAULT 1,
@@ -31,6 +32,7 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE INDEX IF NOT EXISTS idx_users_organization ON users(organization);
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
 
 -- IMAP Email Accounts (migrated from JSON storage)
 -- Passwords are encrypted at rest using AES-256-GCM
@@ -169,6 +171,27 @@ CREATE TABLE IF NOT EXISTS unsubscribe_links (
 CREATE INDEX IF NOT EXISTS idx_unsubscribe_user ON unsubscribe_links(user_id);
 CREATE INDEX IF NOT EXISTS idx_unsubscribe_sender ON unsubscribe_links(sender_email);
 CREATE INDEX IF NOT EXISTS idx_unsubscribe_extracted ON unsubscribe_links(extracted_at DESC);
+
+-- CleanTalk API keys (per-user for Issues #17, #18, #3)
+-- Each user/customer has their own CleanTalk API key for SPAM detection
+CREATE TABLE IF NOT EXISTS cleantalk_keys (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT NOT NULL,
+  api_key TEXT NOT NULL,
+  is_active BOOLEAN DEFAULT 1,
+  daily_limit INTEGER DEFAULT 1000,
+  daily_usage INTEGER DEFAULT 0,
+  usage_reset_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  last_used TIMESTAMP,
+  notes TEXT,
+  FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+  UNIQUE(user_id, api_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_cleantalk_user ON cleantalk_keys(user_id);
+CREATE INDEX IF NOT EXISTS idx_cleantalk_active ON cleantalk_keys(is_active);
 
 -- Audit log for security and compliance
 CREATE TABLE IF NOT EXISTS audit_log (
