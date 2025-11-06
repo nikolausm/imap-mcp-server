@@ -248,7 +248,7 @@ export const emailProviders: EmailProvider[] = [
     id: 'hostinger',
     name: 'Hostinger',
     displayName: 'Hostinger Email',
-    iconUrl: 'https://cdn.jsdelivr.net/npm/simple-icons@v10/icons/hostinger.svg',
+    iconUrl: '/images/providers/hostinger_logo.svg',
     color: '#673AB7',
     imapHost: 'imap.hostinger.com',
     imapPort: 993,
