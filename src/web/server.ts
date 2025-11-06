@@ -4,6 +4,7 @@ import bodyParser from 'body-parser';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import open from 'open';
+import nodemailer from 'nodemailer';
 import { DatabaseService } from '../services/database-service.js';
 import { ImapService } from '../services/imap-service.js';
 import { emailProviders, getProviderByEmail } from '../providers/email-providers.js';
@@ -287,6 +288,113 @@ export class WebUIServer {
       }
     });
 
+    // Test account connection
+    this.app.post('/api/accounts/:id/test', async (req, res) => {
+      const startTime = Date.now();
+
+      try {
+        const dbAccount = this.db.getDecryptedAccount(req.params.id);
+        if (!dbAccount) {
+          return res.status(404).json({
+            success: false,
+            error: 'Account not found'
+          });
+        }
+
+        const results: any = {
+          accountName: dbAccount.name,
+          imap: { tested: false },
+          smtp: { tested: false },
+          totalTime: 0
+        };
+
+        // Test IMAP connection
+        try {
+          const imapAccount: ImapAccount = {
+            id: dbAccount.account_id,
+            name: dbAccount.name,
+            host: dbAccount.host,
+            port: dbAccount.port,
+            user: dbAccount.username,
+            password: dbAccount.password,
+            tls: dbAccount.tls
+          };
+
+          await this.imapService.connect(imapAccount);
+
+          // Get unread count from INBOX
+          try {
+            const unreadEmails = await this.imapService.searchEmails(dbAccount.account_id, 'INBOX', { seen: false });
+            results.imap = {
+              tested: true,
+              success: true,
+              unreadCount: unreadEmails.length,
+              message: 'IMAP connection successful'
+            };
+          } catch (unreadError) {
+            results.imap = {
+              tested: true,
+              success: true,
+              unreadCount: 0,
+              message: 'Connected but could not fetch unread count',
+              warning: unreadError instanceof Error ? unreadError.message : 'Unknown error'
+            };
+          }
+
+          // Disconnect after test
+          await this.imapService.disconnect(dbAccount.account_id);
+        } catch (imapError) {
+          results.imap = {
+            tested: true,
+            success: false,
+            error: imapError instanceof Error ? imapError.message : 'IMAP connection failed'
+          };
+        }
+
+        // Test SMTP connection if configured
+        if (dbAccount.smtp_host && dbAccount.smtp_port) {
+          try {
+            const transporter = nodemailer.createTransport({
+              host: dbAccount.smtp_host,
+              port: dbAccount.smtp_port,
+              secure: dbAccount.smtp_secure || false,
+              auth: {
+                user: dbAccount.smtp_username || dbAccount.username,
+                pass: dbAccount.smtp_password || dbAccount.password
+              }
+            });
+
+            await transporter.verify();
+            results.smtp = {
+              tested: true,
+              success: true,
+              message: 'SMTP connection successful'
+            };
+          } catch (smtpError) {
+            results.smtp = {
+              tested: true,
+              success: false,
+              error: smtpError instanceof Error ? smtpError.message : 'SMTP connection failed'
+            };
+          }
+        } else {
+          results.smtp = {
+            tested: false,
+            message: 'SMTP not configured'
+          };
+        }
+
+        results.totalTime = Date.now() - startTime;
+        res.json({ success: true, results });
+      } catch (error) {
+        res.status(500).json({
+          success: false,
+          error: error instanceof Error ? error.message : 'Test failed',
+          totalTime: Date.now() - startTime
+        });
+      }
+    });
+
     // Health check
     this.app.get('/api/health', (req, res) => {
       res.json({
@@ -301,16 +409,18 @@ export class WebUIServer {
 
   async start(autoOpen: boolean = true): Promise<void> {
     return new Promise((resolve) => {
-      const server = this.app.listen(this.port, () => {
+      // SECURITY: Explicitly bind to localhost (127.0.0.1) to prevent external access
+      const server = this.app.listen(this.port, '127.0.0.1', () => {
         console.log(`🌐 Web UI server running at http://localhost:${this.port}`);
-        
+        console.log(`🔒 Security: Server bound to localhost only (127.0.0.1)`);
+
         if (autoOpen) {
           // Open browser after a short delay
           setTimeout(() => {
             open(`http://localhost:${this.port}`);
           }, 1000);
         }
-        
+
         resolve();
       });
 

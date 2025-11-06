@@ -370,10 +370,13 @@ async function viewAccounts() {
                                     <span class="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">Active</span>
                                 </td>
                                 <td class="py-3 text-right">
-                                    <button onclick="editAccount('${account.id}')" class="text-blue-600 hover:text-blue-800 mr-2">
+                                    <button onclick="testAccount('${account.id}')" class="text-green-600 hover:text-green-800 mr-2" title="Test Connection">
+                                        🩺
+                                    </button>
+                                    <button onclick="editAccount('${account.id}')" class="text-blue-600 hover:text-blue-800 mr-2" title="Edit Account">
                                         ✏️
                                     </button>
-                                    <button onclick="removeAccount('${account.id}')" class="text-red-600 hover:text-red-800">
+                                    <button onclick="removeAccount('${account.id}')" class="text-red-600 hover:text-red-800" title="Remove Account">
                                         🗑️
                                     </button>
                                 </td>
@@ -662,4 +665,171 @@ function closeWindow() {
     } else {
         alert('Account added successfully! You can close this window.');
     }
+}
+
+// Test a single account
+async function testAccount(accountId) {
+    const resultsArea = document.getElementById('testResults');
+    const resultsContent = document.getElementById('testResultsContent');
+
+    // Show results area and loading message
+    resultsArea.classList.remove('hidden');
+    resultsContent.innerHTML = '<div class="text-center py-4"><div class="loading-spinner mx-auto"></div><p class="mt-2 text-gray-600">Testing account...</p></div>';
+
+    try {
+        const response = await fetch(`/api/accounts/${accountId}/test`, {
+            method: 'POST'
+        });
+        const result = await response.json();
+
+        if (!result.success) {
+            throw new Error(result.error || 'Test failed');
+        }
+
+        // Display results
+        displayTestResult(result.results);
+    } catch (error) {
+        resultsContent.innerHTML = `
+            <div class="bg-red-50 border border-red-200 rounded-lg p-4">
+                <p class="text-red-800 font-semibold">❌ Test Failed</p>
+                <p class="text-red-600 text-sm mt-1">${error.message}</p>
+            </div>
+        `;
+    }
+}
+
+// Test all accounts
+async function testAllAccounts() {
+    const resultsArea = document.getElementById('testResults');
+    const resultsContent = document.getElementById('testResultsContent');
+
+    try {
+        // Get all accounts
+        const response = await fetch('/api/accounts');
+        const accounts = await response.json();
+
+        if (accounts.length === 0) {
+            alert('No accounts to test');
+            return;
+        }
+
+        // Show results area and loading message
+        resultsArea.classList.remove('hidden');
+        resultsContent.innerHTML = '<div class="text-center py-4"><div class="loading-spinner mx-auto"></div><p class="mt-2 text-gray-600">Testing all accounts...</p></div>';
+
+        // Test each account
+        const results = [];
+        for (const account of accounts) {
+            try {
+                const testResponse = await fetch(`/api/accounts/${account.id}/test`, {
+                    method: 'POST'
+                });
+                const testResult = await testResponse.json();
+                results.push(testResult.success ? testResult.results : {
+                    accountName: account.name,
+                    error: testResult.error || 'Test failed'
+                });
+            } catch (error) {
+                results.push({
+                    accountName: account.name,
+                    error: error.message
+                });
+            }
+        }
+
+        // Display all results
+        displayAllTestResults(results);
+    } catch (error) {
+        resultsContent.innerHTML = `
+            <div class="bg-red-50 border border-red-200 rounded-lg p-4">
+                <p class="text-red-800 font-semibold">❌ Test Failed</p>
+                <p class="text-red-600 text-sm mt-1">${error.message}</p>
+            </div>
+        `;
+    }
+}
+
+// Display test result for a single account
+function displayTestResult(result) {
+    const resultsContent = document.getElementById('testResultsContent');
+
+    const imapStatus = result.imap.success
+        ? `<span class="text-green-600">✓ Connected</span>`
+        : `<span class="text-red-600">✗ Failed</span>`;
+
+    const smtpStatus = !result.smtp.tested
+        ? '<span class="text-gray-500">Not Configured</span>'
+        : result.smtp.success
+            ? '<span class="text-green-600">✓ Connected</span>'
+            : '<span class="text-red-600">✗ Failed</span>';
+
+    resultsContent.innerHTML = `
+        <div class="space-y-4">
+            <div class="border-b pb-3">
+                <h4 class="font-semibold text-lg">${result.accountName}</h4>
+                <p class="text-sm text-gray-500">Test completed in ${result.totalTime}ms</p>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+                <div class="bg-gray-50 p-4 rounded">
+                    <p class="font-semibold text-gray-700">IMAP Connection</p>
+                    <p class="mt-2">${imapStatus}</p>
+                    ${result.imap.success ? `<p class="text-sm mt-1 text-gray-600">📬 ${result.imap.unreadCount} unread emails</p>` : ''}
+                    ${result.imap.error ? `<p class="text-sm mt-1 text-red-600">${result.imap.error}</p>` : ''}
+                </div>
+
+                <div class="bg-gray-50 p-4 rounded">
+                    <p class="font-semibold text-gray-700">SMTP Connection</p>
+                    <p class="mt-2">${smtpStatus}</p>
+                    ${result.smtp.error ? `<p class="text-sm mt-1 text-red-600">${result.smtp.error}</p>` : ''}
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+// Display test results for all accounts
+function displayAllTestResults(results) {
+    const resultsContent = document.getElementById('testResultsContent');
+
+    const resultsHtml = results.map(result => {
+        if (result.error) {
+            return `
+                <div class="border-b pb-4 mb-4">
+                    <h4 class="font-semibold">${result.accountName}</h4>
+                    <p class="text-sm text-red-600 mt-1">❌ ${result.error}</p>
+                </div>
+            `;
+        }
+
+        const imapIcon = result.imap.success ? '✓' : '✗';
+        const imapColor = result.imap.success ? 'text-green-600' : 'text-red-600';
+        const smtpIcon = !result.smtp.tested ? '○' : result.smtp.success ? '✓' : '✗';
+        const smtpColor = !result.smtp.tested ? 'text-gray-500' : result.smtp.success ? 'text-green-600' : 'text-red-600';
+
+        return `
+            <div class="border-b pb-4 mb-4 last:border-0">
+                <h4 class="font-semibold">${result.accountName}</h4>
+                <div class="flex gap-4 mt-2 text-sm">
+                    <div>
+                        <span class="${imapColor}">${imapIcon} IMAP</span>
+                        ${result.imap.success ? `<span class="text-gray-600 ml-1">(${result.imap.unreadCount} unread)</span>` : ''}
+                    </div>
+                    <div>
+                        <span class="${smtpColor}">${smtpIcon} SMTP</span>
+                        ${!result.smtp.tested ? '<span class="text-gray-500 ml-1">(not configured)</span>' : ''}
+                    </div>
+                </div>
+                ${result.imap.error ? `<p class="text-xs text-red-600 mt-1">IMAP: ${result.imap.error}</p>` : ''}
+                ${result.smtp.error ? `<p class="text-xs text-red-600 mt-1">SMTP: ${result.smtp.error}</p>` : ''}
+            </div>
+        `;
+    }).join('');
+
+    resultsContent.innerHTML = `
+        <div class="space-y-2">
+            <p class="text-sm text-gray-600 mb-4">Tested ${results.length} account(s)</p>
+            ${resultsHtml}
+        </div>
+    `;
 }
