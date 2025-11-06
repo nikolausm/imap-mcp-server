@@ -245,6 +245,22 @@ export const emailProviders: EmailProvider[] = [
     notes: 'Requires app-specific password. Create one in Settings > Privacy & Security.'
   },
   {
+    id: 'hostinger',
+    name: 'Hostinger',
+    displayName: 'Hostinger Email',
+    iconUrl: 'https://cdn.jsdelivr.net/npm/simple-icons@v10/icons/hostinger.svg',
+    color: '#673AB7',
+    imapHost: 'imap.hostinger.com',
+    imapPort: 993,
+    imapSecurity: 'SSL',
+    smtpHost: 'smtp.hostinger.com',
+    smtpPort: 465,
+    smtpSecurity: 'SSL',
+    domains: [],
+    helpUrl: 'https://support.hostinger.com/en/articles/1583419-how-to-set-up-an-email-account-on-an-email-client',
+    notes: 'For Hostinger-hosted email accounts. Use full email address as username.'
+  },
+  {
     id: 'custom',
     name: 'Custom',
     displayName: 'Custom/Other Provider',
