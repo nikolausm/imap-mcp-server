@@ -375,10 +375,21 @@ export class WebUIServer {
               auth: {
                 user: dbAccount.smtp_username || dbAccount.username,
                 pass: dbAccount.smtp_password || dbAccount.password
-              }
+              },
+              connectionTimeout: 10000, // 10 second connection timeout
+              greetingTimeout: 10000,   // 10 second greeting timeout
+              socketTimeout: 10000      // 10 second socket timeout
             });
 
-            await transporter.verify();
+            // Add timeout wrapper for verify() operation
+            const verifyWithTimeout = Promise.race([
+              transporter.verify(),
+              new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('SMTP verification timed out after 10 seconds')), 10000)
+              )
+            ]);
+
+            await verifyWithTimeout;
             results.smtp = {
               tested: true,
               success: true,
