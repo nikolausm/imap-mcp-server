@@ -1,14 +1,14 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { ImapService } from '../services/imap-service.js';
-import { AccountManager } from '../services/account-manager.js';
+import { DatabaseService } from '../services/database-service.js';
 import { SmtpService } from '../services/smtp-service.js';
 import { z } from 'zod';
-import { withErrorHandling } from '../utils/error-handler.js';
+import { withErrorHandling, AccountNotFoundError } from '../utils/error-handler.js';
 
 export function emailTools(
   server: McpServer,
   imapService: ImapService,
-  accountManager: AccountManager,
+  db: DatabaseService,
   smtpService: SmtpService
 ): void {
   // Search emails tool
@@ -229,10 +229,21 @@ export function emailTools(
       })).optional().describe('Email attachments'),
     }
   }, withErrorHandling(async ({ accountId, to, subject, text, html, cc, bcc, replyTo, attachments }) => {
-    const account = await accountManager.getAccount(accountId);
-    if (!account) {
-      throw new Error(`Account ${accountId} not found`);
+    const dbAccount = db.getDecryptedAccount(accountId);
+    if (!dbAccount) {
+      throw new AccountNotFoundError(accountId);
     }
+
+    // Convert database account to ImapAccount format
+    const account = {
+      id: dbAccount.account_id,
+      name: dbAccount.name,
+      host: dbAccount.host,
+      port: dbAccount.port,
+      user: dbAccount.username,
+      password: dbAccount.password,
+      tls: dbAccount.tls
+    };
 
     const emailComposer = {
       from: account.user,
@@ -283,14 +294,25 @@ export function emailTools(
       })).optional().describe('Email attachments'),
     }
   }, withErrorHandling(async ({ accountId, folder, uid, text, html, replyAll, attachments }) => {
-    const account = await accountManager.getAccount(accountId);
-    if (!account) {
-      throw new Error(`Account ${accountId} not found`);
+    const dbAccount = db.getDecryptedAccount(accountId);
+    if (!dbAccount) {
+      throw new AccountNotFoundError(accountId);
     }
+
+    // Convert database account to ImapAccount format
+    const account = {
+      id: dbAccount.account_id,
+      name: dbAccount.name,
+      host: dbAccount.host,
+      port: dbAccount.port,
+      user: dbAccount.username,
+      password: dbAccount.password,
+      tls: dbAccount.tls
+    };
 
     // Get original email
     const originalEmail = await imapService.getEmailContent(accountId, folder, uid);
-    
+
     // Prepare reply
     const recipients = [originalEmail.from];
     if (replyAll) {
@@ -339,17 +361,28 @@ export function emailTools(
       includeAttachments: z.boolean().default(true).describe('Include original attachments'),
     }
   }, withErrorHandling(async ({ accountId, folder, uid, to, text, includeAttachments }) => {
-    const account = await accountManager.getAccount(accountId);
-    if (!account) {
-      throw new Error(`Account ${accountId} not found`);
+    const dbAccount = db.getDecryptedAccount(accountId);
+    if (!dbAccount) {
+      throw new AccountNotFoundError(accountId);
     }
+
+    // Convert database account to ImapAccount format
+    const account = {
+      id: dbAccount.account_id,
+      name: dbAccount.name,
+      host: dbAccount.host,
+      port: dbAccount.port,
+      user: dbAccount.username,
+      password: dbAccount.password,
+      tls: dbAccount.tls
+    };
 
     // Get original email
     const originalEmail = await imapService.getEmailContent(accountId, folder, uid);
-    
+
     // Prepare forwarded content
     const forwardHeader = `\n\n---------- Forwarded message ----------\nFrom: ${originalEmail.from}\nDate: ${originalEmail.date.toLocaleString()}\nSubject: ${originalEmail.subject}\nTo: ${originalEmail.to.join(', ')}\n\n`;
-    
+
     const emailComposer = {
       from: account.user,
       to,

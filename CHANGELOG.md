@@ -5,6 +5,113 @@ All notable changes to IMAP MCP Pro will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.0] - 2025-11-05
+
+### Phase 2 - SQLite3 Integration & Multi-Tenant Architecture
+
+This release completes the SQLite3 integration (Issue #6), replacing the JSON-based AccountManager with a proper database layer featuring AES-256-GCM encryption, multi-tenant user management, and MSP (Managed Service Provider) support.
+
+#### ✨ New Features
+
+**SQLite3 Database Layer**
+- ✅ **Complete migration from AccountManager to DatabaseService**
+  - Better-sqlite3 integration for robust persistence
+  - AES-256-GCM encryption at rest with integrity protection (auth tags)
+  - Secure encryption key storage with 0o600 permissions (~/.imap-mcp/.encryption-key)
+  - Automatic encryption/decryption on all database operations
+  - Transactional integrity for multi-row operations
+
+**Multi-Tenant User Management (MSP Architecture)**
+- ✅ **9 new user and account management MCP tools:**
+  - `imap_create_user` - Create new user
+  - `imap_list_users` - List all users
+  - `imap_get_user` - Get user details by username
+  - `imap_db_add_account` - Add encrypted IMAP account to database
+  - `imap_db_list_accounts` - List accounts for user
+  - `imap_db_get_account` - Get decrypted account details
+  - `imap_db_remove_account` - Remove account from database
+  - `imap_share_account` - Share account with another user (MSP feature)
+  - `imap_unshare_account` - Revoke account access
+- ✅ **Role-based access control:**
+  - Owner, Admin, User, and ReadOnly roles
+  - Account sharing with granular permissions
+  - User activation/deactivation support
+- ✅ **Organization support:**
+  - Multi-organization architecture for MSPs
+  - Isolate accounts by organization
+
+**Database Schema**
+- `users` table: User profiles with org assignment and role management
+- `accounts` table: Encrypted IMAP account credentials with SMTP support
+- `account_shares` table: Many-to-many relationship for account sharing
+- Foreign key constraints for referential integrity
+- Optimized indexes for common queries
+
+#### 🔧 Technical Improvements
+
+**Updated Services:**
+- All MCP tools now use DatabaseService instead of AccountManager
+- `src/tools/account-tools.ts` - Converted to use encrypted database storage
+- `src/tools/email-tools.ts` - Updated to fetch accounts from database
+- `src/tools/folder-tools.ts` - Updated signature for database integration
+- `src/tools/user-tools.ts` - NEW: Complete user management toolset
+
+**Security Enhancements:**
+- AES-256-GCM encryption with unique IV per encrypted field
+- Integrity protection via authentication tags
+- Secure key generation and storage
+- No plaintext credentials in memory or logs
+
+**Code Organization:**
+- `src/services/database-service.ts` - Centralized database operations
+- Consistent error handling across all database operations
+- Type-safe database queries with TypeScript
+
+#### 📊 Tool Count
+
+**Total MCP Tools: 41** (was 32)
+- User management: 9 tools
+- Account management: 5 tools (updated to use DatabaseService)
+- Email operations: 18 tools (updated signatures)
+- Folder operations: 6 tools (updated signatures)
+- Meta/discovery: 3 tools
+
+#### ⚠️ Deprecation Notices
+
+**AccountManager Deprecated:**
+- `imap_add_account` - DEPRECATED: Use `imap_db_add_account` instead
+- Legacy tool creates default user automatically for backward compatibility
+- AccountManager class will be removed in v3.0.0
+
+#### 🔒 Security
+
+- All IMAP account passwords encrypted at rest with AES-256-GCM
+- All SMTP passwords encrypted at rest with AES-256-GCM
+- Encryption key protected with restrictive file permissions (0o600)
+- Automatic decryption only when needed for IMAP/SMTP operations
+
+#### 🐛 Bug Fixes
+
+- Fixed account retrieval to use encrypted database storage
+- Fixed email sending to properly convert database accounts to ImapAccount format
+- Fixed reply/forward operations to work with DatabaseService
+
+#### ⚠️ Breaking Changes
+
+**None** - Backward compatibility maintained:
+- Legacy `imap_add_account` still works (creates default user automatically)
+- Existing tools accept same parameters
+- Migration of old accounts can be done manually by re-entering credentials
+
+#### 🎯 What's Next
+
+Phase 2 complete! Next priorities:
+- Phase 3: Level 3 reliability features testing
+- Phase 4: Rules engine and SPAM detection (Issues #1, #2, #3)
+- Phase 5: Testing & DevOps (test suite, installation system)
+
+---
+
 ## [2.5.1] - 2025-11-05
 
 ### Phase 1 Critical Fixes - Stability & Reliability

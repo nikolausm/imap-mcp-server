@@ -1,17 +1,17 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { AccountManager } from '../services/account-manager.js';
+import { DatabaseService } from '../services/database-service.js';
 import { ImapService } from '../services/imap-service.js';
 import { z } from 'zod';
 import { withErrorHandling, AccountNotFoundError, validateOneOf } from '../utils/error-handler.js';
 
 export function accountTools(
   server: McpServer,
-  accountManager: AccountManager,
+  db: DatabaseService,
   imapService: ImapService
 ): void {
-  // Add account tool
+  // Add account tool - DEPRECATED: Use imap_db_add_account instead
   server.registerTool('imap_add_account', {
-    description: 'Add a new IMAP account configuration',
+    description: '(DEPRECATED) Use imap_db_add_account for new accounts. This tool creates a default user.',
     inputSchema: {
       name: z.string().describe('Friendly name for the account'),
       host: z.string().describe('IMAP server hostname'),
@@ -21,13 +21,28 @@ export function accountTools(
       tls: z.boolean().default(true).describe('Use TLS/SSL (default: true)'),
     }
   }, withErrorHandling(async ({ name, host, port, user, password, tls }) => {
-    const account = await accountManager.addAccount({
+    // Get or create default user
+    let defaultUser = db.getUserByUsername('default');
+    if (!defaultUser) {
+      const crypto = await import('crypto');
+      defaultUser = db.createUser({
+        user_id: crypto.randomUUID(),
+        username: 'default',
+        email: undefined,
+        organization: 'Personal',
+        is_active: true
+      });
+    }
+
+    const account = db.createAccount({
+      user_id: defaultUser.user_id,
       name,
       host,
       port,
-      user,
+      username: user,
       password,
       tls,
+      is_active: true
     });
 
     return {
@@ -35,8 +50,8 @@ export function accountTools(
         type: 'text',
         text: JSON.stringify({
           success: true,
-          accountId: account.id,
-          message: `Account "${name}" added successfully`,
+          accountId: account.account_id,
+          message: `Account "${name}" added successfully (encrypted in database)`,
         }, null, 2)
       }]
     };
@@ -44,21 +59,35 @@ export function accountTools(
 
   // List accounts tool
   server.registerTool('imap_list_accounts', {
-    description: 'List all configured IMAP accounts',
+    description: 'List all IMAP accounts for default user',
     inputSchema: {}
   }, withErrorHandling(async () => {
-    const accounts = accountManager.getAllAccounts();
+    // Get default user
+    const defaultUser = db.getUserByUsername('default');
+    if (!defaultUser) {
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            accounts: [],
+            message: 'No default user found. Create user first with imap_create_user.'
+          }, null, 2)
+        }]
+      };
+    }
+
+    const accounts = db.listDecryptedAccountsForUser(defaultUser.user_id);
 
     return {
       content: [{
         type: 'text',
         text: JSON.stringify({
           accounts: accounts.map(acc => ({
-            id: acc.id,
+            id: acc.account_id,
             name: acc.name,
             host: acc.host,
             port: acc.port,
-            user: acc.user,
+            user: acc.username,
             tls: acc.tls,
           })),
         }, null, 2)
@@ -68,13 +97,13 @@ export function accountTools(
 
   // Remove account tool
   server.registerTool('imap_remove_account', {
-    description: 'Remove an IMAP account configuration',
+    description: 'Remove an IMAP account from database',
     inputSchema: {
       accountId: z.string().describe('ID of the account to remove'),
     }
   }, withErrorHandling(async ({ accountId }) => {
     await imapService.disconnect(accountId);
-    await accountManager.removeAccount(accountId);
+    db.deleteAccount(accountId);
 
     return {
       content: [{
@@ -91,24 +120,25 @@ export function accountTools(
   server.registerTool('imap_connect', {
     description: 'Connect to an IMAP account',
     inputSchema: {
-      accountId: z.string().optional().describe('Account ID to connect to'),
-      accountName: z.string().optional().describe('Account name to connect to'),
+      accountId: z.string().describe('Account ID to connect to'),
     }
-  }, withErrorHandling(async ({ accountId, accountName }) => {
-    validateOneOf({ accountId, accountName }, ['accountId', 'accountName']);
-
-    let account;
-    if (accountId) {
-      account = accountManager.getAccount(accountId);
-    } else if (accountName) {
-      account = accountManager.getAccountByName(accountName);
-    }
+  }, withErrorHandling(async ({ accountId }) => {
+    const account = db.getDecryptedAccount(accountId);
 
     if (!account) {
-      throw new AccountNotFoundError(accountId || accountName || 'unknown');
+      throw new AccountNotFoundError(accountId);
     }
 
-    await imapService.connect(account);
+    // Convert database account to ImapAccount format
+    await imapService.connect({
+      id: account.account_id,
+      name: account.name,
+      host: account.host,
+      port: account.port,
+      user: account.username,
+      password: account.password,
+      tls: account.tls
+    });
 
     return {
       content: [{
@@ -116,7 +146,7 @@ export function accountTools(
         text: JSON.stringify({
           success: true,
           message: `Connected to account "${account.name}"`,
-          accountId: account.id,
+          accountId: account.account_id,
         }, null, 2)
       }]
     };

@@ -1,13 +1,13 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { ImapService } from '../services/imap-service.js';
-import { AccountManager } from '../services/account-manager.js';
+import { DatabaseService } from '../services/database-service.js';
 import { z } from 'zod';
 import { withErrorHandling } from '../utils/error-handler.js';
 
 export function folderTools(
   server: McpServer,
   imapService: ImapService,
-  accountManager: AccountManager
+  db: DatabaseService
 ): void {
   // List folders tool
   server.registerTool('imap_list_folders', {
