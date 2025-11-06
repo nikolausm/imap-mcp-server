@@ -67,6 +67,47 @@ DATA_DIR=$DATA_DIR
 CONFIG_DIR=$CONFIG_DIR
 EOF
 
+# Get version from package.json
+VERSION=$(node -p "require('./package.json').version" 2>/dev/null || echo "unknown")
+
+# Update Claude Desktop config if it exists
+CLAUDE_CONFIG=""
+if [ "$PLATFORM" = "darwin" ]; then
+    CLAUDE_CONFIG="$HOME/Library/Application Support/Claude/claude_desktop_config.json"
+elif [ "$PLATFORM" = "linux" ]; then
+    CLAUDE_CONFIG="$HOME/.config/Claude/claude_desktop_config.json"
+fi
+
+if [ -n "$CLAUDE_CONFIG" ] && [ -f "$CLAUDE_CONFIG" ]; then
+    echo ""
+    echo "Updating Claude Desktop configuration..."
+
+    # Create backup
+    cp "$CLAUDE_CONFIG" "$CLAUDE_CONFIG.backup-$(date +%Y%m%d-%H%M%S)"
+
+    # Update config with new path and version
+    cat > "$CLAUDE_CONFIG" <<EOF
+{
+  "mcpServers": {
+    "imap": {
+      "command": "node",
+      "args": [
+        "$INSTALL_DIR/index.js"
+      ],
+      "env": {
+        "MCP_USER_ID": "$(whoami)",
+        "IMAP_MCP_VERSION": "$VERSION"
+      }
+    }
+  }
+}
+EOF
+
+    echo "✓ Claude Desktop config updated"
+    echo "  Backup saved to: $CLAUDE_CONFIG.backup-$(date +%Y%m%d-%H%M%S)"
+    echo "  Please restart Claude Desktop to apply changes"
+fi
+
 echo ""
 echo "===========================================
 Installation Complete!
@@ -76,23 +117,25 @@ echo "Install Directory: $INSTALL_DIR"
 echo "Config Directory: $CONFIG_DIR"
 echo "Data Directory: $DATA_DIR"
 echo "Log Directory: $LOG_DIR"
+echo "Version: $VERSION"
 echo ""
 echo "Credentials saved to: $CONFIG_DIR/credentials.env"
 echo ""
 echo "Next steps:"
 echo "1. Review credentials: cat $CONFIG_DIR/credentials.env"
-echo "2. Start service: make start"
-echo "3. Check status: make status"
+echo "2. Restart Claude Desktop (if config was updated)"
+echo "3. Start service: make start"
+echo "4. Check status: make status"
 echo ""
-echo "To add IMAP MCP Pro to Claude Desktop, add this to your config:"
-echo ""
+echo "Claude Desktop configuration:"
 echo '{'
 echo '  "mcpServers": {'
 echo '    "imap": {'
 echo '      "command": "node",'
 echo "      \"args\": [\"$INSTALL_DIR/index.js\"],"
 echo '      "env": {'
-echo "        \"MCP_USER_ID\": \"$(whoami)\""
+echo "        \"MCP_USER_ID\": \"$(whoami)\","
+echo "        \"IMAP_MCP_VERSION\": \"$VERSION\""
 echo '      }'
 echo '    }'
 echo '  }'
