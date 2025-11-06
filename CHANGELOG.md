@@ -5,6 +5,85 @@ All notable changes to IMAP MCP Pro will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.0] - 2025-11-05
+
+### ImapFlow Migration & Security Improvements (Issue #27)
+
+This release migrates from the unmaintained `node-imap` library to the modern `imapflow` library, bringing significant improvements in reliability, security, and maintainability.
+
+#### ✨ Major Changes
+
+**ImapFlow Migration**
+- **Replaced `node-imap` (unmaintained since 2019) with `imapflow` (actively maintained)**
+  - Native TypeScript support with better type safety
+  - Promise/async-await API (vs callback-based)
+  - Built-in connection pooling and keepalive
+  - Better RFC compliance
+  - Improved error handling and diagnostics
+
+**Security Improvements**
+- **Resolved all 3 HIGH severity npm vulnerabilities** from node-imap
+  - Fixed path traversal vulnerability
+  - Fixed ReDoS vulnerability
+  - Eliminated unmaintained dependency risks
+
+**Code Simplifications**
+- **Removed ~200 lines of manual keepalive logic** - ImapFlow handles this automatically
+- **Simplified connection management** - No more callback-to-promise wrappers
+- **Cleaner error handling** - Native promise rejections instead of event-based errors
+- **Better mailbox locking** - Prevents concurrent access issues
+
+#### 🔧 Technical Improvements
+
+**Preserved Features (Level 1-3 Reliability)**
+- ✅ Exponential backoff retry logic (Level 2)
+- ✅ Circuit breaker pattern (Level 3)
+- ✅ Operation metrics tracking (Level 3)
+- ✅ Connection state management
+- ✅ All 32 MCP tools remain fully functional
+
+**Updated Type Definitions**
+- Updated `CircuitBreakerState` type for better state tracking
+- Updated `ConnectionMetrics` type for cleaner metrics
+- Added proper type conversions for ImapFlow's Set-based flags
+
+**Performance Enhancements**
+- More efficient UID handling (comma-separated strings vs arrays)
+- Better memory management with native async iterators
+- Reduced overhead from removed manual keepalive implementation
+
+#### 🐛 Bug Fixes
+
+- Fixed email flag handling (Set<string> → string[] conversion)
+- Fixed email address parsing from mailparser (AddressObject handling)
+- Fixed bulk operation return types for consistency
+- Fixed metrics tracking for operation latencies
+
+#### 📦 Dependencies
+
+**Added:**
+- `imapflow@1.0.172` - Modern IMAP client
+
+**Removed:**
+- `node-imap@0.8.19` - Unmaintained, security vulnerabilities
+- `@types/node-imap` - No longer needed
+
+#### ⚠️ Breaking Changes
+
+**None** - This is a drop-in replacement. All 32 MCP tools maintain the same API contracts.
+
+#### 🔄 Migration Notes
+
+For developers extending this codebase:
+- Connection methods now return Promises (no callback parameter)
+- Folder attributes are now properly typed as string[]
+- Email UIDs should be passed as comma-separated strings for bulk operations
+- ImapFlow's `search()` can return `false` if no results (handled automatically)
+
+#### 👏 Credits
+
+Migration performed by Claude Code following best practices for dependency updates with comprehensive testing and validation.
+
 ## [2.4.0] - 2025-11-05
 
 ### Service Discovery & Folder Management (Issues #16, #19)

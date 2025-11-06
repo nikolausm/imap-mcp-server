@@ -1,3 +1,6 @@
+// Database types
+export * from './database-types.js';
+
 // Connection state tracking
 export enum ConnectionState {
   DISCONNECTED = 'DISCONNECTED',
@@ -165,11 +168,11 @@ export interface CircuitBreakerConfig {
 
 export interface CircuitBreakerState {
   state: CircuitState;
-  failures: number;
-  successes: number;
+  failureCount: number;
+  successCount: number;
   lastFailureTime?: Date;
-  nextAttemptTime?: Date;
-  failureTimestamps: Date[];
+  lastStateChange: Date;
+  config: Required<CircuitBreakerConfig>;
 }
 
 // Level 3: Operation Queue
@@ -196,11 +199,8 @@ export interface ConnectionMetrics {
   successfulOperations: number;
   failedOperations: number;
   averageLatency: number;
-  lastOperationTime?: Date;
-  uptimePercentage: number;
-  connectionUptime: number;
-  totalDowntime: number;
-  lastMetricsReset: Date;
+  lastOperationTime: Date;
+  uptime: number;
 }
 
 export interface OperationMetrics {

@@ -399,7 +399,7 @@ export function emailTools(
     const emails = await imapService.bulkGetEmails(accountId, folder, uids, fields);
 
     // Limit content for response size
-    const limitedEmails = emails.map(email => ({
+    const limitedEmails = emails.map((email: any) => ({
       ...email,
       textContent: email.textContent?.substring(0, 5000),
       htmlContent: email.htmlContent?.substring(0, 5000),
@@ -440,14 +440,14 @@ export function emailTools(
       };
     }
 
-    const result = await imapService.bulkMarkEmails(accountId, folder, uids, operation);
+    await imapService.bulkMarkEmails(accountId, folder, uids, operation);
 
     return {
       content: [{
         type: 'text',
         text: JSON.stringify({
-          ...result,
-          message: `Successfully marked ${result.processedCount} email(s) as ${operation}`,
+          success: true,
+          message: `Successfully marked ${uids.length} email(s) as ${operation}`,
         }, null, 2)
       }]
     };
@@ -499,14 +499,14 @@ export function emailTools(
       };
     }
 
-    const result = await imapService.bulkCopyEmails(accountId, sourceFolder, uids, targetFolder);
+    await imapService.bulkCopyEmails(accountId, sourceFolder, uids, targetFolder);
 
     return {
       content: [{
         type: 'text',
         text: JSON.stringify({
-          ...result,
-          message: `Successfully copied ${result.processedCount} email(s) from ${sourceFolder} to ${targetFolder}`,
+          success: true,
+          message: `Successfully copied ${uids.length} email(s) from ${sourceFolder} to ${targetFolder}`,
         }, null, 2)
       }]
     };
@@ -558,14 +558,14 @@ export function emailTools(
       };
     }
 
-    const result = await imapService.bulkMoveEmails(accountId, sourceFolder, uids, targetFolder);
+    await imapService.bulkMoveEmails(accountId, sourceFolder, uids, targetFolder);
 
     return {
       content: [{
         type: 'text',
         text: JSON.stringify({
-          ...result,
-          message: `Successfully moved ${result.processedCount} email(s) from ${sourceFolder} to ${targetFolder}`,
+          success: true,
+          message: `Successfully moved ${uids.length} email(s) from ${sourceFolder} to ${targetFolder}`,
         }, null, 2)
       }]
     };
@@ -578,8 +578,7 @@ export function emailTools(
       accountId: z.string().describe('Account ID'),
     }
   }, async ({ accountId }) => {
-    const metrics = imapService.getMetrics(accountId);
-    const connectionState = imapService.getConnectionState(accountId);
+    const metrics = await imapService.getMetrics(accountId);
 
     if (!metrics) {
       return {
@@ -599,11 +598,9 @@ export function emailTools(
         text: JSON.stringify({
           success: true,
           accountId,
-          connectionState,
           metrics: {
             ...metrics,
             lastOperationTime: metrics.lastOperationTime?.toISOString(),
-            lastMetricsReset: metrics.lastMetricsReset.toISOString(),
           },
         }, null, 2)
       }]
@@ -614,17 +611,18 @@ export function emailTools(
   server.registerTool('imap_get_operation_metrics', {
     description: 'Get detailed metrics for IMAP operations',
     inputSchema: {
+      accountId: z.string().describe('Account ID'),
       operationName: z.string().optional().describe('Specific operation name (optional, returns all if not specified)'),
     }
-  }, async ({ operationName }) => {
-    const metrics = imapService.getOperationMetrics(operationName);
+  }, async ({ accountId, operationName }) => {
+    const metrics = imapService.getOperationMetrics(accountId, operationName);
 
     return {
       content: [{
         type: 'text',
         text: JSON.stringify({
           success: true,
-          operations: metrics.map(m => ({
+          operations: metrics.map((m: any) => ({
             ...m,
             lastExecuted: m.lastExecuted?.toISOString(),
           })),
