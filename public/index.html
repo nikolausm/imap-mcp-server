@@ -51,8 +51,10 @@
                         <h1 class="text-2xl font-bold text-gray-900">IMAP Account Setup</h1>
                     </div>
                     <div class="flex items-center space-x-4">
-                        <div id="versionBadge" class="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">
-                            <span class="font-semibold">MCP:</span> <span id="mcpVersion">Loading...</span>
+                        <div id="versionBadge" class="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded flex items-center space-x-2">
+                            <span><span class="font-semibold">MCP:</span> <span id="mcpVersion">Loading...</span></span>
+                            <span class="text-gray-400">|</span>
+                            <span><span class="font-semibold">UI:</span> <span id="uiVersion">Loading...</span></span>
                         </div>
                         <button onclick="viewAccounts()" class="text-gray-600 hover:text-gray-900">
                             <span class="mr-2">📋</span>View Accounts

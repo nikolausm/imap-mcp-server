@@ -38,15 +38,30 @@ async function loadVersionInfo() {
     try {
         const response = await fetch('/api/health');
         const health = await response.json();
-        const versionElement = document.getElementById('mcpVersion');
-        if (versionElement && health.version) {
-            versionElement.textContent = `v${health.version}`;
+
+        // Update MCP version
+        const mcpVersionElement = document.getElementById('mcpVersion');
+        if (mcpVersionElement && health.mcpVersion) {
+            mcpVersionElement.textContent = `v${health.mcpVersion}`;
+        }
+
+        // Update UI version
+        const uiVersionElement = document.getElementById('uiVersion');
+        if (uiVersionElement && health.uiVersion) {
+            uiVersionElement.textContent = `v${health.uiVersion}`;
         }
     } catch (error) {
         console.error('Failed to load version info:', error);
-        const versionElement = document.getElementById('mcpVersion');
-        if (versionElement) {
-            versionElement.textContent = 'Unknown';
+
+        // Set fallback text on error
+        const mcpVersionElement = document.getElementById('mcpVersion');
+        if (mcpVersionElement) {
+            mcpVersionElement.textContent = 'Unknown';
+        }
+
+        const uiVersionElement = document.getElementById('uiVersion');
+        if (uiVersionElement) {
+            uiVersionElement.textContent = 'Unknown';
         }
     }
 }

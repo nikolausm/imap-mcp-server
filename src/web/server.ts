@@ -291,7 +291,8 @@ export class WebUIServer {
     this.app.get('/api/health', (req, res) => {
       res.json({
         status: 'ok',
-        version: '2.6.0',
+        mcpVersion: '2.6.0',
+        uiVersion: '2.6.0',
         database: 'SQLite3 with AES-256-GCM encryption',
         features: ['multi-tenant', 'account-sharing', 'encrypted-storage']
       });
