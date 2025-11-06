@@ -65,20 +65,40 @@ export class DatabaseService {
 
   /**
    * Get or create encryption key for AES-256-GCM
+   * SECURITY: Issue #25 - Validates and enforces 0o600 permissions
    */
   private getOrCreateEncryptionKey(dbDir: string): Buffer {
     const keyPath = path.join(dbDir, '.encryption-key');
 
     if (fs.existsSync(keyPath)) {
+      // SECURITY: Check existing key file permissions
+      const stats = fs.statSync(keyPath);
+      const mode = stats.mode & parseInt('777', 8);
+      const expectedMode = parseInt('600', 8);
+
+      if (mode !== expectedMode) {
+        console.error(`[SECURITY WARNING] Encryption key has insecure permissions: ${mode.toString(8)}`);
+        console.error(`[SECURITY WARNING] Run: chmod 600 ${keyPath}`);
+        console.error('[SECURITY WARNING] Key file should only be readable by owner');
+
+        // Attempt to fix permissions automatically
+        try {
+          fs.chmodSync(keyPath, 0o600);
+          console.error('[SECURITY] Fixed encryption key permissions to 600');
+        } catch (err) {
+          console.error('[SECURITY ERROR] Failed to fix permissions:', err);
+        }
+      }
+
       // Read existing key
       const keyHex = fs.readFileSync(keyPath, 'utf-8').trim();
       return Buffer.from(keyHex, 'hex');
     }
 
-    // Generate new 256-bit key
+    // Generate new 256-bit key with secure permissions
     const key = crypto.randomBytes(32);
     fs.writeFileSync(keyPath, key.toString('hex'), { mode: 0o600 });
-    console.error('[DatabaseService] Generated new encryption key');
+    console.error('[DatabaseService] Generated new encryption key with mode 600');
     return key;
   }
 

@@ -47,7 +47,9 @@ export function metaTools(server: McpServer): void {
           'Mark emails (read/unread/flagged/unflagged)',
           'Copy and move emails between folders',
           'Delete emails (with optional expunge)',
-          'SMTP email sending',
+          'SMTP email sending (send, reply, forward with attachments)',
+          'SMTP authentication (automatic credential handling)',
+          'SMTP TLS/SSL support (port 465, 587, 25)',
           'Folder management (list, status, unread counts, create, delete, rename)'
         ],
         monitoring: [

@@ -72,6 +72,8 @@
     "cors": "^2.8.5",
     "dotenv": "^17.2.0",
     "express": "^5.1.0",
+    "express-rate-limit": "^8.2.1",
+    "express-slow-down": "^3.0.1",
     "imapflow": "^1.1.1",
     "mailparser": "^3.7.4",
     "nodemailer": "^7.0.5",

@@ -5,6 +5,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import open from 'open';
 import nodemailer from 'nodemailer';
+import rateLimit from 'express-rate-limit';
+import slowDown from 'express-slow-down';
 import { DatabaseService } from '../services/database-service.js';
 import { ImapService } from '../services/imap-service.js';
 import { emailProviders, getProviderByEmail } from '../providers/email-providers.js';
@@ -20,6 +22,7 @@ export class WebUIServer {
   private imapService: ImapService;
   private port: number;
   private defaultUserId: string;
+  private authLimiter: any; // Rate limiter for auth endpoints
 
   constructor(port: number = 3000) {
     this.app = express();
@@ -45,8 +48,50 @@ export class WebUIServer {
   }
 
   private setupMiddleware(): void {
-    this.app.use(cors());
+    // SECURITY: Restrict CORS to localhost only (Issue #24)
+    this.app.use(cors({
+      origin: (origin, callback) => {
+        // Allow requests with no origin (same-origin) or from localhost
+        if (!origin || origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1')) {
+          callback(null, true);
+        } else {
+          callback(new Error('CORS policy: Origin not allowed'));
+        }
+      },
+      credentials: true,
+      methods: ['GET', 'POST', 'PUT', 'DELETE'],
+      allowedHeaders: ['Content-Type', 'Authorization']
+    }));
+
+    // SECURITY: Global rate limiter (Issue #26)
+    const globalLimiter = rateLimit({
+      windowMs: 15 * 60 * 1000, // 15 minutes
+      max: 100, // Limit each IP to 100 requests per window
+      message: 'Too many requests from this IP, please try again later',
+      standardHeaders: true,
+      legacyHeaders: false
+    });
+
+    // SECURITY: Speed limiter - delays responses after threshold (Issue #26)
+    const speedLimiter = slowDown({
+      windowMs: 15 * 60 * 1000, // 15 minutes
+      delayAfter: 50, // Allow 50 requests per window at full speed
+      delayMs: (hits) => hits * 100 // Add 100ms delay per request above threshold
+    });
+
+    // SECURITY: Strict rate limiter for authentication endpoints (Issue #26)
+    this.authLimiter = rateLimit({
+      windowMs: 15 * 60 * 1000, // 15 minutes
+      max: 10, // Only 10 auth attempts per 15 minutes
+      message: 'Too many authentication attempts, please try again later',
+      skipSuccessfulRequests: false, // Count all attempts
+      standardHeaders: true,
+      legacyHeaders: false
+    });
+
     this.app.use(bodyParser.json());
+    this.app.use(globalLimiter);
+    this.app.use(speedLimiter);
     this.app.use(express.static(path.join(__dirname, '../../public')));
   }
 
@@ -131,8 +176,8 @@ export class WebUIServer {
       }
     });
 
-    // Test connection
-    this.app.post('/api/test-connection', async (req, res) => {
+    // Test connection (with strict rate limiting)
+    this.app.post('/api/test-connection', this.authLimiter, async (req, res) => {
       const startTime = Date.now();
 
       try {
@@ -304,8 +349,8 @@ export class WebUIServer {
       }
     });
 
-    // Test account connection
-    this.app.post('/api/accounts/:id/test', async (req, res) => {
+    // Test account connection (with strict rate limiting)
+    this.app.post('/api/accounts/:id/test', this.authLimiter, async (req, res) => {
       const startTime = Date.now();
 
       try {
