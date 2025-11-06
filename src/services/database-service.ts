@@ -131,21 +131,14 @@ export class DatabaseService {
 
     const schema = fs.readFileSync(schemaPath, 'utf-8');
 
-    // Execute schema (split by statement)
-    const statements = schema
-      .split(';')
-      .map(s => s.trim())
-      .filter(s => s.length > 0 && !s.startsWith('--'));
-
-    for (const statement of statements) {
-      try {
-        this.db.exec(statement);
-      } catch (error) {
-        console.error('[DatabaseService] Schema error:', error);
-      }
+    // Execute entire schema at once - better-sqlite3 handles multi-statement execution
+    try {
+      this.db.exec(schema);
+      console.error('[DatabaseService] Schema initialized successfully');
+    } catch (error) {
+      console.error('[DatabaseService] FATAL: Schema initialization failed:', error);
+      throw error;  // Don't swallow this error - it's critical
     }
-
-    console.error('[DatabaseService] Schema initialized');
   }
 
   // ===================
