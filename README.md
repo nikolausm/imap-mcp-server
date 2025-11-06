@@ -88,6 +88,34 @@ curl -fsSL https://raw.githubusercontent.com/Temple-of-Epiphany/imap-mcp-pro/mai
 iwr -useb https://raw.githubusercontent.com/Temple-of-Epiphany/imap-mcp-pro/main/install.ps1 | iex
 ```
 
+### Install from GitHub Release
+
+To install a specific release version:
+
+```bash
+# Download latest release
+VERSION=$(curl -s https://api.github.com/repos/Temple-of-Epiphany/imap-mcp-pro/releases/latest | grep '"tag_name":' | sed -E 's/.*"v?([^"]+)".*/\1/')
+curl -L "https://github.com/Temple-of-Epiphany/imap-mcp-pro/archive/refs/tags/v${VERSION}.tar.gz" -o imap-mcp-pro.tar.gz
+
+# Extract
+tar -xzf imap-mcp-pro.tar.gz
+cd "imap-mcp-pro-${VERSION}"
+
+# Install and build
+make install
+```
+
+Or to install a specific version:
+
+```bash
+# Replace 1.0.0 with your desired version
+VERSION="1.0.0"
+curl -L "https://github.com/Temple-of-Epiphany/imap-mcp-pro/archive/refs/tags/v${VERSION}.tar.gz" -o imap-mcp-pro.tar.gz
+tar -xzf imap-mcp-pro.tar.gz
+cd "imap-mcp-pro-${VERSION}"
+make install
+```
+
 ### Manual Installation
 
 1. Clone the repository:
