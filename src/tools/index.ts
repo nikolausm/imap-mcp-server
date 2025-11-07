@@ -7,7 +7,7 @@ import { emailTools } from './email-tools.js';
 import { folderTools } from './folder-tools.js';
 import { metaTools } from './meta-tools.js';
 import { userTools } from './user-tools.js';
-import { cleanTalkTools } from './cleantalk-tools.js';
+import { userCheckTools } from './usercheck-tools.js';
 
 export function registerTools(
   server: McpServer,
@@ -27,8 +27,8 @@ export function registerTools(
   // Register folder operation tools
   folderTools(server, imapService, db);
 
-  // Register CleanTalk SPAM detection tools (Issues #3, #17, #18)
-  cleanTalkTools(server, db, imapService);
+  // Register UserCheck SPAM detection tools (Issues #3, #17, #18)
+  userCheckTools(server, db, imapService);
 
   // Register meta/discovery tools
   metaTools(server);

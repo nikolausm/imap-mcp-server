@@ -871,20 +871,20 @@ async function viewSettings() {
     // Show settings panel
     document.getElementById('settingsPanel').classList.remove('hidden');
 
-    // Load current CleanTalk keys
-    await loadCleanTalkKeys();
+    // Load current UserCheck keys
+    await loadUserCheckKeys();
 }
 
-async function loadCleanTalkKeys() {
+async function loadUserCheckKeys() {
     try {
-        const response = await fetch('/api/cleantalk/keys');
+        const response = await fetch('/api/usercheck/keys');
         const result = await response.json();
 
         if (result.success && result.keys) {
-            const keysContainer = document.getElementById('cleantalkKeysList');
+            const keysContainer = document.getElementById('usercheckKeysList');
 
             if (result.keys.length === 0) {
-                keysContainer.innerHTML = '<p class="text-sm text-gray-500">No CleanTalk API keys configured</p>';
+                keysContainer.innerHTML = '<p class="text-sm text-gray-500">No UserCheck API keys configured</p>';
             } else {
                 keysContainer.innerHTML = result.keys.map(key => `
                     <div class="border border-gray-200 rounded-lg p-3 flex justify-between items-center">
@@ -893,7 +893,7 @@ async function loadCleanTalkKeys() {
                             <p class="text-xs text-gray-500">Usage: ${key.dailyUsage}/${key.dailyLimit} today</p>
                             ${key.lastUsed ? `<p class="text-xs text-gray-400">Last used: ${new Date(key.lastUsed).toLocaleString()}</p>` : ''}
                         </div>
-                        <button onclick="deleteCleanTalkKey(${key.id})"
+                        <button onclick="deleteUserCheckKey(${key.id})"
                             class="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600 text-sm">
                             Delete
                         </button>
@@ -902,21 +902,21 @@ async function loadCleanTalkKeys() {
             }
         }
     } catch (error) {
-        console.error('Failed to load CleanTalk keys:', error);
+        console.error('Failed to load UserCheck keys:', error);
     }
 }
 
-async function addCleanTalkKey() {
-    const apiKey = document.getElementById('cleantalkApiKey').value.trim();
-    const dailyLimit = parseInt(document.getElementById('cleantalkDailyLimit').value) || 1000;
+async function addUserCheckKey() {
+    const apiKey = document.getElementById('usercheckApiKey').value.trim();
+    const dailyLimit = parseInt(document.getElementById('usercheckDailyLimit').value) || 1000;
 
     if (!apiKey) {
-        alert('Please enter a CleanTalk API key');
+        alert('Please enter a UserCheck API key');
         return;
     }
 
     try {
-        const response = await fetch('/api/cleantalk/keys', {
+        const response = await fetch('/api/usercheck/keys', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -930,45 +930,169 @@ async function addCleanTalkKey() {
         const result = await response.json();
 
         if (!result.success) {
-            throw new Error(result.error || 'Failed to add CleanTalk key');
+            throw new Error(result.error || 'Failed to add UserCheck key');
         }
 
         // Clear form
-        document.getElementById('cleantalkApiKey').value = '';
-        document.getElementById('cleantalkDailyLimit').value = '1000';
+        document.getElementById('usercheckApiKey').value = '';
+        document.getElementById('usercheckDailyLimit').value = '1000';
 
         // Reload keys list
-        await loadCleanTalkKeys();
+        await loadUserCheckKeys();
 
-        alert('CleanTalk API key added successfully!');
+        alert('UserCheck API key added successfully!');
     } catch (error) {
-        console.error('Failed to add CleanTalk key:', error);
-        alert('Failed to add CleanTalk key: ' + error.message);
+        console.error('Failed to add UserCheck key:', error);
+        alert('Failed to add UserCheck key: ' + error.message);
     }
 }
 
-async function deleteCleanTalkKey(keyId) {
-    if (!confirm('Are you sure you want to delete this CleanTalk API key?')) {
+async function deleteUserCheckKey(keyId) {
+    if (!confirm('Are you sure you want to delete this UserCheck API key?')) {
         return;
     }
 
     try {
-        const response = await fetch(`/api/cleantalk/keys/${keyId}`, {
+        const response = await fetch(`/api/usercheck/keys/${keyId}`, {
             method: 'DELETE'
         });
 
         const result = await response.json();
 
         if (!result.success) {
-            throw new Error(result.error || 'Failed to delete CleanTalk key');
+            throw new Error(result.error || 'Failed to delete UserCheck key');
         }
 
         // Reload keys list
-        await loadCleanTalkKeys();
+        await loadUserCheckKeys();
 
-        alert('CleanTalk API key deleted successfully!');
+        alert('UserCheck API key deleted successfully!');
     } catch (error) {
-        console.error('Failed to delete CleanTalk key:', error);
-        alert('Failed to delete CleanTalk key: ' + error.message);
+        console.error('Failed to delete UserCheck key:', error);
+        alert('Failed to delete UserCheck key: ' + error.message);
     }
 }
+
+// Check domain with UserCheck
+async function checkDomain() {
+    const domain = document.getElementById('domainToCheck').value.trim();
+
+    if (!domain) {
+        alert('Please enter a domain to check');
+        return;
+    }
+
+    const checkDisposable = document.getElementById('checkDisposableDomain').checked;
+    const checkBlocklisted = document.getElementById('checkBlocklistedDomain').checked;
+    const checkMx = document.getElementById('checkMxDomain').checked;
+    const allowPublicDomains = document.getElementById('allowPublicDomainCheck').checked;
+
+    try {
+        const response = await fetch('/api/usercheck/check-domain', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                domain,
+                checkDisposable,
+                checkBlocklisted,
+                checkMx,
+                allowPublicDomains
+            })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.error || 'Failed to check domain');
+        }
+
+        // Display results
+        const resultsDiv = document.getElementById('domainCheckResults');
+        const contentDiv = document.getElementById('domainCheckResultsContent');
+
+        resultsDiv.classList.remove('hidden');
+
+        const result = data.result;
+        const statusColor = result.isSpam ? 'text-red-600' : 'text-green-600';
+        const statusIcon = result.isSpam ? '⚠️' : '✅';
+
+        contentDiv.innerHTML = `
+            <div class="space-y-2">
+                <div class="${statusColor} font-semibold text-lg">
+                    ${statusIcon} ${result.isSpam ? 'SPAM/Invalid Domain' : 'Valid Domain'}
+                </div>
+                <div class="text-sm text-gray-700">
+                    <strong>Domain:</strong> ${result.domain}
+                </div>
+                <div class="text-sm text-gray-700">
+                    <strong>Spam Score:</strong> ${(result.spamScore * 100).toFixed(0)}%
+                </div>
+                ${result.spamReason ? `
+                    <div class="text-sm text-gray-700">
+                        <strong>Reason:</strong> ${result.spamReason}
+                    </div>
+                ` : ''}
+                <div class="mt-3 pt-3 border-t">
+                    <div class="grid grid-cols-2 gap-2 text-xs">
+                        <div>
+                            <strong>MX Records:</strong> ${result.mx ? '✓' : '✗'}
+                        </div>
+                        <div>
+                            <strong>Disposable:</strong> ${result.disposable ? 'Yes' : 'No'}
+                        </div>
+                        <div>
+                            <strong>Public Domain:</strong> ${result.public_domain ? 'Yes' : 'No'}
+                        </div>
+                        <div>
+                            <strong>Blocklisted:</strong> ${result.blocklisted ? 'Yes' : 'No'}
+                        </div>
+                        <div>
+                            <strong>Relay Domain:</strong> ${result.relay_domain ? 'Yes' : 'No'}
+                        </div>
+                        <div>
+                            <strong>Domain Age:</strong> ${result.domain_age_in_days !== null ? result.domain_age_in_days + ' days' : 'Unknown'}
+                        </div>
+                    </div>
+                </div>
+                ${result.mx_records && result.mx_records.length > 0 ? `
+                    <div class="mt-3 pt-3 border-t">
+                        <strong class="text-xs">MX Records:</strong>
+                        <ul class="text-xs list-disc ml-4 mt-1">
+                            ${result.mx_records.map(mx => `<li>${mx}</li>`).join('')}
+                        </ul>
+                    </div>
+                ` : ''}
+                ${result.did_you_mean ? `
+                    <div class="mt-3 pt-3 border-t text-sm">
+                        <strong>Suggestion:</strong> Did you mean <span class="text-blue-600">${result.did_you_mean}</span>?
+                    </div>
+                ` : ''}
+            </div>
+        `;
+    } catch (error) {
+        console.error('Failed to check domain:', error);
+        alert('Failed to check domain: ' + error.message);
+    }
+}
+// Load and display system information
+async function loadSystemInfo() {
+    try {
+        const response = await fetch('/api/system-info');
+        const data = await response.json();
+
+        if (data.success) {
+            document.getElementById('currentUser').textContent = data.currentUser;
+            document.getElementById('dbInfo').textContent = data.database.sizeFormatted;
+            document.getElementById('schemaVersion').textContent = data.database.schemaVersion;
+            document.getElementById('accountCount').textContent = data.stats.userAccounts;
+            document.getElementById('serverVersion').textContent = data.server.version;
+        }
+    } catch (error) {
+        console.error('Failed to load system info:', error);
+    }
+}
+
+// Load system info on page load
+document.addEventListener('DOMContentLoaded', () => {
+    loadSystemInfo();
+});

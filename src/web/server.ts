@@ -7,8 +7,11 @@ import open from 'open';
 import nodemailer from 'nodemailer';
 import rateLimit from 'express-rate-limit';
 import slowDown from 'express-slow-down';
+import fs from 'fs';
+import os from 'os';
 import { DatabaseService } from '../services/database-service.js';
 import { ImapService } from '../services/imap-service.js';
+import { UserCheckService } from '../services/usercheck-service.js';
 import { emailProviders, getProviderByEmail } from '../providers/email-providers.js';
 import { ImapAccount } from '../types/index.js';
 import crypto from 'crypto';
@@ -476,13 +479,13 @@ export class WebUIServer {
       }
     });
 
-    // Get CleanTalk API keys for user
-    this.app.get('/api/cleantalk/keys', (req, res) => {
+    // Get UserCheck API keys for user
+    this.app.get('/api/usercheck/keys', (req, res) => {
       try {
         const stmt = this.db['db'].prepare(`
           SELECT id, api_key, is_active, daily_limit, daily_usage,
                  usage_reset_at, last_used, created_at, notes
-          FROM cleantalk_keys
+          FROM usercheck_keys
           WHERE user_id = ?
           ORDER BY created_at DESC
         `);
@@ -506,13 +509,13 @@ export class WebUIServer {
       } catch (error) {
         res.status(500).json({
           success: false,
-          error: error instanceof Error ? error.message : 'Failed to load CleanTalk keys'
+          error: error instanceof Error ? error.message : 'Failed to load UserCheck keys'
         });
       }
     });
 
-    // Add CleanTalk API key
-    this.app.post('/api/cleantalk/keys', (req, res) => {
+    // Add UserCheck API key
+    this.app.post('/api/usercheck/keys', (req, res) => {
       try {
         const { apiKey, dailyLimit, notes } = req.body;
 
@@ -524,24 +527,24 @@ export class WebUIServer {
         }
 
         this.db['db'].prepare(`
-          INSERT INTO cleantalk_keys (user_id, api_key, daily_limit, notes, is_active)
+          INSERT INTO usercheck_keys (user_id, api_key, daily_limit, notes, is_active)
           VALUES (?, ?, ?, ?, 1)
         `).run(this.defaultUserId, apiKey.trim(), dailyLimit || 1000, notes || null);
 
         res.json({
           success: true,
-          message: 'CleanTalk API key added successfully'
+          message: 'UserCheck API key added successfully'
         });
       } catch (error) {
         res.status(500).json({
           success: false,
-          error: error instanceof Error ? error.message : 'Failed to add CleanTalk key'
+          error: error instanceof Error ? error.message : 'Failed to add UserCheck key'
         });
       }
     });
 
-    // Delete CleanTalk API key
-    this.app.delete('/api/cleantalk/keys/:keyId', (req, res) => {
+    // Delete UserCheck API key
+    this.app.delete('/api/usercheck/keys/:keyId', (req, res) => {
       try {
         const keyId = parseInt(req.params.keyId);
 
@@ -552,17 +555,53 @@ export class WebUIServer {
           });
         }
 
-        this.db['db'].prepare('DELETE FROM cleantalk_keys WHERE id = ? AND user_id = ?')
+        this.db['db'].prepare('DELETE FROM usercheck_keys WHERE id = ? AND user_id = ?')
           .run(keyId, this.defaultUserId);
 
         res.json({
           success: true,
-          message: 'CleanTalk API key deleted successfully'
+          message: 'UserCheck API key deleted successfully'
         });
       } catch (error) {
         res.status(500).json({
           success: false,
-          error: error instanceof Error ? error.message : 'Failed to delete CleanTalk key'
+          error: error instanceof Error ? error.message : 'Failed to delete UserCheck key'
+        });
+      }
+    });
+
+    // Check domain with UserCheck
+    this.app.post('/api/usercheck/check-domain', async (req, res) => {
+      try {
+        const { domain, checkDisposable, checkBlocklisted, checkMx, allowPublicDomains } = req.body;
+
+        if (!domain) {
+          return res.status(400).json({
+            success: false,
+            error: 'Domain is required'
+          });
+        }
+
+        const userCheckService = new UserCheckService(this.db);
+        const result = await userCheckService.checkDomain(
+          this.defaultUserId,
+          domain,
+          {
+            checkDisposable: checkDisposable !== false,
+            checkBlocklisted: checkBlocklisted !== false,
+            checkMx: checkMx !== false,
+            allowPublicDomains: allowPublicDomains !== false
+          }
+        );
+
+        res.json({
+          success: true,
+          result
+        });
+      } catch (error) {
+        res.status(500).json({
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to check domain'
         });
       }
     });
@@ -571,12 +610,77 @@ export class WebUIServer {
     this.app.get('/api/health', (req, res) => {
       res.json({
         status: 'ok',
-        mcpVersion: '2.8.0',
-        uiVersion: '2.8.0',
+        mcpVersion: '2.8.1',
+        uiVersion: '2.8.1',
         database: 'SQLite3 with AES-256-GCM encryption',
-        features: ['multi-tenant', 'account-sharing', 'encrypted-storage', 'cleantalk-integration']
+        features: ['multi-tenant', 'account-sharing', 'encrypted-storage', 'usercheck-integration']
       });
     });
+
+    // System information
+    this.app.get('/api/system-info', (req, res) => {
+      try {
+        // Get database schema version
+        const schemaVersionResult = this.db['db'].prepare('SELECT version FROM schema_version ORDER BY applied_at DESC LIMIT 1').get() as { version: number } | undefined;
+        const schemaVersion = schemaVersionResult?.version || 0;
+
+        // Get database file size
+        const dbPath = path.join(os.homedir(), '.imap-mcp', 'data.db');
+        let dbSize = 0;
+        try {
+          const stats = fs.statSync(dbPath);
+          dbSize = stats.size;
+        } catch (e) {
+          // Ignore if file doesn't exist
+        }
+
+        // Get user count
+        const userCountResult = this.db['db'].prepare('SELECT COUNT(*) as count FROM users').get() as { count: number };
+        const userCount = userCountResult.count;
+
+        // Get account count for this user
+        const accountCountResult = this.db['db'].prepare('SELECT COUNT(*) as count FROM accounts WHERE user_id = ?').get(this.defaultUserId) as { count: number };
+        const accountCount = accountCountResult.count;
+
+        // Get username from users table
+        const userResult = this.db['db'].prepare('SELECT username FROM users WHERE user_id = ?').get(this.defaultUserId) as { username: string } | undefined;
+        const username = userResult?.username || this.defaultUserId;
+
+        res.json({
+          success: true,
+          currentUser: username,
+          database: {
+            path: dbPath,
+            size: dbSize,
+            sizeFormatted: this.formatBytes(dbSize),
+            schemaVersion,
+            encryption: 'AES-256-GCM'
+          },
+          stats: {
+            totalUsers: userCount,
+            userAccounts: accountCount
+          },
+          server: {
+            version: '2.8.1',
+            port: this.port,
+            features: ['multi-tenant', 'account-sharing', 'encrypted-storage', 'usercheck-integration']
+          }
+        });
+      } catch (error) {
+        res.status(500).json({
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to get system info'
+        });
+      }
+    });
+  }
+
+  private formatBytes(bytes: number): string {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
   }
 
   async start(autoOpen: boolean = true): Promise<void> {

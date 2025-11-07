@@ -172,9 +172,9 @@ CREATE INDEX IF NOT EXISTS idx_unsubscribe_user ON unsubscribe_links(user_id);
 CREATE INDEX IF NOT EXISTS idx_unsubscribe_sender ON unsubscribe_links(sender_email);
 CREATE INDEX IF NOT EXISTS idx_unsubscribe_extracted ON unsubscribe_links(extracted_at DESC);
 
--- CleanTalk API keys (per-user for Issues #17, #18, #3)
--- Each user/customer has their own CleanTalk API key for SPAM detection
-CREATE TABLE IF NOT EXISTS cleantalk_keys (
+-- UserCheck API keys (per-user for Issues #17, #18, #3)
+-- Each user/customer has their own UserCheck API key for SPAM detection
+CREATE TABLE IF NOT EXISTS usercheck_keys (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id TEXT NOT NULL,
   api_key TEXT NOT NULL,
@@ -190,8 +190,8 @@ CREATE TABLE IF NOT EXISTS cleantalk_keys (
   UNIQUE(user_id, api_key)
 );
 
-CREATE INDEX IF NOT EXISTS idx_cleantalk_user ON cleantalk_keys(user_id);
-CREATE INDEX IF NOT EXISTS idx_cleantalk_active ON cleantalk_keys(is_active);
+CREATE INDEX IF NOT EXISTS idx_usercheck_user ON usercheck_keys(user_id);
+CREATE INDEX IF NOT EXISTS idx_usercheck_active ON usercheck_keys(is_active);
 
 -- Audit log for security and compliance
 CREATE TABLE IF NOT EXISTS audit_log (

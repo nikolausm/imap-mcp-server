@@ -518,11 +518,38 @@ export class ImapService {
     return Object.keys(query).length > 0 ? query : { all: true };
   }
 
-  async getEmailContent(accountId: string, folderName: string, uid: number): Promise<EmailContent> {
+  async getEmailContent(accountId: string, folderName: string, uid: number, headersOnly: boolean = false): Promise<EmailContent> {
     return this.withRetry(accountId, async () => {
       const client = this.getConnection(accountId);
 
       await client.mailboxOpen(folderName);
+
+      if (headersOnly) {
+        // Fetch only headers (envelope + flags) without message body
+        const message = await client.fetchOne(uid.toString(), {
+          uid: true,
+          flags: true,
+          envelope: true
+        }, { uid: true });
+
+        if (!message || !message.envelope) {
+          throw new Error(`Email with UID ${uid} not found`);
+        }
+
+        return {
+          uid,
+          flags: message.flags ? Array.from(message.flags) : [],
+          from: message.envelope.from?.[0]?.address || '',
+          to: message.envelope.to?.map(t => t.address || '') || [],
+          subject: message.envelope.subject || '',
+          messageId: message.envelope.messageId || '',
+          inReplyTo: message.envelope.inReplyTo,
+          date: message.envelope.date || new Date(),
+          textContent: '',
+          htmlContent: '',
+          attachments: []
+        };
+      }
 
       // Fetch email with body
       const message = await client.fetchOne(uid.toString(), {

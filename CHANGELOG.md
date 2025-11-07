@@ -9,7 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Web UI & Provider Configuration Fixes
 
-This patch release addresses several critical Web UI bugs and improves the installation system.
+This patch release addresses several critical Web UI bugs, adds headers-only email fetching, and improves the installation system.
+
+#### ✨ Features
+
+**Headers-Only Email Fetching (#46)**
+- Added `headersOnly` parameter to `imap_get_email` MCP tool
+- Fetch email metadata without downloading body content
+- Saves bandwidth and conserves LLM context space
+- Useful for bulk email analysis, thread tracking, sender verification
+- Implementation in src/services/imap-service.ts:521-552 and src/tools/email-tools.ts:58-81
+
+**System Info Display (#40)**
+- Web UI footer now displays current username instead of UUID
+- Shows database schema version and size
+- /api/system-info endpoint returns human-readable username
+- Implementation in src/web/server.ts:620-651
 
 #### 🐛 Bug Fixes
 

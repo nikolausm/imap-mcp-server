@@ -1,7 +1,7 @@
 /**
- * CleanTalk Anti-SPAM MCP Tools
+ * UserCheck Anti-SPAM MCP Tools
  *
- * MCP tools for SPAM detection using CleanTalk API
+ * MCP tools for SPAM detection using UserCheck API
  * Supports single and bulk email checking with custom criteria
  *
  * Author: Colin Bitterfield
@@ -15,26 +15,26 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { withErrorHandling } from '../utils/error-handler.js';
-import { CleanTalkService, SpamCheckCriteria } from '../services/cleantalk-service.js';
+import { UserCheckService, SpamCheckCriteria } from '../services/usercheck-service.js';
 import { DatabaseService } from '../services/database-service.js';
 import { ImapService } from '../services/imap-service.js';
 
-export function cleanTalkTools(server: McpServer, db: DatabaseService, imapService: ImapService): void {
-  const cleanTalk = new CleanTalkService(db);
+export function userCheckTools(server: McpServer, db: DatabaseService, imapService: ImapService): void {
+  const userCheck = new UserCheckService(db);
 
-  // ===== CleanTalk API Key Management Tools =====
+  // ===== UserCheck API Key Management Tools =====
 
-  server.registerTool('imap_add_cleantalk_key', {
-    description: 'Add a CleanTalk API key for a user (admin or own user only)',
+  server.registerTool('imap_add_usercheck_key', {
+    description: 'Add a UserCheck API key for a user (admin or own user only)',
     inputSchema: {
       userId: z.string().describe('User ID to add the key for'),
-      apiKey: z.string().describe('CleanTalk API key from https://cleantalk.org/register?platform=api'),
+      apiKey: z.string().describe('UserCheck API key from https://usercheck.com/register?platform=api'),
       dailyLimit: z.number().optional().default(1000).describe('Daily API call limit (default: 1000)'),
       notes: z.string().optional().describe('Optional notes about this API key')
     }
   }, withErrorHandling(async ({ userId, apiKey, dailyLimit, notes }) => {
     db['db'].prepare(`
-      INSERT INTO cleantalk_keys (user_id, api_key, daily_limit, notes, is_active)
+      INSERT INTO usercheck_keys (user_id, api_key, daily_limit, notes, is_active)
       VALUES (?, ?, ?, ?, 1)
     `).run(userId, apiKey, dailyLimit, notes || null);
 
@@ -43,15 +43,15 @@ export function cleanTalkTools(server: McpServer, db: DatabaseService, imapServi
         type: 'text',
         text: JSON.stringify({
           success: true,
-          message: `CleanTalk API key added for user ${userId}`,
+          message: `UserCheck API key added for user ${userId}`,
           dailyLimit
         }, null, 2)
       }]
     };
   }));
 
-  server.registerTool('imap_get_cleantalk_key', {
-    description: 'Get CleanTalk API key information for a user',
+  server.registerTool('imap_get_usercheck_key', {
+    description: 'Get UserCheck API key information for a user',
     inputSchema: {
       userId: z.string().describe('User ID')
     }
@@ -59,7 +59,7 @@ export function cleanTalkTools(server: McpServer, db: DatabaseService, imapServi
     const stmt = db['db'].prepare(`
       SELECT id, api_key, is_active, daily_limit, daily_usage,
              usage_reset_at, last_used, created_at, notes
-      FROM cleantalk_keys
+      FROM usercheck_keys
       WHERE user_id = ?
       ORDER BY created_at DESC
     `);
@@ -88,20 +88,20 @@ export function cleanTalkTools(server: McpServer, db: DatabaseService, imapServi
     };
   }));
 
-  server.registerTool('imap_delete_cleantalk_key', {
-    description: 'Delete a CleanTalk API key',
+  server.registerTool('imap_delete_usercheck_key', {
+    description: 'Delete a UserCheck API key',
     inputSchema: {
-      keyId: z.number().describe('CleanTalk key ID to delete')
+      keyId: z.number().describe('UserCheck key ID to delete')
     }
   }, withErrorHandling(async ({ keyId }) => {
-    db['db'].prepare('DELETE FROM cleantalk_keys WHERE id = ?').run(keyId);
+    db['db'].prepare('DELETE FROM usercheck_keys WHERE id = ?').run(keyId);
 
     return {
       content: [{
         type: 'text',
         text: JSON.stringify({
           success: true,
-          message: `CleanTalk API key ${keyId} deleted`
+          message: `UserCheck API key ${keyId} deleted`
         }, null, 2)
       }]
     };
@@ -110,29 +110,29 @@ export function cleanTalkTools(server: McpServer, db: DatabaseService, imapServi
   // ===== SPAM Detection Tools =====
 
   server.registerTool('imap_check_email_spam', {
-    description: 'Check a single email address against CleanTalk for spam',
+    description: 'Check a single email address against UserCheck for spam',
     inputSchema: {
-      userId: z.string().describe('User ID (must have active CleanTalk API key)'),
+      userId: z.string().describe('User ID (must have active UserCheck API key)'),
       email: z.string().email().describe('Email address to check'),
-      minSpamRate: z.number().optional().default(0.5).describe('Minimum spam rate to flag as spam (0-1)'),
-      maxDaysSinceUpdate: z.number().optional().default(30).describe('Max days since last update for flagging'),
-      minFrequency: z.number().optional().default(5).describe('Minimum report frequency for spam flag'),
       checkDisposable: z.boolean().optional().default(true).describe('Flag disposable email addresses'),
-      checkExists: z.boolean().optional().default(true).describe('Flag non-existent email addresses'),
+      checkBlocklisted: z.boolean().optional().default(true).describe('Flag blocklisted email addresses'),
+      checkRoleAccount: z.boolean().optional().default(true).describe('Flag role-based email accounts'),
+      checkMx: z.boolean().optional().default(true).describe('Check MX records'),
+      allowPublicDomains: z.boolean().optional().default(true).describe('Allow public email domains'),
       useCache: z.boolean().optional().default(true).describe('Use cached results if available')
     }
-  }, withErrorHandling(async ({ userId, email, minSpamRate, maxDaysSinceUpdate, minFrequency, checkDisposable, checkExists, useCache }) => {
+  }, withErrorHandling(async ({ userId, email, checkDisposable, checkBlocklisted, checkRoleAccount, checkMx, allowPublicDomains, useCache }) => {
     const criteria: SpamCheckCriteria = {
-      minSpamRate,
-      maxDaysSinceUpdate,
-      minFrequency,
       checkDisposable,
-      checkExists
+      checkBlocklisted,
+      checkRoleAccount,
+      checkMx,
+      allowPublicDomains
     };
 
     // Check cache first if enabled
     if (useCache) {
-      const cached = await cleanTalk.getCachedResult(email);
+      const cached = await userCheck.getCachedResult(email);
       if (cached) {
         return {
           content: [{
@@ -147,11 +147,11 @@ export function cleanTalkTools(server: McpServer, db: DatabaseService, imapServi
       }
     }
 
-    // Check with CleanTalk API
-    const result = await cleanTalk.checkEmail(userId, email, criteria);
+    // Check with UserCheck API
+    const result = await userCheck.checkEmail(userId, email, criteria);
 
     // Cache the result
-    await cleanTalk.cacheResult(email, result);
+    await userCheck.cacheResult(email, result);
 
     return {
       content: [{
@@ -165,25 +165,57 @@ export function cleanTalkTools(server: McpServer, db: DatabaseService, imapServi
     };
   }));
 
-  server.registerTool('imap_check_emails_spam_bulk', {
-    description: 'Check multiple email addresses against CleanTalk for spam (max 1000)',
+  server.registerTool('imap_check_domain', {
+    description: 'Check a domain against UserCheck for spam/validity',
     inputSchema: {
-      userId: z.string().describe('User ID (must have active CleanTalk API key)'),
-      emails: z.array(z.string().email()).max(1000).describe('Array of email addresses to check'),
-      minSpamRate: z.number().optional().default(0.5),
-      maxDaysSinceUpdate: z.number().optional().default(30),
-      minFrequency: z.number().optional().default(5),
-      checkDisposable: z.boolean().optional().default(true),
-      checkExists: z.boolean().optional().default(true),
-      useCache: z.boolean().optional().default(true)
+      userId: z.string().describe('User ID (must have active UserCheck API key)'),
+      domain: z.string().describe('Domain to validate (e.g., example.com)'),
+      checkDisposable: z.boolean().optional().default(true).describe('Flag disposable/temporary domains'),
+      checkBlocklisted: z.boolean().optional().default(true).describe('Flag blocklisted domains'),
+      checkMx: z.boolean().optional().default(true).describe('Check MX records'),
+      allowPublicDomains: z.boolean().optional().default(true).describe('Allow public email domains')
     }
-  }, withErrorHandling(async ({ userId, emails, minSpamRate, maxDaysSinceUpdate, minFrequency, checkDisposable, checkExists, useCache }) => {
+  }, withErrorHandling(async ({ userId, domain, checkDisposable, checkBlocklisted, checkMx, allowPublicDomains }) => {
     const criteria: SpamCheckCriteria = {
-      minSpamRate,
-      maxDaysSinceUpdate,
-      minFrequency,
       checkDisposable,
-      checkExists
+      checkBlocklisted,
+      checkMx,
+      allowPublicDomains
+    };
+
+    // Check domain with UserCheck API
+    const result = await userCheck.checkDomain(userId, domain, criteria);
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: true,
+          result
+        }, null, 2)
+      }]
+    };
+  }));
+
+  server.registerTool('imap_check_emails_spam_bulk', {
+    description: 'Check multiple email addresses against UserCheck for spam (max 1000)',
+    inputSchema: {
+      userId: z.string().describe('User ID (must have active UserCheck API key)'),
+      emails: z.array(z.string().email()).max(1000).describe('Array of email addresses to check'),
+      checkDisposable: z.boolean().optional().default(true).describe('Flag disposable email addresses'),
+      checkBlocklisted: z.boolean().optional().default(true).describe('Flag blocklisted email addresses'),
+      checkRoleAccount: z.boolean().optional().default(true).describe('Flag role-based email accounts'),
+      checkMx: z.boolean().optional().default(true).describe('Check MX records'),
+      allowPublicDomains: z.boolean().optional().default(true).describe('Allow public email domains'),
+      useCache: z.boolean().optional().default(true).describe('Use cached results if available')
+    }
+  }, withErrorHandling(async ({ userId, emails, checkDisposable, checkBlocklisted, checkRoleAccount, checkMx, allowPublicDomains, useCache }) => {
+    const criteria: SpamCheckCriteria = {
+      checkDisposable,
+      checkBlocklisted,
+      checkRoleAccount,
+      checkMx,
+      allowPublicDomains
     };
 
     const results = [];
@@ -192,7 +224,7 @@ export function cleanTalkTools(server: McpServer, db: DatabaseService, imapServi
     // Check cache first if enabled
     if (useCache) {
       for (const email of emails) {
-        const cached = await cleanTalk.getCachedResult(email);
+        const cached = await userCheck.getCachedResult(email);
         if (cached) {
           results.push({ ...cached, cached: true });
         } else {
@@ -203,13 +235,13 @@ export function cleanTalkTools(server: McpServer, db: DatabaseService, imapServi
       emailsToCheck.push(...emails);
     }
 
-    // Check remaining emails with CleanTalk API
+    // Check remaining emails with UserCheck API
     if (emailsToCheck.length > 0) {
-      const apiResults = await cleanTalk.checkEmailsBatch(userId, emailsToCheck, criteria);
+      const apiResults = await userCheck.checkEmailsBatch(userId, emailsToCheck, criteria);
 
       // Cache all results
       for (const result of apiResults) {
-        await cleanTalk.cacheResult(result.email, result);
+        await userCheck.cacheResult(result.email, result);
         results.push({ ...result, cached: false });
       }
     }
@@ -237,26 +269,26 @@ export function cleanTalkTools(server: McpServer, db: DatabaseService, imapServi
   }));
 
   server.registerTool('imap_check_folder_spam', {
-    description: 'Check all emails in a folder against CleanTalk and return spam messages',
+    description: 'Check all emails in a folder against UserCheck and return spam messages',
     inputSchema: {
-      userId: z.string().describe('User ID (must have active CleanTalk API key)'),
+      userId: z.string().describe('User ID (must have active UserCheck API key)'),
       accountId: z.string().describe('IMAP account ID'),
       folder: z.string().default('INBOX').describe('Folder to check'),
       limit: z.number().optional().default(100).describe('Maximum emails to check'),
-      minSpamRate: z.number().optional().default(0.5),
-      maxDaysSinceUpdate: z.number().optional().default(30),
-      minFrequency: z.number().optional().default(5),
-      checkDisposable: z.boolean().optional().default(true),
-      checkExists: z.boolean().optional().default(true),
-      useCache: z.boolean().optional().default(true)
+      checkDisposable: z.boolean().optional().default(true).describe('Flag disposable email addresses'),
+      checkBlocklisted: z.boolean().optional().default(true).describe('Flag blocklisted email addresses'),
+      checkRoleAccount: z.boolean().optional().default(true).describe('Flag role-based email accounts'),
+      checkMx: z.boolean().optional().default(true).describe('Check MX records'),
+      allowPublicDomains: z.boolean().optional().default(true).describe('Allow public email domains'),
+      useCache: z.boolean().optional().default(true).describe('Use cached results if available')
     }
-  }, withErrorHandling(async ({ userId, accountId, folder, limit, minSpamRate, maxDaysSinceUpdate, minFrequency, checkDisposable, checkExists, useCache }) => {
+  }, withErrorHandling(async ({ userId, accountId, folder, limit, checkDisposable, checkBlocklisted, checkRoleAccount, checkMx, allowPublicDomains, useCache }) => {
     const criteria: SpamCheckCriteria = {
-      minSpamRate,
-      maxDaysSinceUpdate,
-      minFrequency,
       checkDisposable,
-      checkExists
+      checkBlocklisted,
+      checkRoleAccount,
+      checkMx,
+      allowPublicDomains
     };
 
     // Search for emails in folder (get all emails, then limit)
@@ -267,7 +299,7 @@ export function cleanTalkTools(server: McpServer, db: DatabaseService, imapServi
     const senderEmails = [...new Set(emails.map(e => e.from))];
 
     // Batch check sender emails
-    const spamChecks = await cleanTalk.checkEmailsBatch(userId, senderEmails.slice(0, 1000), criteria);
+    const spamChecks = await userCheck.checkEmailsBatch(userId, senderEmails.slice(0, 1000), criteria);
 
     // Create map of email -> spam status
     const spamMap = new Map(spamChecks.map(r => [r.email, r]));
@@ -281,7 +313,7 @@ export function cleanTalkTools(server: McpServer, db: DatabaseService, imapServi
     // Cache results
     for (const result of spamChecks) {
       if (useCache) {
-        await cleanTalk.cacheResult(result.email, result);
+        await userCheck.cacheResult(result.email, result);
       }
     }
 
@@ -310,20 +342,24 @@ export function cleanTalkTools(server: McpServer, db: DatabaseService, imapServi
   }));
 
   server.registerTool('imap_scan_account_spam', {
-    description: 'Scan entire IMAP account for spam using CleanTalk, checking all folders',
+    description: 'Scan entire IMAP account for spam using UserCheck, checking all folders',
     inputSchema: {
-      userId: z.string().describe('User ID (must have active CleanTalk API key)'),
+      userId: z.string().describe('User ID (must have active UserCheck API key)'),
       accountId: z.string().describe('IMAP account ID'),
       maxEmailsPerFolder: z.number().optional().default(100).describe('Max emails to check per folder'),
-      minSpamRate: z.number().optional().default(0.5),
-      checkDisposable: z.boolean().optional().default(true),
-      checkExists: z.boolean().optional().default(true)
+      checkDisposable: z.boolean().optional().default(true).describe('Flag disposable email addresses'),
+      checkBlocklisted: z.boolean().optional().default(true).describe('Flag blocklisted email addresses'),
+      checkRoleAccount: z.boolean().optional().default(true).describe('Flag role-based email accounts'),
+      checkMx: z.boolean().optional().default(true).describe('Check MX records'),
+      allowPublicDomains: z.boolean().optional().default(true).describe('Allow public email domains')
     }
-  }, withErrorHandling(async ({ userId, accountId, maxEmailsPerFolder, minSpamRate, checkDisposable, checkExists }) => {
+  }, withErrorHandling(async ({ userId, accountId, maxEmailsPerFolder, checkDisposable, checkBlocklisted, checkRoleAccount, checkMx, allowPublicDomains }) => {
     const criteria: SpamCheckCriteria = {
-      minSpamRate,
       checkDisposable,
-      checkExists
+      checkBlocklisted,
+      checkRoleAccount,
+      checkMx,
+      allowPublicDomains
     };
 
     // Get all folders
@@ -345,7 +381,7 @@ export function cleanTalkTools(server: McpServer, db: DatabaseService, imapServi
         const senderEmails = [...new Set(emails.map(e => e.from))];
 
         // Batch check sender emails
-        const spamChecks = await cleanTalk.checkEmailsBatch(userId, senderEmails.slice(0, 1000), criteria);
+        const spamChecks = await userCheck.checkEmailsBatch(userId, senderEmails.slice(0, 1000), criteria);
 
         // Create map of email -> spam status
         const spamMap = new Map(spamChecks.map(r => [r.email, r]));
@@ -368,15 +404,14 @@ export function cleanTalkTools(server: McpServer, db: DatabaseService, imapServi
           spamSenders: spamSenders.length,
           topSpamSenders: spamSenders.slice(0, 5).map(s => ({
             email: s.email,
-            spamRate: s.spam_rate,
-            frequency: s.frequency,
+            spamScore: s.spamScore,
             reason: s.spamReason
           }))
         });
 
         // Cache results
         for (const result of spamChecks) {
-          await cleanTalk.cacheResult(result.email, result);
+          await userCheck.cacheResult(result.email, result);
         }
       } catch (error) {
         folderResults.push({

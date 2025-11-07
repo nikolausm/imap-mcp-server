@@ -56,15 +56,16 @@ export function emailTools(
 
   // Get email content tool
   server.registerTool('imap_get_email', {
-    description: 'Get the full content of an email',
+    description: 'Get the full content of an email or just headers',
     inputSchema: {
       accountId: z.string().describe('Account ID'),
       folder: z.string().default('INBOX').describe('Folder name'),
       uid: z.number().describe('Email UID'),
+      headersOnly: z.boolean().optional().default(false).describe('Fetch only headers without body content (saves bandwidth and context space)')
     }
-  }, withErrorHandling(async ({ accountId, folder, uid }) => {
-    const email = await imapService.getEmailContent(accountId, folder, uid);
-    
+  }, withErrorHandling(async ({ accountId, folder, uid, headersOnly }) => {
+    const email = await imapService.getEmailContent(accountId, folder, uid, headersOnly);
+
     return {
       content: [{
         type: 'text',
