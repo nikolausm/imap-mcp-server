@@ -1,6 +1,6 @@
 {
   "name": "@temple-of-epiphany/imap-mcp-pro",
-  "version": "2.8.1",
+  "version": "2.9.0",
   "description": "Enterprise-grade IMAP MCP server with Level 1-3 reliability features, circuit breaker, metrics, and bulk operations for commercial and large-scale deployments",
   "main": "dist/index.js",
   "bin": {

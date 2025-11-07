@@ -8,6 +8,7 @@ import { folderTools } from './folder-tools.js';
 import { metaTools } from './meta-tools.js';
 import { userTools } from './user-tools.js';
 import { userCheckTools } from './usercheck-tools.js';
+import { registerScoringTools } from './scoring-tools.js';
 
 export function registerTools(
   server: McpServer,
@@ -29,6 +30,9 @@ export function registerTools(
 
   // Register UserCheck SPAM detection tools (Issues #3, #17, #18)
   userCheckTools(server, db, imapService);
+
+  // Register confidence scoring tools (Issue #42)
+  registerScoringTools(server, imapService);
 
   // Register meta/discovery tools
   metaTools(server);

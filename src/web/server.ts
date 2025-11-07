@@ -610,10 +610,10 @@ export class WebUIServer {
     this.app.get('/api/health', (req, res) => {
       res.json({
         status: 'ok',
-        mcpVersion: '2.8.1',
-        uiVersion: '2.8.1',
+        mcpVersion: '2.9.0',
+        uiVersion: '2.9.0',
         database: 'SQLite3 with AES-256-GCM encryption',
-        features: ['multi-tenant', 'account-sharing', 'encrypted-storage', 'usercheck-integration']
+        features: ['multi-tenant', 'account-sharing', 'encrypted-storage', 'usercheck-integration', 'confidence-scoring']
       });
     });
 
@@ -661,9 +661,9 @@ export class WebUIServer {
             userAccounts: accountCount
           },
           server: {
-            version: '2.8.1',
+            version: '2.9.0',
             port: this.port,
-            features: ['multi-tenant', 'account-sharing', 'encrypted-storage', 'usercheck-integration']
+            features: ['multi-tenant', 'account-sharing', 'encrypted-storage', 'usercheck-integration', 'confidence-scoring']
           }
         });
       } catch (error) {

@@ -5,6 +5,40 @@ All notable changes to IMAP MCP Pro will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.0] - 2025-11-06
+
+### Email Confidence Scoring System
+
+This minor release introduces a comprehensive anti-spoofing detection system that analyzes email headers to calculate confidence scores and identify potential phishing attempts.
+
+#### ✨ Features
+
+**Email Confidence Scoring (#42)**
+- Comprehensive anti-spoofing detection through header-only analysis
+- Confidence scoring from -100 (likely spoofed) to +100 (highly legitimate)
+- Three new MCP tools:
+  - `imap_score_email_confidence`: Analyze single email for spoofing indicators
+  - `imap_bulk_score_emails`: Process 100+ emails in < 5 seconds with headers-only analysis
+  - `imap_analyze_folder_confidence`: Get folder-wide confidence statistics
+- Advanced detection rules:
+  - Free email providers + financial keywords (-40 points)
+  - Suspicious TLDs (.tk, .ml, .xyz, etc.) (-15 points)
+  - Reply-To domain mismatch (-20 points)
+  - Typosquatting detection with character substitution patterns (-30 points)
+  - Display name spoofing detection (-25 points)
+  - Urgency + financial keyword combinations (-20 points)
+  - SPF authentication validation (+15 pass, -20 fail)
+  - DKIM signature verification (+20 pass, -25 fail)
+  - DMARC policy validation (+25 pass, -30 fail)
+  - Full authentication suite bonus (+10 for all three passing)
+  - Message-ID validation (+10 for valid, -10 missing, -15 for mismatch)
+  - Return-Path validation (-15 for mismatch)
+  - Corporate domain bonus (+10 for non-free providers)
+  - Known legitimate domain bonus (+20 for well-known brands)
+- Detailed score breakdowns with auditable rule explanations
+- Performance-optimized for bulk operations using headers-only fetching
+- Implementation in src/services/confidence-scoring-service.ts:1-570 and src/tools/scoring-tools.ts:1-270
+
 ## [2.8.1] - 2025-11-06
 
 ### Web UI & Provider Configuration Fixes
