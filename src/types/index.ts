@@ -288,3 +288,20 @@ export interface MailboxStatus {
   deleted?: number;          // DELETED - number of deleted messages (STATUS=DELETED)
   size?: number;             // SIZE - mailbox size in bytes (STATUS=SIZE)
 }
+
+// DNS Firewall Provider Configuration (Issue #60)
+export type DnsFirewallProviderType = 'dns-over-https' | 'dns-lookup';
+
+export interface DnsFirewallProvider {
+  providerId: string;
+  providerName: string;
+  providerType: DnsFirewallProviderType;
+  apiEndpoint?: string;      // For HTTPS providers
+  apiKey?: string;           // Optional API key for future services
+  isEnabled: boolean;
+  isDefault: boolean;
+  timeoutMs: number;
+  createdAt: number;
+  updatedAt: number;
+  metadata?: string;         // JSON metadata for provider-specific config
+}

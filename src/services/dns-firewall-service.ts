@@ -34,17 +34,44 @@ export interface MessageScanResult {
 export class DnsFirewallService {
   private db: DatabaseService;
   private readonly CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
-  private readonly QUAD9_ENDPOINT = 'dns.quad9.net';
+  private readonly DEFAULT_QUAD9_ENDPOINT = 'dns.quad9.net';
+  private readonly DEFAULT_TIMEOUT_MS = 5000;
 
   constructor(db: DatabaseService) {
     this.db = db;
   }
 
   /**
-   * Check single domain via Quad9 DNS-over-HTTPS
+   * Get configured provider (or fall back to hardcoded Quad9)
+   */
+  private getProvider(): {endpoint: string; timeout: number; providerId: string} {
+    try {
+      const provider = this.db.getDefaultDnsFirewallProvider();
+      if (provider && provider.is_enabled && provider.provider_type === 'dns-over-https') {
+        return {
+          endpoint: provider.api_endpoint || this.DEFAULT_QUAD9_ENDPOINT,
+          timeout: provider.timeout_ms || this.DEFAULT_TIMEOUT_MS,
+          providerId: provider.provider_id
+        };
+      }
+    } catch (error) {
+      console.error('[DnsFirewall] Failed to get provider from DB, using fallback:', error);
+    }
+
+    // Fallback to hardcoded Quad9
+    return {
+      endpoint: this.DEFAULT_QUAD9_ENDPOINT,
+      timeout: this.DEFAULT_TIMEOUT_MS,
+      providerId: 'quad9'
+    };
+  }
+
+  /**
+   * Check single domain via DNS-over-HTTPS (configured provider or Quad9)
    */
   async checkDomain(domain: string): Promise<DomainValidationResult> {
     const startTime = Date.now();
+    const provider = this.getProvider();
 
     // Check cache first
     const cached = this.getFromCache(domain);
@@ -56,15 +83,15 @@ export class DnsFirewallService {
       };
     }
 
-    // Query Quad9 DNS
-    const isSafe = await this.queryQuad9(domain);
+    // Query DNS firewall provider
+    const isSafe = await this.queryProvider(provider.endpoint, domain, provider.timeout);
     const responseTime = Date.now() - startTime;
 
     const result: DomainValidationResult = {
       domain,
       isSafe,
       isBlocked: !isSafe,
-      provider: 'quad9',
+      provider: provider.providerId,
       timestamp: new Date(),
       responseTime,
       cached: false
@@ -140,19 +167,19 @@ export class DnsFirewallService {
   }
 
   /**
-   * Query Quad9 DNS-over-HTTPS
+   * Query DNS-over-HTTPS provider
    * Returns true if domain is safe, false if blocked
    */
-  private async queryQuad9(domain: string): Promise<boolean> {
+  private async queryProvider(endpoint: string, domain: string, timeout: number): Promise<boolean> {
     return new Promise((resolve) => {
       const options = {
-        hostname: this.QUAD9_ENDPOINT,
+        hostname: endpoint,
         path: `/dns-query?name=${encodeURIComponent(domain)}&type=A`,
         method: 'GET',
         headers: {
           'Accept': 'application/dns-json'
         },
-        timeout: 5000
+        timeout
       };
 
       const req = https.request(options, (res) => {

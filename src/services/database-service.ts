@@ -668,6 +668,147 @@ export class DatabaseService {
   }
 
   // ===================
+  // DNS Firewall Providers (Issue #60)
+  // ===================
+
+  /**
+   * Get all DNS firewall providers
+   */
+  getDnsFirewallProviders(): any[] {
+    const stmt = this.db.prepare('SELECT * FROM dns_firewall_providers ORDER BY is_default DESC, provider_name ASC');
+    return stmt.all();
+  }
+
+  /**
+   * Get enabled DNS firewall providers
+   */
+  getEnabledDnsFirewallProviders(): any[] {
+    const stmt = this.db.prepare('SELECT * FROM dns_firewall_providers WHERE is_enabled = 1 ORDER BY is_default DESC, provider_name ASC');
+    return stmt.all();
+  }
+
+  /**
+   * Get default DNS firewall provider
+   */
+  getDefaultDnsFirewallProvider(): any | null {
+    const stmt = this.db.prepare('SELECT * FROM dns_firewall_providers WHERE is_default = 1 LIMIT 1');
+    return stmt.get() || null;
+  }
+
+  /**
+   * Get DNS firewall provider by ID
+   */
+  getDnsFirewallProvider(providerId: string): any | null {
+    const stmt = this.db.prepare('SELECT * FROM dns_firewall_providers WHERE provider_id = ?');
+    return stmt.get(providerId) || null;
+  }
+
+  /**
+   * Create or update DNS firewall provider
+   */
+  upsertDnsFirewallProvider(provider: {
+    providerId: string;
+    providerName: string;
+    providerType: 'dns-over-https' | 'dns-lookup';
+    apiEndpoint?: string;
+    apiKey?: string;
+    isEnabled?: boolean;
+    isDefault?: boolean;
+    timeoutMs?: number;
+    metadata?: string;
+  }): void {
+    const now = Date.now();
+
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO dns_firewall_providers (
+        provider_id, provider_name, provider_type, api_endpoint, api_key,
+        is_enabled, is_default, timeout_ms, created_at, updated_at, metadata
+      ) VALUES (
+        ?, ?, ?, ?, ?, ?, ?, ?,
+        COALESCE((SELECT created_at FROM dns_firewall_providers WHERE provider_id = ?), ?),
+        ?, ?
+      )
+    `);
+
+    stmt.run(
+      provider.providerId,
+      provider.providerName,
+      provider.providerType,
+      provider.apiEndpoint || null,
+      provider.apiKey || null,
+      provider.isEnabled !== undefined ? (provider.isEnabled ? 1 : 0) : 1,
+      provider.isDefault !== undefined ? (provider.isDefault ? 1 : 0) : 0,
+      provider.timeoutMs || 5000,
+      provider.providerId, // For COALESCE check
+      now, // created_at if new
+      now, // updated_at
+      provider.metadata || null
+    );
+  }
+
+  /**
+   * Update DNS firewall provider
+   */
+  updateDnsFirewallProvider(providerId: string, updates: {
+    providerName?: string;
+    apiEndpoint?: string;
+    apiKey?: string;
+    isEnabled?: boolean;
+    isDefault?: boolean;
+    timeoutMs?: number;
+    metadata?: string;
+  }): void {
+    const fields: string[] = [];
+    const values: any[] = [];
+
+    if (updates.providerName !== undefined) {
+      fields.push('provider_name = ?');
+      values.push(updates.providerName);
+    }
+    if (updates.apiEndpoint !== undefined) {
+      fields.push('api_endpoint = ?');
+      values.push(updates.apiEndpoint);
+    }
+    if (updates.apiKey !== undefined) {
+      fields.push('api_key = ?');
+      values.push(updates.apiKey);
+    }
+    if (updates.isEnabled !== undefined) {
+      fields.push('is_enabled = ?');
+      values.push(updates.isEnabled ? 1 : 0);
+    }
+    if (updates.isDefault !== undefined) {
+      fields.push('is_default = ?');
+      values.push(updates.isDefault ? 1 : 0);
+    }
+    if (updates.timeoutMs !== undefined) {
+      fields.push('timeout_ms = ?');
+      values.push(updates.timeoutMs);
+    }
+    if (updates.metadata !== undefined) {
+      fields.push('metadata = ?');
+      values.push(updates.metadata);
+    }
+
+    if (fields.length === 0) return;
+
+    fields.push('updated_at = ?');
+    values.push(Date.now());
+    values.push(providerId);
+
+    const stmt = this.db.prepare(`UPDATE dns_firewall_providers SET ${fields.join(', ')} WHERE provider_id = ?`);
+    stmt.run(...values);
+  }
+
+  /**
+   * Delete DNS firewall provider
+   */
+  deleteDnsFirewallProvider(providerId: string): void {
+    const stmt = this.db.prepare('DELETE FROM dns_firewall_providers WHERE provider_id = ?');
+    stmt.run(providerId);
+  }
+
+  // ===================
   // Close Database
   // ===================
 
