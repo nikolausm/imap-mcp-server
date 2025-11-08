@@ -11,6 +11,7 @@ import { userCheckTools } from './usercheck-tools.js';
 import { registerScoringTools } from './scoring-tools.js';
 import { registerSubscriptionTools } from './subscription-tools.js';
 import { capabilityTools } from './capability-tools.js';
+import { dnsFirewallTools } from './dns-firewall-tools.js';
 
 export function registerTools(
   server: McpServer,
@@ -32,6 +33,9 @@ export function registerTools(
 
   // Register capability tools (Issue #55 - RFC 9051 compliance)
   capabilityTools(server, imapService, db);
+
+  // Register DNS Firewall tools (Issue #59)
+  dnsFirewallTools(server, imapService, db);
 
   // Register UserCheck SPAM detection tools (Issues #3, #17, #18)
   userCheckTools(server, db, imapService);
