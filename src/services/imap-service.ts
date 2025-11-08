@@ -43,6 +43,7 @@ export class ImapService {
   private connectionMetadata: Map<string, ConnectionMetadata> = new Map();
   private accountStore: Map<string, ImapAccount> = new Map();
   private capabilitiesCache: Map<string, { capabilities: ServerCapabilities; timestamp: number }> = new Map();
+  private db?: any; // Optional DatabaseService for auto-capability storage (Issue #58)
 
   // Level 3: Operation queue with size limit (Issue #22 - prevent unbounded growth)
   private operationQueue: QueuedOperation[] = [];
@@ -50,7 +51,9 @@ export class ImapService {
   private queueProcessorInterval?: NodeJS.Timeout;
   private operationMetrics: LRUCache<string, OperationMetrics>;
 
-  constructor() {
+  constructor(db?: any) {
+    this.db = db;
+
     // Initialize LRU cache for operation metrics (max 1000 entries)
     // This prevents unbounded memory growth (Issue #22)
     this.operationMetrics = new LRUCache({
@@ -242,6 +245,18 @@ export class ImapService {
       if (metadata) {
         metadata.lastConnected = new Date();
         metadata.reconnectAttempts = 0;
+      }
+
+      // RFC 9051: Auto-query and store server capabilities (Issue #58)
+      try {
+        const capabilities = await this.getCapabilities(accountId);
+        if (this.db) {
+          this.db.updateAccountCapabilities(accountId, capabilities);
+          console.error(`[IMAP] Stored capabilities for account ${accountId}`);
+        }
+      } catch (capError) {
+        console.error(`[IMAP] Failed to query/store capabilities for ${accountId}:`, capError);
+        // Don't fail connection if capabilities query fails
       }
 
       console.error(`[IMAP] Connection established for account ${accountId}`);

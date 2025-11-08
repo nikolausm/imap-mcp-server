@@ -431,6 +431,40 @@ export class DatabaseService {
     stmt.run(accountId);
   }
 
+  /**
+   * RFC 9051: Update account capabilities (Issue #58)
+   * Store JSON-serialized ServerCapabilities for runtime feature detection
+   */
+  updateAccountCapabilities(accountId: string, capabilities: any): void {
+    const stmt = this.db.prepare(`
+      UPDATE accounts
+      SET capabilities = ?, capabilities_updated_at = ?
+      WHERE account_id = ?
+    `);
+
+    stmt.run(JSON.stringify(capabilities), Date.now(), accountId);
+  }
+
+  /**
+   * RFC 9051: Get account capabilities (Issue #58)
+   * Returns parsed ServerCapabilities or null if not yet queried
+   */
+  getAccountCapabilities(accountId: string): any | null {
+    const stmt = this.db.prepare('SELECT capabilities FROM accounts WHERE account_id = ?');
+    const result = stmt.get(accountId) as { capabilities: string | null } | undefined;
+
+    if (!result || !result.capabilities) {
+      return null;
+    }
+
+    try {
+      return JSON.parse(result.capabilities);
+    } catch (error) {
+      console.error('[DatabaseService] Failed to parse capabilities JSON:', error);
+      return null;
+    }
+  }
+
   deleteAccount(accountId: string): void {
     const stmt = this.db.prepare('DELETE FROM accounts WHERE account_id = ?');
     stmt.run(accountId);

@@ -25,8 +25,8 @@ const server = new McpServer({
   version: '2.11.0',
 });
 
-const imapService = new ImapService();
 const db = new DatabaseService();
+const imapService = new ImapService(db); // Pass db for auto-capability storage (Issue #58)
 const smtpService = new SmtpService();
 
 // Register all tools

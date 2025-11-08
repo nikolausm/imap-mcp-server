@@ -31,7 +31,7 @@ export class WebUIServer {
     this.app = express();
     this.port = port;
     this.db = new DatabaseService();
-    this.imapService = new ImapService();
+    this.imapService = new ImapService(this.db); // Pass db for auto-capability storage (Issue #58)
 
     // Use same user resolution logic as MCP server (from tool-context.ts)
     // Get username from environment (set in MCP config) or fall back to 'default'
