@@ -223,3 +223,43 @@ export interface DegradationConfig {
   fallbackToLastKnown?: boolean;    // Use last known good data (default: true)
   maxDegradationTime?: number;      // Max time in degraded mode in ms (default: 3600000 = 1hr)
 }
+
+// RFC 9051: Server Capabilities (Issue #55)
+export interface ServerCapabilities {
+  raw: string[];              // Raw capability strings from server
+  imap4rev2: boolean;         // IMAP4rev2 support
+  imap4rev1: boolean;         // IMAP4rev1 support (fallback)
+  authMethods: string[];      // AUTH= methods (e.g., "PLAIN", "LOGIN", "XOAUTH2")
+  extensions: {
+    // Core IMAP4rev2 built-ins (should all be true for compliant servers)
+    namespace?: boolean;
+    unselect?: boolean;
+    uidplus?: boolean;
+    esearch?: boolean;
+    searchres?: boolean;
+    enable?: boolean;
+    idle?: boolean;
+    saslir?: boolean;
+    listExtended?: boolean;
+    listStatus?: boolean;
+    move?: boolean;
+    literalMinus?: boolean;
+    binary?: boolean;
+    specialUse?: boolean;
+    statusSize?: boolean;
+    statusDeleted?: boolean;
+
+    // Common optional extensions
+    quota?: boolean;
+    sort?: boolean;
+    thread?: boolean;
+    condstore?: boolean;
+    qresync?: boolean;
+    compress?: boolean;
+    notify?: boolean;
+    metadata?: boolean;
+
+    // Allow for any other extensions
+    [key: string]: boolean | undefined;
+  };
+}

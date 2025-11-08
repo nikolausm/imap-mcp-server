@@ -10,6 +10,7 @@ import { userTools } from './user-tools.js';
 import { userCheckTools } from './usercheck-tools.js';
 import { registerScoringTools } from './scoring-tools.js';
 import { registerSubscriptionTools } from './subscription-tools.js';
+import { capabilityTools } from './capability-tools.js';
 
 export function registerTools(
   server: McpServer,
@@ -28,6 +29,9 @@ export function registerTools(
 
   // Register folder operation tools
   folderTools(server, imapService, db);
+
+  // Register capability tools (Issue #55 - RFC 9051 compliance)
+  capabilityTools(server, imapService, db);
 
   // Register UserCheck SPAM detection tools (Issues #3, #17, #18)
   userCheckTools(server, db, imapService);

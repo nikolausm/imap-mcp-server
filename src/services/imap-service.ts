@@ -31,7 +31,8 @@ import {
   ConnectionMetrics,
   OperationMetrics,
   DegradationConfig,
-  RetryConfig
+  RetryConfig,
+  ServerCapabilities
 } from '../types/index.js';
 import { LRUCache } from '../utils/memory-manager.js';
 
@@ -39,6 +40,7 @@ export class ImapService {
   private activeConnections: Map<string, ImapFlow> = new Map();
   private connectionMetadata: Map<string, ConnectionMetadata> = new Map();
   private accountStore: Map<string, ImapAccount> = new Map();
+  private capabilitiesCache: Map<string, { capabilities: ServerCapabilities; timestamp: number }> = new Map();
 
   // Level 3: Operation queue with size limit (Issue #22 - prevent unbounded growth)
   private operationQueue: QueuedOperation[] = [];
@@ -449,6 +451,95 @@ export class ImapService {
       const client = this.getConnection(accountId);
       await client.mailboxRename(oldName, newName);
     }, `renameFolder(${oldName} -> ${newName})`);
+  }
+
+  /**
+   * Query IMAP server capabilities (Issue #55)
+   * Implements capability detection as required by RFC 9051
+   * Includes caching to avoid repeated queries
+   */
+  async getCapabilities(accountId: string, forceRefresh: boolean = false): Promise<ServerCapabilities> {
+    // Check cache first (unless force refresh)
+    if (!forceRefresh) {
+      const cached = this.capabilitiesCache.get(accountId);
+      if (cached && (Date.now() - cached.timestamp) < 3600000) { // 1 hour cache
+        return cached.capabilities;
+      }
+    }
+
+    return this.withRetry(accountId, async () => {
+      const client = this.getConnection(accountId);
+
+      // ImapFlow provides capabilities as a Map
+      const rawCapabilities = client.capabilities;
+      const capArray = Array.from(rawCapabilities.keys());
+
+      // Parse capabilities
+      const capabilities: ServerCapabilities = {
+        raw: capArray,
+        imap4rev2: rawCapabilities.has('IMAP4rev2'),
+        imap4rev1: rawCapabilities.has('IMAP4REV1') || rawCapabilities.has('IMAP4rev1'),
+        authMethods: this.extractAuthMethods(capArray),
+        extensions: this.parseExtensions(capArray)
+      };
+
+      // Cache the result
+      this.capabilitiesCache.set(accountId, {
+        capabilities,
+        timestamp: Date.now()
+      });
+
+      return capabilities;
+    }, 'getCapabilities');
+  }
+
+  /**
+   * Extract AUTH methods from capability strings
+   */
+  private extractAuthMethods(capabilities: string[]): string[] {
+    return capabilities
+      .filter(cap => cap.startsWith('AUTH='))
+      .map(cap => cap.substring(5)); // Remove "AUTH=" prefix
+  }
+
+  /**
+   * Parse extension capabilities
+   */
+  private parseExtensions(capabilities: string[]): ServerCapabilities['extensions'] {
+    const extensions: ServerCapabilities['extensions'] = {};
+
+    // Normalize capability names for comparison (uppercase, remove special chars)
+    const capSet = new Set(capabilities.map(c => c.toUpperCase().replace(/[=+-]/g, '')));
+
+    // Core IMAP4rev2 built-in extensions
+    extensions.namespace = capSet.has('NAMESPACE');
+    extensions.unselect = capSet.has('UNSELECT');
+    extensions.uidplus = capSet.has('UIDPLUS');
+    extensions.esearch = capSet.has('ESEARCH');
+    extensions.searchres = capSet.has('SEARCHRES');
+    extensions.enable = capSet.has('ENABLE');
+    extensions.idle = capSet.has('IDLE');
+    extensions.saslir = capSet.has('SASLIR');
+    extensions.listExtended = capSet.has('LISTEXTENDED');
+    extensions.listStatus = capSet.has('LISTSTATUS');
+    extensions.move = capSet.has('MOVE');
+    extensions.literalMinus = capSet.has('LITERALMINUS') || capSet.has('LITERAL');
+    extensions.binary = capSet.has('BINARY');
+    extensions.specialUse = capSet.has('SPECIALUSE');
+    extensions.statusSize = capabilities.some(c => c.toUpperCase().includes('STATUS') && c.toUpperCase().includes('SIZE'));
+    extensions.statusDeleted = capabilities.some(c => c.toUpperCase().includes('STATUS') && c.toUpperCase().includes('DELETED'));
+
+    // Common optional extensions
+    extensions.quota = capSet.has('QUOTA');
+    extensions.sort = capSet.has('SORT');
+    extensions.thread = capSet.has('THREAD');
+    extensions.condstore = capSet.has('CONDSTORE');
+    extensions.qresync = capSet.has('QRESYNC');
+    extensions.compress = capabilities.some(c => c.toUpperCase().includes('COMPRESS'));
+    extensions.notify = capSet.has('NOTIFY');
+    extensions.metadata = capSet.has('METADATA');
+
+    return extensions;
   }
 
   // ==================
