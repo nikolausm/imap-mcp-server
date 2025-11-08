@@ -22,7 +22,7 @@ dotenv.config();
 
 const server = new McpServer({
   name: 'imap-mcp-pro',
-  version: '2.9.0',
+  version: '2.11.0',
 });
 
 const imapService = new ImapService();

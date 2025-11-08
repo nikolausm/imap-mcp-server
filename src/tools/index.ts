@@ -9,6 +9,7 @@ import { metaTools } from './meta-tools.js';
 import { userTools } from './user-tools.js';
 import { userCheckTools } from './usercheck-tools.js';
 import { registerScoringTools } from './scoring-tools.js';
+import { registerSubscriptionTools } from './subscription-tools.js';
 
 export function registerTools(
   server: McpServer,
@@ -33,6 +34,9 @@ export function registerTools(
 
   // Register confidence scoring tools (Issue #42)
   registerScoringTools(server, imapService);
+
+  // Register subscription management tools (Issue #45 Phase 4, Issue #47)
+  registerSubscriptionTools(server, imapService, db, smtpService);
 
   // Register meta/discovery tools
   metaTools(server);

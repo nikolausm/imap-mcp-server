@@ -1,8 +1,8 @@
 -- IMAP MCP Pro Database Schema
--- Version: 1.0.0
+-- Version: 1.1.0
 -- Author: Colin Bitterfield
 -- Email: colin.bitterfield@templeofepiphany.com
--- Date: 2025-11-05
+-- Date: 2025-11-07
 --
 -- This schema supports MSP (Managed Service Provider) multi-tenant architecture
 -- with encryption at rest for sensitive data.
@@ -16,6 +16,12 @@ CREATE TABLE IF NOT EXISTS schema_version (
 
 INSERT OR IGNORE INTO schema_version (version, description)
 VALUES ('1.0.0', 'Initial schema with MSP multi-tenant support');
+
+INSERT OR IGNORE INTO schema_version (version, description)
+VALUES ('1.1.0', 'Add subscription management tables');
+
+INSERT OR IGNORE INTO schema_version (version, description)
+VALUES ('1.2.0', 'Add unsubscribe execution tracking');
 
 -- Users/Organizations for MSP architecture
 CREATE TABLE IF NOT EXISTS users (
@@ -171,6 +177,35 @@ CREATE TABLE IF NOT EXISTS unsubscribe_links (
 CREATE INDEX IF NOT EXISTS idx_unsubscribe_user ON unsubscribe_links(user_id);
 CREATE INDEX IF NOT EXISTS idx_unsubscribe_sender ON unsubscribe_links(sender_email);
 CREATE INDEX IF NOT EXISTS idx_unsubscribe_extracted ON unsubscribe_links(extracted_at DESC);
+
+-- Subscription summary (aggregated view for Issue #45 Phase 4, Issue #47)
+CREATE TABLE IF NOT EXISTS subscription_summary (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT NOT NULL,
+  sender_email TEXT NOT NULL,
+  sender_domain TEXT NOT NULL,
+  sender_name TEXT,
+  total_emails INTEGER DEFAULT 1,
+  first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  unsubscribe_link TEXT,
+  unsubscribe_method TEXT CHECK(unsubscribe_method IN ('http', 'mailto', 'both')),
+  unsubscribed BOOLEAN DEFAULT 0,
+  unsubscribed_at TIMESTAMP,
+  unsubscribe_attempted_at TIMESTAMP,
+  unsubscribe_result TEXT CHECK(unsubscribe_result IN ('success', 'failed', 'error')),
+  unsubscribe_error TEXT,
+  category TEXT CHECK(category IN ('marketing', 'newsletter', 'promotional', 'transactional', 'other')) DEFAULT 'other',
+  notes TEXT,
+  FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+  UNIQUE(user_id, sender_email)
+);
+
+CREATE INDEX IF NOT EXISTS idx_subscription_user ON subscription_summary(user_id);
+CREATE INDEX IF NOT EXISTS idx_subscription_sender ON subscription_summary(sender_email);
+CREATE INDEX IF NOT EXISTS idx_subscription_domain ON subscription_summary(sender_domain);
+CREATE INDEX IF NOT EXISTS idx_subscription_category ON subscription_summary(category);
+CREATE INDEX IF NOT EXISTS idx_subscription_unsubscribed ON subscription_summary(unsubscribed);
 
 -- UserCheck API keys (per-user for Issues #17, #18, #3)
 -- Each user/customer has their own UserCheck API key for SPAM detection

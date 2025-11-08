@@ -132,6 +132,23 @@ export interface UnsubscribeLink {
   extracted_at: string;
 }
 
+export interface SubscriptionSummary {
+  id: number;
+  user_id: string;
+  sender_email: string;
+  sender_domain: string;
+  sender_name?: string;
+  total_emails: number;
+  first_seen: string;
+  last_seen: string;
+  unsubscribe_link?: string;
+  unsubscribe_method?: 'http' | 'mailto' | 'both';
+  unsubscribed: boolean;
+  unsubscribed_at?: string;
+  category: 'marketing' | 'newsletter' | 'promotional' | 'transactional' | 'other';
+  notes?: string;
+}
+
 export interface AuditLog {
   id: number;
   user_id?: string;

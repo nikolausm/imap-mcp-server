@@ -5,6 +5,108 @@ All notable changes to IMAP MCP Pro will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.11.0] - 2025-11-07
+
+### Automated Unsubscribe Execution
+
+This minor release adds automated unsubscribe execution capabilities, completing the subscription management workflow started in v2.10.0. Addresses Issue #47.
+
+#### ✨ Features
+
+**Automated Unsubscribe Execution (#47)**
+- Complete unsubscribe execution service with multiple protocol support:
+  - HTTP GET: Simple link-based unsubscribe
+  - HTTP POST: RFC 8058 One-Click unsubscribe (form-based)
+  - Mailto: Email-based unsubscribe requests via SMTP
+  - Auto-detection of appropriate method based on link format
+- Security and reliability features:
+  - URL validation with protocol checking (HTTP/HTTPS only)
+  - Domain blacklist for known malicious domains
+  - Rate limiting (10 requests per minute) to prevent abuse
+  - Request timeout (30 seconds default) to prevent hanging
+  - Dry-run mode for testing without actual execution
+- Database enhancements:
+  - 3 new tracking columns in `subscription_summary` table:
+    - `unsubscribe_attempted_at`: Timestamp of last attempt
+    - `unsubscribe_result`: Result status (success, failed, error)
+    - `unsubscribe_error`: Error details if applicable
+  - Database version 1.2.0
+  - Schema migration script: `schema_update_1.1.0_TO_1.2.0.sql`
+- Two new MCP tools:
+  - `imap_list_unsubscribe_candidates`: List all subscriptions with unsubscribe links, with filtering and sorting
+  - `imap_execute_unsubscribe`: Execute unsubscribe for one or multiple senders with result tracking
+- Implementation in:
+  - `src/services/unsubscribe-executor-service.ts`: Core execution logic (410 lines)
+  - `src/services/database-service.ts`: Database tracking method
+  - `src/tools/subscription-tools.ts`: New MCP tools
+  - `src/database/schema.sql`: Enhanced schema v1.2.0
+
+#### 🔧 Improvements
+
+**Installation & Updates**
+- Enhanced Makefile to automatically apply schema migrations during updates
+- Detects current database version and applies appropriate migration scripts
+- Build script updated to include all schema migration files in distribution
+
+#### 🐛 Bug Fixes
+
+**Type System**
+- Fixed Account vs ImapAccount type conversion for SMTP operations
+- Added proper decrypted account handling for mailto unsubscribe
+- Corrected EmailComposer interface usage with required 'from' field
+
+## [2.10.0] - 2025-11-07
+
+### Subscription Management System
+
+This minor release introduces comprehensive subscription management with unsubscribe link extraction, aggregated subscription tracking, and categorization. Part of Issue #45 Phase 4.
+
+#### ✨ Features
+
+**Subscription Management (#45 Phase 4, #15)**
+- Automatic unsubscribe link extraction from emails
+  - RFC 2369 List-Unsubscribe header parsing
+  - RFC 8058 List-Unsubscribe-Post (One-Click) support
+  - HTML body link extraction with pattern matching
+  - Plain text body link extraction as fallback
+- Database schema enhancements:
+  - `unsubscribe_links` table: Stores individual email unsubscribe links with full context
+  - `subscription_summary` table: Aggregates subscriptions by sender with statistics
+  - Database version 1.1.0 with migration support
+  - Schema migration script: `schema_update_1.0.0_TO_1.1.0.sql`
+- Six new MCP tools:
+  - `imap_extract_unsubscribe_links`: Scan folder for unsubscribe links (processes 100+ emails)
+  - `imap_get_subscription_summary`: View all subscriptions with stats and categories
+  - `imap_mark_subscription_unsubscribed`: Track unsubscribe status with timestamps
+  - `imap_update_subscription_category`: Categorize subscriptions (marketing, newsletter, promotional, transactional, other)
+  - `imap_update_subscription_notes`: Add notes about subscriptions
+  - `imap_get_unsubscribe_links`: Get detailed unsubscribe link history
+- Intelligent email categorization:
+  - Automatic detection of marketing, newsletters, promotional, and transactional emails
+  - Based on sender address, subject line, and common patterns
+- Subscription statistics:
+  - Total email count per sender
+  - First seen / Last seen timestamps
+  - Unsubscribe status tracking
+  - Category breakdown
+- Multiple unsubscribe methods supported:
+  - HTTP/HTTPS links
+  - Mailto links
+  - Both (hybrid approach)
+- Implementation in:
+  - `src/services/unsubscribe-service.ts`: Core extraction logic (356 lines)
+  - `src/services/database-service.ts`: Database operations for subscriptions
+  - `src/tools/subscription-tools.ts`: MCP tool implementations
+  - `src/database/schema.sql`: Enhanced schema v1.1.0
+  - `src/types/database-types.ts`: New SubscriptionSummary interface
+
+#### 🔧 Database Changes
+
+- Schema version updated from 1.0.0 to 1.1.0
+- New tables: `subscription_summary` with comprehensive indexing
+- Migration script provided for existing installations
+- Backwards compatible with existing data
+
 ## [2.9.0] - 2025-11-06
 
 ### Email Confidence Scoring System

@@ -30,6 +30,7 @@ import {
   SpamDomain,
   SpamCache,
   UnsubscribeLink,
+  SubscriptionSummary,
   AuditLog,
   DatabaseConfig,
   EncryptedData
@@ -457,6 +458,179 @@ export class DatabaseService {
     const stmt = this.db.prepare('SELECT role FROM user_accounts WHERE user_id = ? AND account_id = ?');
     const result = stmt.get(userId, accountId) as { role: string } | undefined;
     return result?.role || null;
+  }
+
+  // ===================
+  // Unsubscribe Links Management (Issue #45 Phase 4)
+  // ===================
+
+  insertUnsubscribeLink(data: Omit<UnsubscribeLink, 'id' | 'extracted_at'>): void {
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO unsubscribe_links
+      (user_id, account_id, folder, uid, sender_email, subject, unsubscribe_link, list_unsubscribe_header, message_date)
+      VALUES (@user_id, @account_id, @folder, @uid, @sender_email, @subject, @unsubscribe_link, @list_unsubscribe_header, @message_date)
+    `);
+
+    stmt.run({
+      user_id: data.user_id,
+      account_id: data.account_id,
+      folder: data.folder,
+      uid: data.uid,
+      sender_email: data.sender_email,
+      subject: data.subject || null,
+      unsubscribe_link: data.unsubscribe_link || null,
+      list_unsubscribe_header: data.list_unsubscribe_header || null,
+      message_date: data.message_date || null,
+    });
+  }
+
+  getUnsubscribeLinks(userId: string, filters?: { account_id?: string; sender_email?: string }): UnsubscribeLink[] {
+    let query = 'SELECT * FROM unsubscribe_links WHERE user_id = ?';
+    const params: any[] = [userId];
+
+    if (filters?.account_id) {
+      query += ' AND account_id = ?';
+      params.push(filters.account_id);
+    }
+
+    if (filters?.sender_email) {
+      query += ' AND sender_email = ?';
+      params.push(filters.sender_email);
+    }
+
+    query += ' ORDER BY extracted_at DESC';
+
+    const stmt = this.db.prepare(query);
+    return stmt.all(...params) as UnsubscribeLink[];
+  }
+
+  // ===================
+  // Subscription Summary Management (Issue #45 Phase 4)
+  // ===================
+
+  upsertSubscriptionSummary(data: {
+    user_id: string;
+    sender_email: string;
+    sender_domain: string;
+    sender_name?: string;
+    unsubscribe_link?: string;
+    unsubscribe_method?: 'http' | 'mailto' | 'both';
+    category: 'marketing' | 'newsletter' | 'promotional' | 'transactional' | 'other';
+  }): void {
+    const stmt = this.db.prepare(`
+      INSERT INTO subscription_summary
+      (user_id, sender_email, sender_domain, sender_name, unsubscribe_link, unsubscribe_method, category, total_emails, first_seen, last_seen)
+      VALUES (@user_id, @sender_email, @sender_domain, @sender_name, @unsubscribe_link, @unsubscribe_method, @category, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      ON CONFLICT(user_id, sender_email) DO UPDATE SET
+        total_emails = total_emails + 1,
+        last_seen = CURRENT_TIMESTAMP,
+        sender_name = COALESCE(@sender_name, sender_name),
+        unsubscribe_link = COALESCE(@unsubscribe_link, unsubscribe_link),
+        unsubscribe_method = COALESCE(@unsubscribe_method, unsubscribe_method),
+        category = @category
+    `);
+
+    stmt.run({
+      user_id: data.user_id,
+      sender_email: data.sender_email,
+      sender_domain: data.sender_domain,
+      sender_name: data.sender_name || null,
+      unsubscribe_link: data.unsubscribe_link || null,
+      unsubscribe_method: data.unsubscribe_method || null,
+      category: data.category,
+    });
+  }
+
+  getSubscriptionSummary(
+    userId: string,
+    filters?: { category?: string; unsubscribed?: boolean }
+  ): SubscriptionSummary[] {
+    let query = 'SELECT * FROM subscription_summary WHERE user_id = ?';
+    const params: any[] = [userId];
+
+    if (filters?.category) {
+      query += ' AND category = ?';
+      params.push(filters.category);
+    }
+
+    if (filters?.unsubscribed !== undefined) {
+      query += ' AND unsubscribed = ?';
+      params.push(filters.unsubscribed ? 1 : 0);
+    }
+
+    query += ' ORDER BY last_seen DESC';
+
+    const stmt = this.db.prepare(query);
+    const results = stmt.all(...params) as any[];
+
+    return results.map(row => ({
+      ...row,
+      unsubscribed: Boolean(row.unsubscribed),
+    }));
+  }
+
+  markSubscriptionAsUnsubscribed(userId: string, senderEmail: string): void {
+    const stmt = this.db.prepare(`
+      UPDATE subscription_summary
+      SET unsubscribed = 1, unsubscribed_at = CURRENT_TIMESTAMP
+      WHERE user_id = ? AND sender_email = ?
+    `);
+
+    stmt.run(userId, senderEmail);
+  }
+
+  updateSubscriptionCategory(
+    userId: string,
+    senderEmail: string,
+    category: 'marketing' | 'newsletter' | 'promotional' | 'transactional' | 'other'
+  ): void {
+    const stmt = this.db.prepare(`
+      UPDATE subscription_summary
+      SET category = ?
+      WHERE user_id = ? AND sender_email = ?
+    `);
+
+    stmt.run(category, userId, senderEmail);
+  }
+
+  updateSubscriptionNotes(userId: string, senderEmail: string, notes: string): void {
+    const stmt = this.db.prepare(`
+      UPDATE subscription_summary
+      SET notes = ?
+      WHERE user_id = ? AND sender_email = ?
+    `);
+
+    stmt.run(notes, userId, senderEmail);
+  }
+
+  /**
+   * Update unsubscribe execution result (Issue #47)
+   */
+  updateSubscriptionUnsubscribeResult(
+    userId: string,
+    senderEmail: string,
+    result: 'success' | 'failed' | 'error',
+    errorDetails: string,
+    markAsUnsubscribed: boolean
+  ): void {
+    const stmt = this.db.prepare(`
+      UPDATE subscription_summary
+      SET unsubscribe_attempted_at = CURRENT_TIMESTAMP,
+          unsubscribe_result = ?,
+          unsubscribe_error = ?,
+          unsubscribed = ?,
+          unsubscribed_at = CASE WHEN ? = 1 THEN CURRENT_TIMESTAMP ELSE unsubscribed_at END
+      WHERE user_id = ? AND sender_email = ?
+    `);
+
+    stmt.run(
+      result,
+      errorDetails,
+      markAsUnsubscribed ? 1 : 0,
+      markAsUnsubscribed ? 1 : 0,
+      userId,
+      senderEmail
+    );
   }
 
   // ===================
