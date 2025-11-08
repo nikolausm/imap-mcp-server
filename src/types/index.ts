@@ -276,3 +276,15 @@ export interface ServerCapabilities {
     [key: string]: boolean | undefined;
   };
 }
+
+// RFC 9051: Mailbox STATUS (Issue #56)
+export interface MailboxStatus {
+  mailbox: string;
+  messages: number;          // MESSAGES - total messages
+  recent?: number;           // RECENT - deprecated in IMAP4rev2 but still supported
+  uidNext: number;           // UIDNEXT - predicted next UID
+  uidValidity: bigint;       // UIDVALIDITY - UID validity value
+  unseen: number;            // UNSEEN - number of unseen messages
+  deleted?: number;          // DELETED - number of deleted messages (STATUS=DELETED)
+  size?: number;             // SIZE - mailbox size in bytes (STATUS=SIZE)
+}

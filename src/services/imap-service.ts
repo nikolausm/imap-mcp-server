@@ -33,7 +33,8 @@ import {
   DegradationConfig,
   RetryConfig,
   ServerCapabilities,
-  ImapKeyword
+  ImapKeyword,
+  MailboxStatus
 } from '../types/index.js';
 import { LRUCache } from '../utils/memory-manager.js';
 
@@ -480,6 +481,79 @@ export class ImapService {
 
       return this.parseImapFlowFolders(subscribedFolders);
     }, 'listSubscribedMailboxes()');
+  }
+
+  /**
+   * RFC 9051: STATUS command (Issue #56)
+   * Get mailbox status without selecting it (more efficient than SELECT)
+   * Supports optional STATUS=SIZE and STATUS=DELETED extensions
+   */
+  async getMailboxStatus(accountId: string, mailboxName: string): Promise<MailboxStatus> {
+    return this.withRetry(accountId, async () => {
+      const client = this.getConnection(accountId);
+
+      // Check capabilities for optional STATUS extensions
+      const capabilities = client.capabilities;
+      const supportsStatusSize = capabilities.has('STATUS=SIZE');
+      const supportsStatusDeleted = capabilities.has('STATUS=DELETED');
+
+      // Build status query options
+      const statusOptions: any = {
+        messages: true,
+        uidNext: true,
+        uidValidity: true,
+        unseen: true,
+      };
+
+      if (supportsStatusSize) {
+        statusOptions.size = true;
+      }
+
+      if (supportsStatusDeleted) {
+        statusOptions.deleted = true;
+      }
+
+      // Query mailbox status
+      const status = await client.status(mailboxName, statusOptions);
+
+      // Cast to any to access optional STATUS=SIZE and STATUS=DELETED extension fields
+      const statusAny: any = status;
+
+      return {
+        mailbox: mailboxName,
+        messages: status.messages || 0,
+        uidNext: status.uidNext || 0,
+        uidValidity: status.uidValidity ? BigInt(status.uidValidity) : BigInt(0),
+        unseen: status.unseen || 0,
+        deleted: statusAny.deleted as number | undefined,
+        size: statusAny.size as number | undefined,
+      };
+    }, `getMailboxStatus(${mailboxName})`);
+  }
+
+  /**
+   * RFC 9051: Bulk STATUS command (Issue #56)
+   * Get status for multiple mailboxes efficiently
+   */
+  async getMultipleMailboxStatus(
+    accountId: string,
+    mailboxNames: string[]
+  ): Promise<MailboxStatus[]> {
+    return this.withRetry(accountId, async () => {
+      const statuses: MailboxStatus[] = [];
+
+      for (const mailboxName of mailboxNames) {
+        try {
+          const status = await this.getMailboxStatus(accountId, mailboxName);
+          statuses.push(status);
+        } catch (error) {
+          // Skip mailboxes that can't be accessed
+          console.error(`Failed to get status for ${mailboxName}:`, error);
+        }
+      }
+
+      return statuses;
+    }, `getMultipleMailboxStatus(${mailboxNames.length} mailboxes)`);
   }
 
   /**

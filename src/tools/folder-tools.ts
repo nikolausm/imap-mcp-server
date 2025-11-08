@@ -229,4 +229,46 @@ export function folderTools(
       }]
     };
   }));
+
+  // RFC 9051: Get mailbox status (Issue #56)
+  server.registerTool('imap_get_mailbox_status', {
+    description: 'Get mailbox statistics without selecting it (RFC 9051 STATUS command) - more efficient than SELECT',
+    inputSchema: {
+      accountId: z.string().describe('Account ID'),
+      mailboxName: z.union([z.string(), z.array(z.string())]).describe('Mailbox name or array of mailbox names'),
+    }
+  }, withErrorHandling(async ({ accountId, mailboxName }) => {
+    // Support both single mailbox and multiple mailboxes
+    const mailboxes = Array.isArray(mailboxName) ? mailboxName : [mailboxName];
+
+    const statuses = await imapService.getMultipleMailboxStatus(accountId, mailboxes);
+
+    // Build human-readable summary
+    const totalMessages = statuses.reduce((sum, s) => sum + s.messages, 0);
+    const totalUnseen = statuses.reduce((sum, s) => sum + s.unseen, 0);
+    const totalSize = statuses.reduce((sum, s) => sum + (s.size || 0), 0);
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          summary: {
+            totalMailboxes: statuses.length,
+            totalMessages,
+            totalUnseen,
+            totalSize: totalSize > 0 ? `${(totalSize / 1024 / 1024).toFixed(2)} MB` : 'N/A',
+          },
+          mailboxes: statuses.map(status => ({
+            mailbox: status.mailbox,
+            messages: status.messages,
+            unseen: status.unseen,
+            uidNext: status.uidNext,
+            uidValidity: status.uidValidity.toString(),
+            deleted: status.deleted,
+            size: status.size ? `${(status.size / 1024 / 1024).toFixed(2)} MB` : undefined,
+          })),
+        }, null, 2)
+      }]
+    };
+  }));
 }
