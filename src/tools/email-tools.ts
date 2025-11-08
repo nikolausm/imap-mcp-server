@@ -473,14 +473,14 @@ export function emailTools(
     };
   }));
 
-  // Level 2: Bulk mark emails tool
+  // Level 2: Bulk mark emails tool (Issue #54: RFC 9051 extended flags)
   server.registerTool('imap_bulk_mark_emails', {
-    description: 'Bulk mark multiple emails as read, unread, flagged, or unflagged',
+    description: 'Bulk mark multiple emails with standard IMAP flags (read, unread, flagged, unflagged, answered, unanswered, draft, not-draft, deleted, undeleted)',
     inputSchema: {
       accountId: z.string().describe('Account ID'),
       folder: z.string().default('INBOX').describe('Folder name'),
       uids: z.array(z.number()).describe('Array of email UIDs to mark'),
-      operation: z.enum(['read', 'unread', 'flagged', 'unflagged']).describe('Mark operation to perform'),
+      operation: z.enum(['read', 'unread', 'flagged', 'unflagged', 'answered', 'unanswered', 'draft', 'not-draft', 'deleted', 'undeleted']).describe('Mark operation to perform'),
     }
   }, withErrorHandling(async ({ accountId, folder, uids, operation }) => {
     if (uids.length === 0) {
@@ -702,6 +702,114 @@ export function emailTools(
         text: JSON.stringify({
           success: true,
           message: `Metrics reset for account ${accountId}`,
+        }, null, 2)
+      }]
+    };
+  }));
+
+  // RFC 9051: Add keyword to emails (Issue #54)
+  server.registerTool('imap_add_keyword', {
+    description: 'Add a custom keyword to emails. RFC 9051 recommended keywords: $Forwarded, $MDNSent, $Junk, $NotJunk, $Phishing',
+    inputSchema: {
+      accountId: z.string().describe('Account ID'),
+      folder: z.string().default('INBOX').describe('Folder name'),
+      uids: z.array(z.number()).describe('Array of email UIDs'),
+      keyword: z.string().describe('Keyword to add (e.g., $Forwarded, $Junk, or custom)'),
+    }
+  }, withErrorHandling(async ({ accountId, folder, uids, keyword }) => {
+    if (uids.length === 0) {
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            success: true,
+            message: 'No emails to update',
+            processedCount: 0,
+          }, null, 2)
+        }]
+      };
+    }
+
+    await imapService.bulkAddKeyword(accountId, folder, uids, keyword);
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: true,
+          message: `Successfully added keyword "${keyword}" to ${uids.length} email(s)`,
+        }, null, 2)
+      }]
+    };
+  }));
+
+  // RFC 9051: Remove keyword from emails (Issue #54)
+  server.registerTool('imap_remove_keyword', {
+    description: 'Remove a custom keyword from emails',
+    inputSchema: {
+      accountId: z.string().describe('Account ID'),
+      folder: z.string().default('INBOX').describe('Folder name'),
+      uids: z.array(z.number()).describe('Array of email UIDs'),
+      keyword: z.string().describe('Keyword to remove (e.g., $Forwarded, $Junk, or custom)'),
+    }
+  }, withErrorHandling(async ({ accountId, folder, uids, keyword }) => {
+    if (uids.length === 0) {
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            success: true,
+            message: 'No emails to update',
+            processedCount: 0,
+          }, null, 2)
+        }]
+      };
+    }
+
+    await imapService.bulkRemoveKeyword(accountId, folder, uids, keyword);
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: true,
+          message: `Successfully removed keyword "${keyword}" from ${uids.length} email(s)`,
+        }, null, 2)
+      }]
+    };
+  }));
+
+  // RFC 9051: APPEND command - Upload a message to a mailbox (Issue #52)
+  server.registerTool('imap_append_message', {
+    description: 'Append a raw RFC822 message to a mailbox (useful for importing emails, saving drafts, or copying messages)',
+    inputSchema: {
+      accountId: z.string().describe('Account ID'),
+      mailbox: z.string().default('INBOX').describe('Mailbox name to append to'),
+      messageContent: z.string().describe('Raw RFC822 message content (headers + body)'),
+      flags: z.array(z.string()).optional().describe('Initial flags for the message (e.g., ["\\Seen", "\\Flagged"])'),
+      internalDate: z.string().optional().describe('Internal date for the message (ISO 8601 format)'),
+    }
+  }, withErrorHandling(async ({ accountId, mailbox, messageContent, flags, internalDate }) => {
+    const options: { flags?: string[]; internalDate?: Date } = {};
+
+    if (flags) {
+      options.flags = flags;
+    }
+
+    if (internalDate) {
+      options.internalDate = new Date(internalDate);
+    }
+
+    const result = await imapService.appendMessage(accountId, mailbox, messageContent, options);
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: true,
+          message: `Message appended to ${mailbox}`,
+          uid: result.uid,
+          uidValidity: result.uidValidity.toString(),
         }, null, 2)
       }]
     };

@@ -162,4 +162,71 @@ export function folderTools(
       }]
     };
   }));
+
+  // RFC 9051: Subscribe to mailbox (Issue #53)
+  server.registerTool('imap_subscribe_mailbox', {
+    description: 'Subscribe to a mailbox (RFC 9051 SUBSCRIBE command)',
+    inputSchema: {
+      accountId: z.string().describe('Account ID'),
+      mailboxName: z.string().describe('Name of the mailbox to subscribe to'),
+    }
+  }, withErrorHandling(async ({ accountId, mailboxName }) => {
+    await imapService.subscribeMailbox(accountId, mailboxName);
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: true,
+          message: `Subscribed to mailbox "${mailboxName}" successfully`,
+        }, null, 2)
+      }]
+    };
+  }));
+
+  // RFC 9051: Unsubscribe from mailbox (Issue #53)
+  server.registerTool('imap_unsubscribe_mailbox', {
+    description: 'Unsubscribe from a mailbox (RFC 9051 UNSUBSCRIBE command)',
+    inputSchema: {
+      accountId: z.string().describe('Account ID'),
+      mailboxName: z.string().describe('Name of the mailbox to unsubscribe from'),
+    }
+  }, withErrorHandling(async ({ accountId, mailboxName }) => {
+    await imapService.unsubscribeMailbox(accountId, mailboxName);
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: true,
+          message: `Unsubscribed from mailbox "${mailboxName}" successfully`,
+        }, null, 2)
+      }]
+    };
+  }));
+
+  // RFC 9051: List subscribed mailboxes (Issue #53)
+  server.registerTool('imap_list_subscribed_mailboxes', {
+    description: 'List all subscribed mailboxes (RFC 9051 LSUB/LIST with SUBSCRIBED)',
+    inputSchema: {
+      accountId: z.string().describe('Account ID'),
+    }
+  }, withErrorHandling(async ({ accountId }) => {
+    const subscribedFolders = await imapService.listSubscribedMailboxes(accountId);
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          subscribedMailboxes: subscribedFolders.map(folder => ({
+            name: folder.name,
+            delimiter: folder.delimiter,
+            attributes: folder.attributes,
+            hasChildren: !!folder.children && folder.children.length > 0,
+          })),
+          count: subscribedFolders.length,
+        }, null, 2)
+      }]
+    };
+  }));
 }

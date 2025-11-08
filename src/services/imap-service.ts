@@ -32,7 +32,8 @@ import {
   OperationMetrics,
   DegradationConfig,
   RetryConfig,
-  ServerCapabilities
+  ServerCapabilities,
+  ImapKeyword
 } from '../types/index.js';
 import { LRUCache } from '../utils/memory-manager.js';
 
@@ -453,6 +454,34 @@ export class ImapService {
     }, `renameFolder(${oldName} -> ${newName})`);
   }
 
+  // RFC 9051: SUBSCRIBE/UNSUBSCRIBE commands (Issue #53)
+  async subscribeMailbox(accountId: string, mailboxName: string): Promise<void> {
+    return this.withRetry(accountId, async () => {
+      const client = this.getConnection(accountId);
+      await client.mailboxSubscribe(mailboxName);
+    }, `subscribeMailbox(${mailboxName})`);
+  }
+
+  async unsubscribeMailbox(accountId: string, mailboxName: string): Promise<void> {
+    return this.withRetry(accountId, async () => {
+      const client = this.getConnection(accountId);
+      await client.mailboxUnsubscribe(mailboxName);
+    }, `unsubscribeMailbox(${mailboxName})`);
+  }
+
+  async listSubscribedMailboxes(accountId: string): Promise<Folder[]> {
+    return this.withRetry(accountId, async () => {
+      const client = this.getConnection(accountId);
+      // Use client.list() which returns all mailboxes with subscription status
+      const list = await client.list();
+
+      // Filter for subscribed mailboxes only
+      const subscribedFolders = list.filter(item => item.subscribed === true);
+
+      return this.parseImapFlowFolders(subscribedFolders);
+    }, 'listSubscribedMailboxes()');
+  }
+
   /**
    * Query IMAP server capabilities (Issue #55)
    * Implements capability detection as required by RFC 9051
@@ -794,6 +823,24 @@ export class ImapService {
         case 'unflagged':
           await client.messageFlagsRemove(uids.join(','), ['\\Flagged'], { uid: true });
           break;
+        case 'answered':
+          await client.messageFlagsAdd(uids.join(','), ['\\Answered'], { uid: true });
+          break;
+        case 'unanswered':
+          await client.messageFlagsRemove(uids.join(','), ['\\Answered'], { uid: true });
+          break;
+        case 'draft':
+          await client.messageFlagsAdd(uids.join(','), ['\\Draft'], { uid: true });
+          break;
+        case 'not-draft':
+          await client.messageFlagsRemove(uids.join(','), ['\\Draft'], { uid: true });
+          break;
+        case 'deleted':
+          await client.messageFlagsAdd(uids.join(','), ['\\Deleted'], { uid: true });
+          break;
+        case 'undeleted':
+          await client.messageFlagsRemove(uids.join(','), ['\\Deleted'], { uid: true });
+          break;
       }
     }, `bulkMarkEmails(${folderName}, ${action}, ${uids.length} messages)`);
   }
@@ -804,6 +851,65 @@ export class ImapService {
 
   async markAsUnread(accountId: string, folderName: string, uid: number): Promise<void> {
     await this.bulkMarkEmails(accountId, folderName, [uid], 'unread');
+  }
+
+  // RFC 9051: Keyword support (Issue #54)
+  async bulkAddKeyword(
+    accountId: string,
+    folderName: string,
+    uids: number[],
+    keyword: string
+  ): Promise<void> {
+    return this.withRetry(accountId, async () => {
+      const client = this.getConnection(accountId);
+      await client.mailboxOpen(folderName);
+      await client.messageFlagsAdd(uids.join(','), [keyword], { uid: true });
+    }, `bulkAddKeyword(${folderName}, ${keyword}, ${uids.length} messages)`);
+  }
+
+  async bulkRemoveKeyword(
+    accountId: string,
+    folderName: string,
+    uids: number[],
+    keyword: string
+  ): Promise<void> {
+    return this.withRetry(accountId, async () => {
+      const client = this.getConnection(accountId);
+      await client.mailboxOpen(folderName);
+      await client.messageFlagsRemove(uids.join(','), [keyword], { uid: true });
+    }, `bulkRemoveKeyword(${folderName}, ${keyword}, ${uids.length} messages)`);
+  }
+
+  // RFC 9051: APPEND command (Issue #52)
+  async appendMessage(
+    accountId: string,
+    mailboxName: string,
+    messageContent: string,
+    options?: { flags?: string[]; internalDate?: Date }
+  ): Promise<{ uid: number; uidValidity: bigint }> {
+    return this.withRetry(accountId, async () => {
+      const client = this.getConnection(accountId);
+
+      const appendOptions: any = {};
+      if (options?.flags) {
+        appendOptions.flags = options.flags;
+      }
+      if (options?.internalDate) {
+        appendOptions.internalDate = options.internalDate;
+      }
+
+      const result = await client.append(mailboxName, messageContent, appendOptions);
+
+      // Handle false return (failed append) or successful AppendResponseObject
+      if (!result) {
+        throw new Error('APPEND command failed');
+      }
+
+      return {
+        uid: Number(result.uid),
+        uidValidity: result.uidValidity ? BigInt(result.uidValidity) : BigInt(0),
+      };
+    }, `appendMessage(${mailboxName})`);
   }
 
   async deleteEmail(accountId: string, folderName: string, uid: number): Promise<void> {

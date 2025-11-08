@@ -141,7 +141,20 @@ export interface EmailAttachment {
 }
 
 // Bulk operation types
-export type BulkMarkOperation = 'read' | 'unread' | 'flagged' | 'unflagged';
+export type BulkMarkOperation =
+  | 'read' | 'unread'           // \Seen flag
+  | 'flagged' | 'unflagged'     // \Flagged flag
+  | 'answered' | 'unanswered'   // \Answered flag (RFC 9051)
+  | 'draft' | 'not-draft'       // \Draft flag (RFC 9051)
+  | 'deleted' | 'undeleted';    // \Deleted flag
+
+// RFC 9051: Recommended IMAP Keywords (Issue #54)
+export type ImapKeyword =
+  | '$Forwarded'   // Message has been forwarded
+  | '$MDNSent'     // Message Disposition Notification sent
+  | '$Junk'        // Message is junk/spam
+  | '$NotJunk'     // Message is NOT junk (user correction)
+  | '$Phishing';   // Message is a phishing attempt
 
 export type BulkFetchFields = 'headers' | 'full' | 'body';
 
