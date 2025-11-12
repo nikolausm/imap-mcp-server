@@ -415,23 +415,254 @@ async function deleteCategory(categoryId) {
   }
 }
 
-// Accounts UI Loading (placeholder for now - will need full implementation)
-function loadAccountsUI() {
-  const container = document.getElementById('accountsView');
-  container.innerHTML = `
-    <div class="flex items-center mb-6">
-      <button onclick="showDashboard()" class="text-blue-600 hover:text-blue-800 mr-4">
-        ← Back to Dashboard
-      </button>
-    </div>
-    <h2 class="text-3xl font-bold text-gray-900 mb-6">Accounts</h2>
-    <div class="bg-white rounded-lg shadow-md p-6 text-center py-12">
-      <div class="text-6xl mb-4">📬</div>
-      <h3 class="text-2xl font-semibold text-gray-700 mb-2">Account Management</h3>
-      <p class="text-gray-600 mb-4">Full account management UI will be integrated here.</p>
-      <p class="text-sm text-gray-500">For now, use the MCP tools to manage accounts via Claude.</p>
-    </div>
-  `;
+// Accounts Management
+async function loadAccountsUI() {
+  document.getElementById('accountsList').classList.remove('hidden');
+  document.getElementById('accountFormView').classList.add('hidden');
+  await loadAccountsList();
+}
+
+async function loadAccountsList() {
+  try {
+    const response = await fetch('/api/accounts');
+    const accounts = await response.json();
+
+    const container = document.getElementById('accountsListContent');
+
+    if (Array.isArray(accounts) && accounts.length > 0) {
+      container.innerHTML = '<div class="space-y-2">' + accounts.map(acc => `
+        <div class="border border-gray-200 rounded-lg p-4" id="account-${acc.id}">
+          <div class="flex justify-between items-start">
+            <div>
+              <h5 class="font-semibold">${acc.user}</h5>
+              <p class="text-sm text-gray-500">Name: ${acc.name}</p>
+              <p class="text-sm text-gray-500">Host: ${acc.host}:${acc.port}</p>
+              <span class="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">Configured</span>
+            </div>
+            <div class="flex gap-2">
+              <button onclick="testSingleAccount('${acc.id}')" class="text-gray-600 hover:text-gray-800 text-sm">
+                Test
+              </button>
+              <button onclick="connectAccount('${acc.id}')" class="text-blue-600 hover:text-blue-800 text-sm">
+                Connect
+              </button>
+              <button onclick="deleteAccount('${acc.id}')" class="text-red-600 hover:text-red-800 text-sm">
+                Delete
+              </button>
+            </div>
+          </div>
+          <div id="test-result-${acc.id}" class="hidden mt-3 text-sm"></div>
+        </div>
+      `).join('') + '</div>';
+    } else {
+      container.innerHTML = '<p class="text-gray-500">No accounts configured. Click "Add Account" to get started.</p>';
+    }
+  } catch (error) {
+    console.error('Failed to load accounts:', error);
+    document.getElementById('accountsListContent').innerHTML = '<p class="text-red-500">Failed to load accounts</p>';
+  }
+}
+
+function startAddAccount() {
+  document.getElementById('accountsList').classList.add('hidden');
+  document.getElementById('accountFormView').classList.remove('hidden');
+  document.getElementById('formTitle').textContent = 'Add New Account';
+
+  // Clear form
+  document.getElementById('accountEmail').value = '';
+  document.getElementById('accountPassword').value = '';
+  document.getElementById('accountImapHost').value = '';
+  document.getElementById('accountImapPort').value = '993';
+  document.getElementById('accountFormMessage').classList.add('hidden');
+}
+
+function cancelAccountForm() {
+  document.getElementById('accountsList').classList.remove('hidden');
+  document.getElementById('accountFormView').classList.add('hidden');
+}
+
+async function testAccountConnection() {
+  const email = document.getElementById('accountEmail').value;
+  const password = document.getElementById('accountPassword').value;
+  const imapHost = document.getElementById('accountImapHost').value;
+  const imapPort = document.getElementById('accountImapPort').value;
+
+  if (!email || !password || !imapHost || !imapPort) {
+    showAccountFormMessage('Please fill in all fields', 'error');
+    return;
+  }
+
+  showAccountFormMessage('Testing connection...', 'info');
+
+  try {
+    const response = await fetch('/api/accounts/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, imapHost, imapPort: parseInt(imapPort) })
+    });
+
+    const result = await response.json();
+
+    if (result.success) {
+      showAccountFormMessage('✅ Connection successful!', 'success');
+    } else {
+      showAccountFormMessage('❌ Connection failed: ' + result.error, 'error');
+    }
+  } catch (error) {
+    showAccountFormMessage('❌ Test failed: ' + error.message, 'error');
+  }
+}
+
+async function saveAccount() {
+  const email = document.getElementById('accountEmail').value;
+  const password = document.getElementById('accountPassword').value;
+  const imapHost = document.getElementById('accountImapHost').value;
+  const imapPort = document.getElementById('accountImapPort').value;
+
+  if (!email || !password || !imapHost || !imapPort) {
+    showAccountFormMessage('Please fill in all fields', 'error');
+    return;
+  }
+
+  showAccountFormMessage('Saving account...', 'info');
+
+  try {
+    const response = await fetch('/api/accounts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email,
+        password,
+        imapHost,
+        imapPort: parseInt(imapPort),
+        imapSecure: true
+      })
+    });
+
+    const result = await response.json();
+
+    if (result.success) {
+      showAccountFormMessage('✅ Account saved successfully!', 'success');
+      setTimeout(() => {
+        cancelAccountForm();
+        loadAccountsList();
+      }, 1500);
+    } else {
+      showAccountFormMessage('❌ Failed to save: ' + result.error, 'error');
+    }
+  } catch (error) {
+    showAccountFormMessage('❌ Save failed: ' + error.message, 'error');
+  }
+}
+
+function showAccountFormMessage(message, type) {
+  const messageEl = document.getElementById('accountFormMessage');
+  messageEl.classList.remove('hidden');
+
+  const bgColors = {
+    success: 'bg-green-50 border-green-200 text-green-800',
+    error: 'bg-red-50 border-red-200 text-red-800',
+    info: 'bg-blue-50 border-blue-200 text-blue-800'
+  };
+
+  messageEl.className = `mt-4 p-4 rounded-md border ${bgColors[type] || bgColors.info}`;
+  messageEl.textContent = message;
+}
+
+async function connectAccount(accountId) {
+  try {
+    const response = await fetch(`/api/accounts/${accountId}/connect`, {
+      method: 'POST'
+    });
+
+    const result = await response.json();
+
+    if (result.success) {
+      loadAccountsList();
+    } else {
+      alert('Failed to connect: ' + result.error);
+    }
+  } catch (error) {
+    alert('Failed to connect: ' + error.message);
+  }
+}
+
+async function deleteAccount(accountId) {
+  if (!confirm('Are you sure you want to delete this account?')) return;
+
+  try {
+    const response = await fetch(`/api/accounts/${accountId}`, {
+      method: 'DELETE'
+    });
+
+    const result = await response.json();
+
+    if (result.success) {
+      loadAccountsList();
+    } else {
+      alert('Failed to delete: ' + result.error);
+    }
+  } catch (error) {
+    alert('Failed to delete: ' + error.message);
+  }
+}
+
+async function testSingleAccount(accountId) {
+  const resultDiv = document.getElementById(`test-result-${accountId}`);
+  resultDiv.classList.remove('hidden');
+  resultDiv.innerHTML = '<div class="text-gray-600">Testing connection...</div>';
+
+  try {
+    const response = await fetch(`/api/accounts/${accountId}/test`, {
+      method: 'POST'
+    });
+
+    const result = await response.json();
+
+    if (result.success) {
+      const imapStatus = result.imap?.success
+        ? `<span class="text-green-600">✓ IMAP Connected</span>`
+        : `<span class="text-red-600">✗ IMAP Failed</span>`;
+
+      const smtpStatus = result.smtp?.tested
+        ? (result.smtp.success ? `<span class="text-green-600">✓ SMTP OK</span>` : `<span class="text-red-600">✗ SMTP Failed</span>`)
+        : `<span class="text-gray-500">○ SMTP Not Tested</span>`;
+
+      resultDiv.innerHTML = `
+        <div class="bg-gray-50 rounded p-3">
+          <div class="flex gap-4">
+            <div>${imapStatus}</div>
+            <div>${smtpStatus}</div>
+          </div>
+          ${result.imap?.unreadCount !== undefined ? `<div class="text-xs text-gray-600 mt-1">📬 ${result.imap.unreadCount} unread emails</div>` : ''}
+          ${result.error ? `<div class="text-xs text-red-600 mt-1">${result.error}</div>` : ''}
+        </div>
+      `;
+    } else {
+      resultDiv.innerHTML = `<div class="bg-red-50 text-red-600 rounded p-3">❌ ${result.error || 'Test failed'}</div>`;
+    }
+  } catch (error) {
+    resultDiv.innerHTML = `<div class="bg-red-50 text-red-600 rounded p-3">❌ ${error.message}</div>`;
+  }
+}
+
+async function testAllAccounts() {
+  try {
+    const response = await fetch('/api/accounts');
+    const accounts = await response.json();
+
+    if (!Array.isArray(accounts) || accounts.length === 0) {
+      alert('No accounts to test');
+      return;
+    }
+
+    // Test each account
+    for (const account of accounts) {
+      await testSingleAccount(account.id);
+    }
+  } catch (error) {
+    alert('Failed to test accounts: ' + error.message);
+  }
 }
 
 // Initialize on page load

@@ -167,7 +167,71 @@
 
             <!-- Accounts View -->
             <div id="accountsView" class="hidden">
-                <!-- This will contain the full accounts management UI -->
+                <div class="flex items-center mb-6">
+                    <button onclick="showDashboard()" class="text-blue-600 hover:text-blue-800 mr-4">
+                        ← Back to Dashboard
+                    </button>
+                </div>
+                <h2 class="text-3xl font-bold text-gray-900 mb-6">Accounts</h2>
+
+                <!-- Accounts List View -->
+                <div id="accountsList" class="bg-white rounded-lg shadow-md p-6">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-lg font-semibold">Your Accounts</h3>
+                        <div class="flex gap-2">
+                            <button onclick="testAllAccounts()" class="bg-gray-600 text-white px-4 py-2 rounded-md hover:bg-gray-700">
+                                Test All
+                            </button>
+                            <button onclick="startAddAccount()" class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700">
+                                + Add Account
+                            </button>
+                        </div>
+                    </div>
+                    <div id="accountsListContent">
+                        <p class="text-gray-500">Loading accounts...</p>
+                    </div>
+                </div>
+
+                <!-- Add/Edit Account Form (hidden by default) -->
+                <div id="accountFormView" class="hidden">
+                    <div class="bg-white rounded-lg shadow-md p-6 mb-4">
+                        <h3 class="text-lg font-semibold mb-4" id="formTitle">Add New Account</h3>
+
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Email Address</label>
+                            <input type="email" id="accountEmail" class="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="your@email.com">
+                        </div>
+
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Password</label>
+                            <input type="password" id="accountPassword" class="w-full px-3 py-2 border border-gray-300 rounded-md">
+                        </div>
+
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">IMAP Host</label>
+                            <input type="text" id="accountImapHost" class="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="imap.example.com">
+                        </div>
+
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">IMAP Port</label>
+                            <input type="number" id="accountImapPort" class="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="993" value="993">
+                        </div>
+
+                        <div class="flex gap-2">
+                            <button onclick="cancelAccountForm()" class="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50">
+                                Cancel
+                            </button>
+                            <button onclick="testAccountConnection()" class="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700">
+                                Test Connection
+                            </button>
+                            <button onclick="saveAccount()" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
+                                Save Account
+                            </button>
+                        </div>
+
+                        <div id="accountFormMessage" class="mt-4 hidden"></div>
+                    </div>
+                </div>
             </div>
 
             <!-- DNS Firewall View -->
