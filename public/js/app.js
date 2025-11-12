@@ -101,39 +101,55 @@ async function loadDnsProviders() {
             : '';
 
           return `
-            <div class="border border-gray-200 rounded-lg p-4 mb-4">
-              <div class="flex justify-between items-start mb-3">
-                <div>
+            <div class="border border-gray-200 rounded-lg p-4 mb-4 bg-white">
+              <div class="mb-4">
+                <div class="flex items-center justify-between mb-2">
                   <div class="flex items-center">
-                    <h5 class="font-semibold">${provider.providerName}</h5>
+                    <h5 class="font-semibold text-lg">${provider.providerName}</h5>
                     ${statusBadge}
                     ${defaultBadge}
                   </div>
-                  <p class="text-xs text-gray-500 mt-1">Type: ${provider.providerType}</p>
-                  <p class="text-xs text-gray-500">Endpoint: ${provider.apiEndpoint}</p>
+                  <button onclick="editDnsProvider('${provider.providerId}')" class="text-blue-600 hover:text-blue-800 text-sm">
+                    Edit
+                  </button>
                 </div>
+                <p class="text-xs text-gray-500">Type: ${provider.providerType}</p>
+                <p class="text-xs text-gray-500">Endpoint: ${provider.apiEndpoint}</p>
               </div>
-              <div class="flex items-center space-x-4 text-sm">
-                <label class="flex items-center">
-                  <input type="checkbox"
-                    ${provider.isEnabled ? 'checked' : ''}
-                    onchange="toggleDnsProvider('${provider.providerId}', this.checked)"
-                    class="mr-2">
-                  Enabled
-                </label>
-                <label class="flex items-center">
-                  <input type="checkbox"
-                    ${provider.isDefault ? 'checked' : ''}
-                    onchange="setDefaultDnsProvider('${provider.providerId}', this.checked)"
-                    class="mr-2">
-                  Default
-                </label>
-                <div class="flex items-center">
-                  <label class="mr-2">Timeout (ms):</label>
-                  <input type="number"
-                    value="${provider.timeoutMs}"
-                    onchange="updateDnsProviderTimeout('${provider.providerId}', this.value)"
-                    class="w-20 px-2 py-1 border border-gray-300 rounded text-sm">
+
+              <div class="grid grid-cols-3 gap-4 pt-4 border-t border-gray-200">
+                <div>
+                  <label class="flex items-center cursor-pointer">
+                    <input type="checkbox"
+                      ${provider.isEnabled ? 'checked' : ''}
+                      onchange="toggleDnsProvider('${provider.providerId}', this.checked)"
+                      class="mr-2 cursor-pointer">
+                    <span class="text-sm font-medium">Enabled</span>
+                  </label>
+                  <p class="text-xs text-gray-500 mt-1">Use this provider</p>
+                </div>
+
+                <div>
+                  <label class="flex items-center cursor-pointer">
+                    <input type="checkbox"
+                      ${provider.isDefault ? 'checked' : ''}
+                      onchange="setDefaultDnsProvider('${provider.providerId}', this.checked)"
+                      class="mr-2 cursor-pointer">
+                    <span class="text-sm font-medium">Default</span>
+                  </label>
+                  <p class="text-xs text-gray-500 mt-1">Primary provider</p>
+                </div>
+
+                <div>
+                  <div class="flex items-center">
+                    <label class="text-sm font-medium mr-2">Timeout:</label>
+                    <input type="number"
+                      value="${provider.timeoutMs}"
+                      onchange="updateDnsProviderTimeout('${provider.providerId}', this.value)"
+                      class="w-20 px-2 py-1 border border-gray-300 rounded text-sm">
+                    <span class="text-xs text-gray-500 ml-1">ms</span>
+                  </div>
+                  <p class="text-xs text-gray-500 mt-1">Query timeout</p>
                 </div>
               </div>
             </div>
@@ -201,6 +217,36 @@ async function updateDnsProviderTimeout(providerId, timeoutMs) {
     }
   } catch (error) {
     console.error('Failed to update DNS provider timeout:', error);
+  }
+}
+
+function editDnsProvider(providerId) {
+  const providerName = prompt('Edit DNS Provider\n\nProvider name:');
+  if (!providerName) return;
+
+  const apiEndpoint = prompt('API Endpoint:');
+  if (!apiEndpoint) return;
+
+  updateDnsProviderDetails(providerId, providerName, apiEndpoint);
+}
+
+async function updateDnsProviderDetails(providerId, providerName, apiEndpoint) {
+  try {
+    const response = await fetch(`/api/dns-firewall/providers/${providerId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ providerName, apiEndpoint })
+    });
+
+    const result = await response.json();
+    if (result.success) {
+      loadDnsProviders();
+    } else {
+      alert('Failed to update provider: ' + result.error);
+    }
+  } catch (error) {
+    console.error('Failed to update DNS provider:', error);
+    alert('Failed to update provider');
   }
 }
 
@@ -619,13 +665,14 @@ async function testSingleAccount(accountId) {
 
     const result = await response.json();
 
-    if (result.success) {
-      const imapStatus = result.imap?.success
+    if (result.success && result.results) {
+      const testResults = result.results;
+      const imapStatus = testResults.imap?.success
         ? `<span class="text-green-600">✓ IMAP Connected</span>`
         : `<span class="text-red-600">✗ IMAP Failed</span>`;
 
-      const smtpStatus = result.smtp?.tested
-        ? (result.smtp.success ? `<span class="text-green-600">✓ SMTP OK</span>` : `<span class="text-red-600">✗ SMTP Failed</span>`)
+      const smtpStatus = testResults.smtp?.tested
+        ? (testResults.smtp.success ? `<span class="text-green-600">✓ SMTP OK</span>` : `<span class="text-red-600">✗ SMTP Failed</span>`)
         : `<span class="text-gray-500">○ SMTP Not Tested</span>`;
 
       resultDiv.innerHTML = `
@@ -634,8 +681,9 @@ async function testSingleAccount(accountId) {
             <div>${imapStatus}</div>
             <div>${smtpStatus}</div>
           </div>
-          ${result.imap?.unreadCount !== undefined ? `<div class="text-xs text-gray-600 mt-1">📬 ${result.imap.unreadCount} unread emails</div>` : ''}
-          ${result.error ? `<div class="text-xs text-red-600 mt-1">${result.error}</div>` : ''}
+          ${testResults.imap?.unreadCount !== undefined ? `<div class="text-xs text-gray-600 mt-1">📬 ${testResults.imap.unreadCount} unread emails</div>` : ''}
+          ${testResults.error ? `<div class="text-xs text-red-600 mt-1">${testResults.error}</div>` : ''}
+          <div class="text-xs text-gray-500 mt-1">Test completed in ${testResults.totalTime}ms</div>
         </div>
       `;
     } else {
