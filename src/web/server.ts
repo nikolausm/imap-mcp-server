@@ -658,6 +658,130 @@ export class WebUIServer {
       }
     });
 
+    // Categories (Issue #61)
+    // Get all categories for an account
+    this.app.get('/api/categories/:accountId', (req, res) => {
+      try {
+        const { accountId } = req.params;
+        const categories = this.db.getCategories(accountId);
+
+        res.json({
+          success: true,
+          categories: categories.map((c: any) => ({
+            categoryId: c.category_id,
+            categoryName: c.category_name,
+            folderName: c.folder_name,
+            accountId: c.account_id,
+            createdAt: c.created_at,
+            updatedAt: c.updated_at
+          }))
+        });
+      } catch (error) {
+        res.status(500).json({
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to get categories'
+        });
+      }
+    });
+
+    // Create category
+    this.app.post('/api/categories', (req, res) => {
+      try {
+        const { accountId, categoryName, folderName } = req.body;
+
+        if (!accountId || !categoryName || !folderName) {
+          return res.status(400).json({
+            success: false,
+            error: 'accountId, categoryName, and folderName are required'
+          });
+        }
+
+        const categoryId = this.db.createCategory(accountId, categoryName, folderName);
+
+        res.json({
+          success: true,
+          categoryId,
+          message: 'Category created successfully'
+        });
+      } catch (error) {
+        res.status(500).json({
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to create category'
+        });
+      }
+    });
+
+    // Update category
+    this.app.put('/api/categories/:categoryId', (req, res) => {
+      try {
+        const { categoryId } = req.params;
+        const { categoryName, folderName } = req.body;
+
+        const updates: any = {};
+        if (categoryName !== undefined) updates.categoryName = categoryName;
+        if (folderName !== undefined) updates.folderName = folderName;
+
+        this.db.updateCategory(parseInt(categoryId), updates);
+
+        res.json({
+          success: true,
+          message: 'Category updated successfully'
+        });
+      } catch (error) {
+        res.status(500).json({
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to update category'
+        });
+      }
+    });
+
+    // Delete category
+    this.app.delete('/api/categories/:categoryId', (req, res) => {
+      try {
+        const { categoryId } = req.params;
+        this.db.deleteCategory(parseInt(categoryId));
+
+        res.json({
+          success: true,
+          message: 'Category deleted successfully'
+        });
+      } catch (error) {
+        res.status(500).json({
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to delete category'
+        });
+      }
+    });
+
+    // Profile Information (Issue #61)
+    this.app.get('/api/profile', (req, res) => {
+      try {
+        const dbPath = path.join(os.homedir(), '.imap-mcp', 'data.db');
+        let dbSize = 0;
+        try {
+          const stats = fs.statSync(dbPath);
+          dbSize = stats.size;
+        } catch (e) {
+          // Ignore if file doesn't exist
+        }
+
+        res.json({
+          success: true,
+          profile: {
+            userId: this.defaultUserId,
+            databasePath: dbPath,
+            databaseSize: dbSize,
+            version: '2.11.0'
+          }
+        });
+      } catch (error) {
+        res.status(500).json({
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to get profile'
+        });
+      }
+    });
+
     // Health check
     this.app.get('/api/health', (req, res) => {
       res.json({
