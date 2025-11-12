@@ -809,6 +809,77 @@ export class DatabaseService {
   }
 
   // ===================
+  // Categories (Issue #61)
+  // ===================
+
+  /**
+   * Get all categories for an account
+   */
+  getCategories(accountId: string): any[] {
+    const stmt = this.db.prepare('SELECT * FROM categories WHERE account_id = ? ORDER BY category_name ASC');
+    return stmt.all(accountId);
+  }
+
+  /**
+   * Get category by ID
+   */
+  getCategory(categoryId: number): any | null {
+    const stmt = this.db.prepare('SELECT * FROM categories WHERE category_id = ?');
+    return stmt.get(categoryId) || null;
+  }
+
+  /**
+   * Create category
+   */
+  createCategory(accountId: string, categoryName: string, folderName: string): number {
+    const now = Date.now();
+    const stmt = this.db.prepare(`
+      INSERT INTO categories (category_name, folder_name, account_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+
+    const result = stmt.run(categoryName, folderName, accountId, now, now);
+    return result.lastInsertRowid as number;
+  }
+
+  /**
+   * Update category
+   */
+  updateCategory(categoryId: number, updates: {
+    categoryName?: string;
+    folderName?: string;
+  }): void {
+    const fields: string[] = [];
+    const values: any[] = [];
+
+    if (updates.categoryName !== undefined) {
+      fields.push('category_name = ?');
+      values.push(updates.categoryName);
+    }
+    if (updates.folderName !== undefined) {
+      fields.push('folder_name = ?');
+      values.push(updates.folderName);
+    }
+
+    if (fields.length === 0) return;
+
+    fields.push('updated_at = ?');
+    values.push(Date.now());
+    values.push(categoryId);
+
+    const stmt = this.db.prepare(`UPDATE categories SET ${fields.join(', ')} WHERE category_id = ?`);
+    stmt.run(...values);
+  }
+
+  /**
+   * Delete category
+   */
+  deleteCategory(categoryId: number): void {
+    const stmt = this.db.prepare('DELETE FROM categories WHERE category_id = ?');
+    stmt.run(categoryId);
+  }
+
+  // ===================
   // Close Database
   // ===================
 
