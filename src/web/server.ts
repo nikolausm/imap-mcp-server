@@ -606,6 +606,58 @@ export class WebUIServer {
       }
     });
 
+    // DNS Firewall Providers (Issue #60)
+    // Get all DNS firewall providers
+    this.app.get('/api/dns-firewall/providers', (req, res) => {
+      try {
+        const providers = this.db.getDnsFirewallProviders();
+        res.json({
+          success: true,
+          providers: providers.map((p: any) => ({
+            providerId: p.provider_id,
+            providerName: p.provider_name,
+            providerType: p.provider_type,
+            apiEndpoint: p.api_endpoint,
+            isEnabled: p.is_enabled === 1,
+            isDefault: p.is_default === 1,
+            timeoutMs: p.timeout_ms,
+            createdAt: p.created_at,
+            updatedAt: p.updated_at
+          }))
+        });
+      } catch (error) {
+        res.status(500).json({
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to load DNS firewall providers'
+        });
+      }
+    });
+
+    // Update DNS firewall provider
+    this.app.put('/api/dns-firewall/providers/:providerId', (req, res) => {
+      try {
+        const { providerId } = req.params;
+        const { isEnabled, isDefault, timeoutMs } = req.body;
+
+        const updates: any = {};
+        if (isEnabled !== undefined) updates.isEnabled = isEnabled;
+        if (isDefault !== undefined) updates.isDefault = isDefault;
+        if (timeoutMs !== undefined) updates.timeoutMs = timeoutMs;
+
+        this.db.updateDnsFirewallProvider(providerId, updates);
+
+        res.json({
+          success: true,
+          message: 'DNS firewall provider updated successfully'
+        });
+      } catch (error) {
+        res.status(500).json({
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to update DNS firewall provider'
+        });
+      }
+    });
+
     // Health check
     this.app.get('/api/health', (req, res) => {
       res.json({

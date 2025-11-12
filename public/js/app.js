@@ -871,8 +871,9 @@ async function viewSettings() {
     // Show settings panel
     document.getElementById('settingsPanel').classList.remove('hidden');
 
-    // Load current UserCheck keys
+    // Load current UserCheck keys and DNS firewall providers
     await loadUserCheckKeys();
+    await loadDnsFirewallProviders();
 }
 
 async function loadUserCheckKeys() {
@@ -1074,6 +1075,146 @@ async function checkDomain() {
         alert('Failed to check domain: ' + error.message);
     }
 }
+
+// DNS Firewall Provider Management (Issue #60)
+async function loadDnsFirewallProviders() {
+    try {
+        const response = await fetch('/api/dns-firewall/providers');
+        const result = await response.json();
+
+        if (result.success && result.providers) {
+            const providersContainer = document.getElementById('dnsFirewallProvidersList');
+
+            if (result.providers.length === 0) {
+                providersContainer.innerHTML = '<p class="text-sm text-gray-500">No DNS firewall providers configured</p>';
+            } else {
+                providersContainer.innerHTML = result.providers.map(provider => {
+                    const statusBadge = provider.isEnabled
+                        ? '<span class="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">Enabled</span>'
+                        : '<span class="text-xs bg-gray-100 text-gray-800 px-2 py-1 rounded">Disabled</span>';
+
+                    const defaultBadge = provider.isDefault
+                        ? '<span class="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded ml-2">Default</span>'
+                        : '';
+
+                    return `
+                        <div class="border border-gray-200 rounded-lg p-4">
+                            <div class="flex justify-between items-start mb-3">
+                                <div>
+                                    <div class="flex items-center">
+                                        <h5 class="font-semibold">${provider.providerName}</h5>
+                                        ${statusBadge}
+                                        ${defaultBadge}
+                                    </div>
+                                    <p class="text-xs text-gray-500 mt-1">Type: ${provider.providerType}</p>
+                                    <p class="text-xs text-gray-500">Endpoint: ${provider.apiEndpoint}</p>
+                                </div>
+                            </div>
+                            <div class="flex items-center space-x-4 text-sm">
+                                <label class="flex items-center">
+                                    <input type="checkbox"
+                                        ${provider.isEnabled ? 'checked' : ''}
+                                        onchange="toggleDnsProvider('${provider.providerId}', this.checked)"
+                                        class="mr-2">
+                                    Enabled
+                                </label>
+                                <label class="flex items-center">
+                                    <input type="checkbox"
+                                        ${provider.isDefault ? 'checked' : ''}
+                                        onchange="setDefaultDnsProvider('${provider.providerId}', this.checked)"
+                                        class="mr-2">
+                                    Default
+                                </label>
+                                <div class="flex items-center">
+                                    <label class="mr-2">Timeout (ms):</label>
+                                    <input type="number"
+                                        value="${provider.timeoutMs}"
+                                        onchange="updateDnsProviderTimeout('${provider.providerId}', this.value)"
+                                        class="w-20 px-2 py-1 border border-gray-300 rounded text-sm">
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+        }
+    } catch (error) {
+        console.error('Failed to load DNS firewall providers:', error);
+    }
+}
+
+async function toggleDnsProvider(providerId, isEnabled) {
+    try {
+        const response = await fetch(`/api/dns-firewall/providers/${providerId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ isEnabled })
+        });
+
+        const result = await response.json();
+
+        if (!result.success) {
+            throw new Error(result.error || 'Failed to update DNS provider');
+        }
+
+        await loadDnsFirewallProviders();
+    } catch (error) {
+        console.error('Failed to toggle DNS provider:', error);
+        alert('Failed to update DNS provider: ' + error.message);
+    }
+}
+
+async function setDefaultDnsProvider(providerId, isDefault) {
+    try {
+        const response = await fetch(`/api/dns-firewall/providers/${providerId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ isDefault })
+        });
+
+        const result = await response.json();
+
+        if (!result.success) {
+            throw new Error(result.error || 'Failed to set default DNS provider');
+        }
+
+        await loadDnsFirewallProviders();
+    } catch (error) {
+        console.error('Failed to set default DNS provider:', error);
+        alert('Failed to set default DNS provider: ' + error.message);
+    }
+}
+
+async function updateDnsProviderTimeout(providerId, timeoutMs) {
+    try {
+        const timeout = parseInt(timeoutMs);
+        if (isNaN(timeout) || timeout < 1000 || timeout > 30000) {
+            alert('Timeout must be between 1000 and 30000 milliseconds');
+            await loadDnsFirewallProviders();
+            return;
+        }
+
+        const response = await fetch(`/api/dns-firewall/providers/${providerId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ timeoutMs: timeout })
+        });
+
+        const result = await response.json();
+
+        if (!result.success) {
+            throw new Error(result.error || 'Failed to update timeout');
+        }
+
+        // Show success feedback
+        console.log('DNS provider timeout updated successfully');
+    } catch (error) {
+        console.error('Failed to update DNS provider timeout:', error);
+        alert('Failed to update timeout: ' + error.message);
+        await loadDnsFirewallProviders();
+    }
+}
+
 // Load and display system information
 async function loadSystemInfo() {
     try {
