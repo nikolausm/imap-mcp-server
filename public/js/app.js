@@ -109,12 +109,18 @@ async function loadDnsProviders() {
                     ${statusBadge}
                     ${defaultBadge}
                   </div>
-                  <button onclick="editDnsProvider('${provider.providerId}')" class="text-blue-600 hover:text-blue-800 text-sm">
-                    Edit
-                  </button>
+                  <div class="flex gap-2">
+                    <button onclick="testDnsProvider('${provider.providerId}')" class="text-gray-600 hover:text-gray-800 text-sm">
+                      Test
+                    </button>
+                    <button onclick="editDnsProvider('${provider.providerId}')" class="text-blue-600 hover:text-blue-800 text-sm">
+                      Edit
+                    </button>
+                  </div>
                 </div>
                 <p class="text-xs text-gray-500">Type: ${provider.providerType}</p>
                 <p class="text-xs text-gray-500">Endpoint: ${provider.apiEndpoint}</p>
+                ${provider.apiKey ? '<p class="text-xs text-gray-500">API Key: ••••••••</p>' : ''}
               </div>
 
               <div class="grid grid-cols-3 gap-4 pt-4 border-t border-gray-200">
@@ -152,6 +158,8 @@ async function loadDnsProviders() {
                   <p class="text-xs text-gray-500 mt-1">Query timeout</p>
                 </div>
               </div>
+
+              <div id="dns-test-result-${provider.providerId}" class="hidden mt-4 pt-4 border-t border-gray-200"></div>
             </div>
           `;
         }).join('');
@@ -227,15 +235,22 @@ function editDnsProvider(providerId) {
   const apiEndpoint = prompt('API Endpoint:');
   if (!apiEndpoint) return;
 
-  updateDnsProviderDetails(providerId, providerName, apiEndpoint);
+  const apiKey = prompt('API Key (leave empty if not required):');
+
+  updateDnsProviderDetails(providerId, providerName, apiEndpoint, apiKey);
 }
 
-async function updateDnsProviderDetails(providerId, providerName, apiEndpoint) {
+async function updateDnsProviderDetails(providerId, providerName, apiEndpoint, apiKey) {
   try {
+    const updates = { providerName, apiEndpoint };
+    if (apiKey) {
+      updates.apiKey = apiKey;
+    }
+
     const response = await fetch(`/api/dns-firewall/providers/${providerId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ providerName, apiEndpoint })
+      body: JSON.stringify(updates)
     });
 
     const result = await response.json();
@@ -247,6 +262,50 @@ async function updateDnsProviderDetails(providerId, providerName, apiEndpoint) {
   } catch (error) {
     console.error('Failed to update DNS provider:', error);
     alert('Failed to update provider');
+  }
+}
+
+async function testDnsProvider(providerId) {
+  const resultDiv = document.getElementById(`dns-test-result-${providerId}`);
+  resultDiv.classList.remove('hidden');
+  resultDiv.innerHTML = '<div class="text-gray-600 text-sm">Testing DNS provider...</div>';
+
+  try {
+    const response = await fetch(`/api/dns-firewall/providers/${providerId}/test`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ domain: 'google.com' })
+    });
+
+    const result = await response.json();
+
+    if (result.success) {
+      resultDiv.innerHTML = `
+        <div class="bg-green-50 border border-green-200 rounded p-3 text-sm">
+          <div class="flex items-center mb-2">
+            <span class="text-green-600 font-semibold">✓ DNS Query Successful</span>
+          </div>
+          <p class="text-gray-700">Test domain: <span class="font-mono">google.com</span></p>
+          ${result.blocked !== undefined ? `<p class="text-gray-700">Blocked: <span class="font-semibold ${result.blocked ? 'text-red-600' : 'text-green-600'}">${result.blocked ? 'Yes' : 'No'}</span></p>` : ''}
+          ${result.responseTime ? `<p class="text-gray-600">Response time: ${result.responseTime}ms</p>` : ''}
+          ${result.addresses ? `<p class="text-gray-600 mt-1">Resolved: ${result.addresses.join(', ')}</p>` : ''}
+        </div>
+      `;
+    } else {
+      resultDiv.innerHTML = `
+        <div class="bg-red-50 border border-red-200 rounded p-3 text-sm">
+          <span class="text-red-600 font-semibold">✗ DNS Query Failed</span>
+          <p class="text-red-700 mt-1">${result.error || 'Unknown error'}</p>
+        </div>
+      `;
+    }
+  } catch (error) {
+    resultDiv.innerHTML = `
+      <div class="bg-red-50 border border-red-200 rounded p-3 text-sm">
+        <span class="text-red-600 font-semibold">✗ Test Failed</span>
+        <p class="text-red-700 mt-1">${error.message}</p>
+      </div>
+    `;
   }
 }
 

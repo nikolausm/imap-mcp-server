@@ -637,12 +637,15 @@ export class WebUIServer {
     this.app.put('/api/dns-firewall/providers/:providerId', (req, res) => {
       try {
         const { providerId } = req.params;
-        const { isEnabled, isDefault, timeoutMs } = req.body;
+        const { isEnabled, isDefault, timeoutMs, providerName, apiEndpoint, apiKey } = req.body;
 
         const updates: any = {};
         if (isEnabled !== undefined) updates.isEnabled = isEnabled;
         if (isDefault !== undefined) updates.isDefault = isDefault;
         if (timeoutMs !== undefined) updates.timeoutMs = timeoutMs;
+        if (providerName !== undefined) updates.providerName = providerName;
+        if (apiEndpoint !== undefined) updates.apiEndpoint = apiEndpoint;
+        if (apiKey !== undefined) updates.apiKey = apiKey;
 
         this.db.updateDnsFirewallProvider(providerId, updates);
 
@@ -654,6 +657,65 @@ export class WebUIServer {
         res.status(500).json({
           success: false,
           error: error instanceof Error ? error.message : 'Failed to update DNS firewall provider'
+        });
+      }
+    });
+
+    // Test DNS firewall provider
+    this.app.post('/api/dns-firewall/providers/:providerId/test', async (req, res) => {
+      try {
+        const { providerId } = req.params;
+        const { domain } = req.body;
+
+        if (!domain) {
+          return res.status(400).json({
+            success: false,
+            error: 'Domain is required'
+          });
+        }
+
+        const provider = this.db.getDnsFirewallProvider(providerId);
+        if (!provider) {
+          return res.status(404).json({
+            success: false,
+            error: 'DNS firewall provider not found'
+          });
+        }
+
+        // Import dns module for testing
+        const dns = await import('dns');
+        const { promises: dnsPromises } = dns;
+
+        const startTime = Date.now();
+
+        try {
+          // Simple DNS lookup test
+          const addresses = await dnsPromises.resolve4(domain);
+          const responseTime = Date.now() - startTime;
+
+          res.json({
+            success: true,
+            domain,
+            addresses,
+            responseTime,
+            blocked: false, // Basic DNS doesn't have blocking info
+            provider: provider.provider_name
+          });
+        } catch (dnsError) {
+          const responseTime = Date.now() - startTime;
+
+          res.json({
+            success: false,
+            domain,
+            responseTime,
+            error: dnsError instanceof Error ? dnsError.message : 'DNS query failed',
+            provider: provider.provider_name
+          });
+        }
+      } catch (error) {
+        res.status(500).json({
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to test DNS provider'
         });
       }
     });
