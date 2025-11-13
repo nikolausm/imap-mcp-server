@@ -334,17 +334,27 @@ async function loadUserCheckKeys() {
           return `
             <div class="border border-gray-200 rounded-lg p-4 mb-4">
               <div class="flex justify-between items-start">
-                <div>
+                <div class="flex-1">
                   <div class="flex items-center mb-2">
-                    <h5 class="font-semibold">${key.email}</h5>
+                    <h5 class="font-semibold">UserCheck API Key</h5>
                     ${statusBadge}
                   </div>
-                  <p class="text-xs text-gray-500">Key: ${key.apiKey.substring(0, 10)}...${key.apiKey.substring(key.apiKey.length - 4)}</p>
+                  <p class="text-xs text-gray-500 font-mono">Key: ${key.apiKey.substring(0, 10)}...${key.apiKey.substring(key.apiKey.length - 4)}</p>
+                  <div class="mt-2 text-xs text-gray-600">
+                    <p>Daily Usage: ${key.dailyUsage} / ${key.dailyLimit}</p>
+                    ${key.lastUsed ? `<p>Last Used: ${new Date(key.lastUsed).toLocaleString()}</p>` : ''}
+                  </div>
                 </div>
-                <button onclick="deleteUserCheckKey('${key.email}')" class="text-red-600 hover:text-red-800 text-sm">
-                  Delete
-                </button>
+                <div class="flex gap-2">
+                  <button onclick="testUserCheckKey(${key.id})" class="text-gray-600 hover:text-gray-800 text-sm">
+                    Test
+                  </button>
+                  <button onclick="deleteUserCheckKey(${key.id})" class="text-red-600 hover:text-red-800 text-sm">
+                    Delete
+                  </button>
+                </div>
               </div>
+              <div id="usercheck-test-result-${key.id}" class="hidden mt-4 pt-4 border-t border-gray-200"></div>
             </div>
           `;
         }).join('');
@@ -362,21 +372,18 @@ async function loadUserCheckKeys() {
 }
 
 function addUserCheckKey() {
-  const email = prompt('Enter email address for this API key:');
-  if (!email) return;
-
   const apiKey = prompt('Enter UserCheck API key:');
   if (!apiKey) return;
 
-  saveUserCheckKey(email, apiKey);
+  saveUserCheckKey(apiKey);
 }
 
-async function saveUserCheckKey(email, apiKey) {
+async function saveUserCheckKey(apiKey) {
   try {
     const response = await fetch('/api/usercheck/keys', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, apiKey, isActive: true })
+      body: JSON.stringify({ apiKey, isActive: true })
     });
 
     const result = await response.json();
@@ -391,11 +398,11 @@ async function saveUserCheckKey(email, apiKey) {
   }
 }
 
-async function deleteUserCheckKey(email) {
-  if (!confirm(`Delete UserCheck API key for ${email}?`)) return;
+async function deleteUserCheckKey(keyId) {
+  if (!confirm('Delete this UserCheck API key?')) return;
 
   try {
-    const response = await fetch(`/api/usercheck/keys/${encodeURIComponent(email)}`, {
+    const response = await fetch(`/api/usercheck/keys/${keyId}`, {
       method: 'DELETE'
     });
 
@@ -408,6 +415,57 @@ async function deleteUserCheckKey(email) {
   } catch (error) {
     console.error('Failed to delete UserCheck key:', error);
     alert('Failed to delete API key');
+  }
+}
+
+async function testUserCheckKey(keyId) {
+  const resultDiv = document.getElementById(`usercheck-test-result-${keyId}`);
+  resultDiv.classList.remove('hidden');
+  resultDiv.innerHTML = '<div class="text-gray-600 text-sm">Testing UserCheck API...</div>';
+
+  // Test with a known disposable email domain
+  const testEmail = 'test@tempmail.com';
+
+  try {
+    const response = await fetch('/api/usercheck/check-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: testEmail,
+        checkDisposable: true,
+        checkBlocklisted: true
+      })
+    });
+
+    const result = await response.json();
+
+    if (result.success) {
+      resultDiv.innerHTML = `
+        <div class="bg-green-50 border border-green-200 rounded p-3 text-sm">
+          <div class="flex items-center mb-2">
+            <span class="text-green-600 font-semibold">✓ UserCheck API Working</span>
+          </div>
+          <p class="text-gray-700">Test email: <span class="font-mono">${testEmail}</span></p>
+          ${result.result?.disposable !== undefined ? `<p class="text-gray-700">Disposable: <span class="font-semibold ${result.result.disposable ? 'text-red-600' : 'text-green-600'}">${result.result.disposable ? 'Yes' : 'No'}</span></p>` : ''}
+          ${result.result?.blocklisted !== undefined ? `<p class="text-gray-700">Blocklisted: <span class="font-semibold ${result.result.blocklisted ? 'text-red-600' : 'text-green-600'}">${result.result.blocklisted ? 'Yes' : 'No'}</span></p>` : ''}
+          <p class="text-gray-600 text-xs mt-2">API call successful - key is valid</p>
+        </div>
+      `;
+    } else {
+      resultDiv.innerHTML = `
+        <div class="bg-red-50 border border-red-200 rounded p-3 text-sm">
+          <span class="text-red-600 font-semibold">✗ UserCheck API Failed</span>
+          <p class="text-red-700 mt-1">${result.error || 'Unknown error'}</p>
+        </div>
+      `;
+    }
+  } catch (error) {
+    resultDiv.innerHTML = `
+      <div class="bg-red-50 border border-red-200 rounded p-3 text-sm">
+        <span class="text-red-600 font-semibold">✗ Test Failed</span>
+        <p class="text-red-700 mt-1">${error.message}</p>
+      </div>
+    `;
   }
 }
 
