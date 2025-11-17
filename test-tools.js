@@ -101,6 +101,15 @@ const expectedTools = {
     'imap_about',
     'imap_list_tools',
   ],
+  'RFC 9051 Compliance (Issues #48, #49, #50)': [
+    'imap_add_keyword',
+    'imap_remove_keyword',
+    'imap_append_message',
+    'imap_subscribe_mailbox',
+    'imap_unsubscribe_mailbox',
+    'imap_list_subscribed_mailboxes',
+    'imap_get_mailbox_status',
+  ],
 };
 
 // Flatten expected tools
