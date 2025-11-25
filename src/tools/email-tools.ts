@@ -147,8 +147,9 @@ export function emailTools(
   }));
 
   // Bulk delete emails tool
+  // AUTO-CHUNKING: Automatically uses chunked processing for >50 UIDs
   server.registerTool('imap_bulk_delete_emails', {
-    description: 'Bulk delete multiple emails by UIDs. Emails are marked as deleted and optionally expunged.',
+    description: 'Bulk delete multiple emails by UIDs. Automatically uses chunked processing for >50 UIDs to prevent timeouts.',
     inputSchema: {
       accountId: z.string().describe('Account ID'),
       folder: z.string().default('INBOX').describe('Folder name'),
@@ -169,6 +170,36 @@ export function emailTools(
       };
     }
 
+    const AUTO_CHUNK_THRESHOLD = 50;
+
+    // Automatically use chunked processing for large operations
+    if (uids.length > AUTO_CHUNK_THRESHOLD) {
+      console.error(`[MCP] Auto-chunking delete: ${uids.length} UIDs > ${AUTO_CHUNK_THRESHOLD} threshold`);
+
+      const result = await imapService.bulkDeleteEmailsChunked(accountId, folder, uids, expunge, {
+        chunkSize: 100,
+        onProgress: (processed, total, failed) => {
+          console.error(`[MCP] Delete progress: ${processed}/${total} processed, ${failed} failed`);
+        }
+      });
+
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            success: result.failed === 0,
+            message: `${result.processed} email(s) ${expunge ? 'deleted and expunged' : 'marked as deleted'} (${result.failed} failed, auto-chunked)`,
+            deletedCount: result.processed,
+            failed: result.failed,
+            expunged: expunge,
+            chunked: true,
+            errors: result.errors.length > 0 ? result.errors : undefined,
+          }, null, 2)
+        }]
+      };
+    }
+
+    // Use standard bulk operation for small batches
     await imapService.bulkDeleteEmails(accountId, folder, uids, expunge);
 
     return {
@@ -429,8 +460,9 @@ export function emailTools(
   }));
 
   // Level 2: Bulk get emails tool
+  // AUTO-CHUNKING: Automatically uses chunked processing for >50 UIDs
   server.registerTool('imap_bulk_get_emails', {
-    description: 'Bulk fetch multiple emails at once for better performance',
+    description: 'Bulk fetch multiple emails at once. Automatically uses chunked processing for >50 UIDs to prevent timeouts.',
     inputSchema: {
       accountId: z.string().describe('Account ID'),
       folder: z.string().default('INBOX').describe('Folder name'),
@@ -452,7 +484,23 @@ export function emailTools(
       };
     }
 
-    const emails = await imapService.bulkGetEmails(accountId, folder, uids, fields);
+    const AUTO_CHUNK_THRESHOLD = 50;
+    let emails;
+
+    // Automatically use chunked processing for large operations
+    if (uids.length > AUTO_CHUNK_THRESHOLD) {
+      console.error(`[MCP] Auto-chunking fetch: ${uids.length} UIDs > ${AUTO_CHUNK_THRESHOLD} threshold`);
+
+      emails = await imapService.bulkGetEmailsChunked(accountId, folder, uids, fields, {
+        chunkSize: 100,
+        onProgress: (processed, total) => {
+          console.error(`[MCP] Fetch progress: ${processed}/${total} processed`);
+        }
+      });
+    } else {
+      // Use standard bulk operation for small batches
+      emails = await imapService.bulkGetEmails(accountId, folder, uids, fields);
+    }
 
     // Limit content for response size
     const limitedEmails = emails.map((email: any) => ({
@@ -467,15 +515,18 @@ export function emailTools(
         text: JSON.stringify({
           success: true,
           count: emails.length,
+          totalRequested: uids.length,
           emails: limitedEmails,
+          chunked: uids.length > AUTO_CHUNK_THRESHOLD,
         }, null, 2)
       }]
     };
   }));
 
   // Level 2: Bulk mark emails tool (Issue #54: RFC 9051 extended flags)
+  // AUTO-CHUNKING: Automatically uses chunked processing for >50 UIDs
   server.registerTool('imap_bulk_mark_emails', {
-    description: 'Bulk mark multiple emails with standard IMAP flags (read, unread, flagged, unflagged, answered, unanswered, draft, not-draft, deleted, undeleted)',
+    description: 'Bulk mark multiple emails with standard IMAP flags. Automatically uses chunked processing for >50 UIDs to prevent timeouts.',
     inputSchema: {
       accountId: z.string().describe('Account ID'),
       folder: z.string().default('INBOX').describe('Folder name'),
@@ -496,6 +547,35 @@ export function emailTools(
       };
     }
 
+    const AUTO_CHUNK_THRESHOLD = 50;
+
+    // Automatically use chunked processing for large operations
+    if (uids.length > AUTO_CHUNK_THRESHOLD) {
+      console.error(`[MCP] Auto-chunking: ${uids.length} UIDs > ${AUTO_CHUNK_THRESHOLD} threshold`);
+
+      const result = await imapService.bulkMarkEmailsChunked(accountId, folder, uids, operation, {
+        chunkSize: 100,
+        onProgress: (processed, total, failed) => {
+          console.error(`[MCP] Progress: ${processed}/${total} processed, ${failed} failed`);
+        }
+      });
+
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            success: result.failed === 0,
+            message: `Marked ${result.processed} email(s) as ${operation} (${result.failed} failed, auto-chunked)`,
+            processed: result.processed,
+            failed: result.failed,
+            chunked: true,
+            errors: result.errors.length > 0 ? result.errors : undefined,
+          }, null, 2)
+        }]
+      };
+    }
+
+    // Use standard bulk operation for small batches
     await imapService.bulkMarkEmails(accountId, folder, uids, operation);
 
     return {
