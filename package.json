@@ -47,7 +47,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.15.1",
     "@types/nodemailer": "^6.4.17",
-    "body-parser": "^2.2.0",
+    "body-parser": "^2.2.1",
     "chalk": "^5.4.1",
     "commander": "^14.0.0",
     "cors": "^2.8.5",
