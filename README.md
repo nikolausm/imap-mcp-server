@@ -400,6 +400,69 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
   - targetFolder: Target folder name
   ```
 
+### Chunked Bulk Operations (Large-Scale Processing)
+
+For processing thousands of messages without triggering circuit breaker or timeouts:
+
+- **imap_bulk_mark_emails_chunked**: Mark emails in chunks for large operations
+  ```
+  Parameters:
+  - accountId: Account ID
+  - folder: Folder name (default: INBOX)
+  - uids: Array of email UIDs to mark (supports 1000+ UIDs)
+  - operation: Mark operation (read, unread, flagged, unflagged, answered, unanswered, draft, not-draft, deleted, undeleted)
+  - chunkSize: Number of emails per chunk (default: 100)
+
+  Returns:
+  - processed: Number of successfully processed emails
+  - failed: Number of failed emails
+  - errors: Array of error details for failed chunks
+  ```
+
+- **imap_bulk_delete_emails_chunked**: Delete emails in chunks for large operations
+  ```
+  Parameters:
+  - accountId: Account ID
+  - folder: Folder name (default: INBOX)
+  - uids: Array of email UIDs to delete (supports 1000+ UIDs)
+  - expunge: Permanently expunge deleted emails (default: false)
+  - chunkSize: Number of emails per chunk (default: 100)
+
+  Returns:
+  - processed: Number of successfully deleted emails
+  - failed: Number of failed emails
+  - errors: Array of error details for failed chunks
+  ```
+
+- **imap_bulk_get_emails_chunked**: Fetch emails in chunks for large operations
+  ```
+  Parameters:
+  - accountId: Account ID
+  - folder: Folder name (default: INBOX)
+  - uids: Array of email UIDs to fetch (supports 1000+ UIDs)
+  - fields: Fields to fetch (headers, body, or full)
+  - chunkSize: Number of emails per chunk (default: 100)
+
+  Returns:
+  - count: Number of successfully fetched emails
+  - totalRequested: Total number of UIDs requested
+  - emails: Array of fetched email objects
+  ```
+
+**Use Case Example:**
+Processing 1700 unread emails to mark bulk marketing messages for deletion:
+
+1. Search for unread emails: `imap_search_emails` with `seen: false`
+2. Fetch headers in chunks: `imap_bulk_get_emails_chunked` with 1700 UIDs and `chunkSize: 100`
+3. Filter marketing emails in your application logic
+4. Delete in chunks: `imap_bulk_delete_emails_chunked` with filtered UIDs
+
+**Benefits:**
+- Prevents circuit breaker trips by processing in small batches
+- Continues processing even if individual chunks fail
+- Provides progress tracking and error reporting
+- 100ms delay between chunks prevents server overload
+
 ### Folder Operations
 
 - **imap_list_folders**: List all folders

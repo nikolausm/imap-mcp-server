@@ -814,4 +814,147 @@ export function emailTools(
       }]
     };
   }));
+
+  // Chunked bulk operations for large-scale processing
+  server.registerTool('imap_bulk_mark_emails_chunked', {
+    description: 'Bulk mark emails with chunking for large operations (1000+ messages). Processes in chunks to avoid timeouts and circuit breaker trips. Returns progress summary.',
+    inputSchema: {
+      accountId: z.string().describe('Account ID'),
+      folder: z.string().default('INBOX').describe('Folder name'),
+      uids: z.array(z.number()).describe('Array of email UIDs to mark'),
+      operation: z.enum(['read', 'unread', 'flagged', 'unflagged', 'answered', 'unanswered', 'draft', 'not-draft', 'deleted', 'undeleted']).describe('Mark operation to perform'),
+      chunkSize: z.number().optional().default(100).describe('Number of emails to process per chunk (default: 100)'),
+    }
+  }, withErrorHandling(async ({ accountId, folder, uids, operation, chunkSize }) => {
+    if (uids.length === 0) {
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            success: true,
+            message: 'No emails to mark',
+            processed: 0,
+            failed: 0,
+          }, null, 2)
+        }]
+      };
+    }
+
+    const result = await imapService.bulkMarkEmailsChunked(accountId, folder, uids, operation, {
+      chunkSize,
+      onProgress: (processed, total, failed) => {
+        console.error(`[MCP] Progress: ${processed}/${total} processed, ${failed} failed`);
+      }
+    });
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: result.failed === 0,
+          message: `Marked ${result.processed} email(s) as ${operation} (${result.failed} failed)`,
+          processed: result.processed,
+          failed: result.failed,
+          errors: result.errors.length > 0 ? result.errors : undefined,
+        }, null, 2)
+      }]
+    };
+  }));
+
+  server.registerTool('imap_bulk_delete_emails_chunked', {
+    description: 'Bulk delete emails with chunking for large operations (1000+ messages). Processes in chunks to avoid timeouts and circuit breaker trips. Returns progress summary.',
+    inputSchema: {
+      accountId: z.string().describe('Account ID'),
+      folder: z.string().default('INBOX').describe('Folder name'),
+      uids: z.array(z.number()).describe('Array of email UIDs to delete'),
+      expunge: z.boolean().default(false).describe('Permanently expunge deleted emails (default: false, just marks as deleted)'),
+      chunkSize: z.number().optional().default(100).describe('Number of emails to process per chunk (default: 100)'),
+    }
+  }, withErrorHandling(async ({ accountId, folder, uids, expunge, chunkSize }) => {
+    if (uids.length === 0) {
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            success: true,
+            message: 'No emails to delete',
+            processed: 0,
+            failed: 0,
+          }, null, 2)
+        }]
+      };
+    }
+
+    const result = await imapService.bulkDeleteEmailsChunked(accountId, folder, uids, expunge, {
+      chunkSize,
+      onProgress: (processed, total, failed) => {
+        console.error(`[MCP] Delete progress: ${processed}/${total} processed, ${failed} failed`);
+      }
+    });
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: result.failed === 0,
+          message: `Deleted ${result.processed} email(s) (${result.failed} failed)`,
+          processed: result.processed,
+          failed: result.failed,
+          expunged: expunge,
+          errors: result.errors.length > 0 ? result.errors : undefined,
+        }, null, 2)
+      }]
+    };
+  }));
+
+  server.registerTool('imap_bulk_get_emails_chunked', {
+    description: 'Bulk fetch emails with chunking for large operations (1000+ messages). Processes in chunks to avoid timeouts and circuit breaker trips.',
+    inputSchema: {
+      accountId: z.string().describe('Account ID'),
+      folder: z.string().default('INBOX').describe('Folder name'),
+      uids: z.array(z.number()).describe('Array of email UIDs to fetch'),
+      fields: z.enum(['headers', 'full', 'body']).default('headers').describe('Fields to fetch: headers (metadata only), body (with text), or full (everything)'),
+      chunkSize: z.number().optional().default(100).describe('Number of emails to process per chunk (default: 100)'),
+    }
+  }, withErrorHandling(async ({ accountId, folder, uids, fields, chunkSize }) => {
+    if (uids.length === 0) {
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            success: true,
+            message: 'No emails to fetch',
+            emails: [],
+            count: 0,
+          }, null, 2)
+        }]
+      };
+    }
+
+    const emails = await imapService.bulkGetEmailsChunked(accountId, folder, uids, fields, {
+      chunkSize,
+      onProgress: (processed, total) => {
+        console.error(`[MCP] Fetch progress: ${processed}/${total} processed`);
+      }
+    });
+
+    // Limit content for response size
+    const limitedEmails = emails.map((email: any) => ({
+      ...email,
+      textContent: email.textContent?.substring(0, 5000),
+      htmlContent: email.htmlContent?.substring(0, 5000),
+    }));
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: true,
+          count: emails.length,
+          totalRequested: uids.length,
+          emails: limitedEmails,
+        }, null, 2)
+      }]
+    };
+  }));
 }

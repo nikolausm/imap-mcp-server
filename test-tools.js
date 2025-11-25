@@ -78,6 +78,11 @@ const expectedTools = {
     'imap_bulk_get_emails',
     'imap_bulk_mark_emails',
   ],
+  'Chunked Bulk Operations (Large-Scale Processing)': [
+    'imap_bulk_mark_emails_chunked',
+    'imap_bulk_delete_emails_chunked',
+    'imap_bulk_get_emails_chunked',
+  ],
   'Copy/Move Operations (Issue #4)': [
     'imap_copy_email',
     'imap_bulk_copy_emails',

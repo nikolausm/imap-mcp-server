@@ -1026,6 +1026,196 @@ export class ImapService {
   }
 
   // ==================
+  // Chunked Bulk Operations (for large-scale processing)
+  // ==================
+
+  /**
+   * Process UIDs in chunks to avoid circuit breaker trips and timeouts
+   * Useful for operations on thousands of messages
+   */
+  private chunkArray<T>(array: T[], chunkSize: number): T[][] {
+    const chunks: T[][] = [];
+    for (let i = 0; i < array.length; i += chunkSize) {
+      chunks.push(array.slice(i, i + chunkSize));
+    }
+    return chunks;
+  }
+
+  /**
+   * Bulk mark emails with chunking support for large operations
+   * Processes emails in chunks to prevent timeouts and circuit breaker trips
+   * @returns Summary of processed and failed operations
+   */
+  async bulkMarkEmailsChunked(
+    accountId: string,
+    folderName: string,
+    uids: number[],
+    action: BulkMarkOperation,
+    options?: {
+      chunkSize?: number;
+      onProgress?: (processed: number, total: number, failed: number) => void;
+    }
+  ): Promise<{ processed: number; failed: number; errors: Array<{ chunk: number; uids: number[]; error: string }> }> {
+    const chunkSize = options?.chunkSize || 100;
+    const chunks = this.chunkArray(uids, chunkSize);
+
+    let processed = 0;
+    let failed = 0;
+    const errors: Array<{ chunk: number; uids: number[]; error: string }> = [];
+
+    console.error(`[ImapService] Processing ${uids.length} UIDs in ${chunks.length} chunks of ${chunkSize}`);
+
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i];
+
+      try {
+        await this.bulkMarkEmails(accountId, folderName, chunk, action);
+        processed += chunk.length;
+
+        if (options?.onProgress) {
+          options.onProgress(processed, uids.length, failed);
+        }
+
+        console.error(`[ImapService] Chunk ${i + 1}/${chunks.length} processed successfully (${chunk.length} messages)`);
+      } catch (error) {
+        failed += chunk.length;
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        errors.push({ chunk: i + 1, uids: chunk, error: errorMsg });
+
+        if (options?.onProgress) {
+          options.onProgress(processed, uids.length, failed);
+        }
+
+        console.error(`[ImapService] Chunk ${i + 1}/${chunks.length} failed: ${errorMsg}`);
+
+        // Continue processing remaining chunks
+      }
+
+      // Small delay between chunks to avoid overwhelming the server
+      if (i < chunks.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    }
+
+    console.error(`[ImapService] Chunked operation complete: ${processed} processed, ${failed} failed`);
+
+    return { processed, failed, errors };
+  }
+
+  /**
+   * Bulk delete emails with chunking support for large operations
+   * @returns Summary of processed and failed operations
+   */
+  async bulkDeleteEmailsChunked(
+    accountId: string,
+    folderName: string,
+    uids: number[],
+    expunge: boolean = false,
+    options?: {
+      chunkSize?: number;
+      onProgress?: (processed: number, total: number, failed: number) => void;
+    }
+  ): Promise<{ processed: number; failed: number; errors: Array<{ chunk: number; uids: number[]; error: string }> }> {
+    const chunkSize = options?.chunkSize || 100;
+    const chunks = this.chunkArray(uids, chunkSize);
+
+    let processed = 0;
+    let failed = 0;
+    const errors: Array<{ chunk: number; uids: number[]; error: string }> = [];
+
+    console.error(`[ImapService] Deleting ${uids.length} UIDs in ${chunks.length} chunks of ${chunkSize}`);
+
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i];
+
+      try {
+        await this.bulkDeleteEmails(accountId, folderName, chunk, expunge);
+        processed += chunk.length;
+
+        if (options?.onProgress) {
+          options.onProgress(processed, uids.length, failed);
+        }
+
+        console.error(`[ImapService] Delete chunk ${i + 1}/${chunks.length} processed successfully (${chunk.length} messages)`);
+      } catch (error) {
+        failed += chunk.length;
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        errors.push({ chunk: i + 1, uids: chunk, error: errorMsg });
+
+        if (options?.onProgress) {
+          options.onProgress(processed, uids.length, failed);
+        }
+
+        console.error(`[ImapService] Delete chunk ${i + 1}/${chunks.length} failed: ${errorMsg}`);
+
+        // Continue processing remaining chunks
+      }
+
+      // Small delay between chunks
+      if (i < chunks.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    }
+
+    console.error(`[ImapService] Chunked delete complete: ${processed} processed, ${failed} failed`);
+
+    return { processed, failed, errors };
+  }
+
+  /**
+   * Bulk get emails with chunking support for large operations
+   * @returns Array of fetched emails
+   */
+  async bulkGetEmailsChunked(
+    accountId: string,
+    folderName: string,
+    uids: number[],
+    fields: BulkFetchFields = 'headers',
+    options?: {
+      chunkSize?: number;
+      onProgress?: (processed: number, total: number) => void;
+    }
+  ): Promise<(EmailMessage | EmailContent)[]> {
+    const chunkSize = options?.chunkSize || 100;
+    const chunks = this.chunkArray(uids, chunkSize);
+
+    const allResults: (EmailMessage | EmailContent)[] = [];
+    let processed = 0;
+
+    console.error(`[ImapService] Fetching ${uids.length} UIDs in ${chunks.length} chunks of ${chunkSize}`);
+
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i];
+
+      try {
+        const results = await this.bulkGetEmails(accountId, folderName, chunk, fields);
+        allResults.push(...results);
+        processed += chunk.length;
+
+        if (options?.onProgress) {
+          options.onProgress(processed, uids.length);
+        }
+
+        console.error(`[ImapService] Fetch chunk ${i + 1}/${chunks.length} processed successfully (${chunk.length} messages)`);
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        console.error(`[ImapService] Fetch chunk ${i + 1}/${chunks.length} failed: ${errorMsg}`);
+
+        // Continue processing remaining chunks even if one fails
+      }
+
+      // Small delay between chunks
+      if (i < chunks.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    }
+
+    console.error(`[ImapService] Chunked fetch complete: ${allResults.length} emails retrieved`);
+
+    return allResults;
+  }
+
+  // ==================
   // Copy/Move Operations
   // ==================
 
