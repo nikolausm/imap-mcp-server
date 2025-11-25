@@ -400,9 +400,19 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
   - targetFolder: Target folder name
   ```
 
+### Automatic Chunking (Smart Bulk Operations)
+
+**All bulk operations now automatically use chunking for >50 UIDs!** You don't need to choose between regular and chunked tools - the system intelligently handles this for you.
+
+**How it works:**
+- **≤50 UIDs**: Fast single-batch processing
+- **>50 UIDs**: Automatic chunked processing (100 UIDs per chunk)
+- **Progress tracking**: Real-time logging in server logs
+- **Error recovery**: Continues processing if individual chunks fail
+
 ### Chunked Bulk Operations (Large-Scale Processing)
 
-For processing thousands of messages without triggering circuit breaker or timeouts:
+For explicit control over chunking behavior:
 
 - **imap_bulk_mark_emails_chunked**: Mark emails in chunks for large operations
   ```
