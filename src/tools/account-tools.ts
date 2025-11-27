@@ -4,6 +4,7 @@ import { ImapService } from '../services/imap-service.js';
 import { z } from 'zod';
 import { withErrorHandling, AccountNotFoundError, validateOneOf } from '../utils/error-handler.js';
 import { withUserAuthorization } from './tool-context.js';
+import { emailProviders, getProviderById, getProviderByEmail } from '../providers/email-providers.js';
 
 export function accountTools(
   server: McpServer,
@@ -149,4 +150,174 @@ export function accountTools(
       }]
     };
   }));
+
+  // List email provider presets tool
+  server.registerTool('imap_list_providers', {
+    description: 'List all available email provider presets (Gmail, Outlook, Yahoo, etc.) with pre-configured IMAP/SMTP settings',
+    inputSchema: {}
+  }, withErrorHandling(async () => {
+    const providers = emailProviders.map(p => ({
+      id: p.id,
+      name: p.name,
+      displayName: p.displayName,
+      imapHost: p.imapHost,
+      imapPort: p.imapPort,
+      imapSecurity: p.imapSecurity,
+      smtpHost: p.smtpHost,
+      smtpPort: p.smtpPort,
+      smtpSecurity: p.smtpSecurity,
+      domains: p.domains,
+      requiresAppPassword: p.requiresAppPassword,
+      oauth2Supported: p.oauth2Supported,
+      helpUrl: p.helpUrl,
+      notes: p.notes,
+    }));
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: true,
+          count: providers.length,
+          providers,
+        }, null, 2)
+      }]
+    };
+  }));
+
+  // Add account using provider preset tool
+  server.registerTool('imap_add_account_with_provider', {
+    description: 'Add a new IMAP account using a provider preset (auto-fills IMAP/SMTP settings). Use imap_list_providers to see available providers.',
+    inputSchema: {
+      providerId: z.string().describe('Provider ID (e.g., "gmail", "outlook", "yahoo"). Use imap_list_providers to see all options.'),
+      name: z.string().describe('Friendly name for the account'),
+      email: z.string().describe('Email address'),
+      password: z.string().describe('Password or app-specific password (see provider notes)'),
+      smtpEnabled: z.boolean().default(false).describe('Enable SMTP for sending emails (default: false)'),
+    }
+  }, withErrorHandling(withUserAuthorization(db, async ({ providerId, name, email, password, smtpEnabled }, context) => {
+    // Get provider preset
+    const provider = getProviderById(providerId);
+    if (!provider) {
+      throw new Error(`Unknown provider: ${providerId}. Use imap_list_providers to see available providers.`);
+    }
+
+    // Create account with provider settings
+    const account = db.createAccount({
+      user_id: context.userId,
+      name,
+      host: provider.imapHost,
+      port: provider.imapPort,
+      username: email,
+      password,
+      tls: provider.imapSecurity === 'SSL' || provider.imapSecurity === 'TLS',
+      is_active: true,
+      smtp_host: smtpEnabled && provider.smtpHost ? provider.smtpHost : undefined,
+      smtp_port: smtpEnabled && provider.smtpPort ? provider.smtpPort : undefined,
+      smtp_secure: smtpEnabled && provider.smtpSecurity ? (provider.smtpSecurity === 'SSL' || provider.smtpSecurity === 'TLS') : undefined,
+      smtp_username: smtpEnabled ? email : undefined,
+      smtp_password: smtpEnabled ? password : undefined,
+    });
+
+    let message = `Account "${name}" added successfully for ${provider.displayName}`;
+    if (provider.requiresAppPassword) {
+      message += ` ⚠️ NOTE: ${provider.notes || 'This provider requires an app-specific password.'}`;
+    }
+    if (provider.helpUrl) {
+      message += ` See: ${provider.helpUrl}`;
+    }
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: true,
+          user: context.username,
+          accountId: account.account_id,
+          provider: provider.displayName,
+          message,
+          settings: {
+            imap: {
+              host: provider.imapHost,
+              port: provider.imapPort,
+              security: provider.imapSecurity,
+            },
+            smtp: smtpEnabled && provider.smtpHost ? {
+              host: provider.smtpHost,
+              port: provider.smtpPort,
+              security: provider.smtpSecurity,
+            } : undefined,
+          },
+        }, null, 2)
+      }]
+    };
+  })));
+
+  // Auto-detect provider from email and add account tool
+  server.registerTool('imap_add_account_auto', {
+    description: 'Add a new IMAP account by auto-detecting provider from email address (e.g., @gmail.com → Gmail preset)',
+    inputSchema: {
+      name: z.string().describe('Friendly name for the account'),
+      email: z.string().describe('Email address (provider will be auto-detected from domain)'),
+      password: z.string().describe('Password or app-specific password'),
+      smtpEnabled: z.boolean().default(false).describe('Enable SMTP for sending emails (default: false)'),
+    }
+  }, withErrorHandling(withUserAuthorization(db, async ({ name, email, password, smtpEnabled }, context) => {
+    // Auto-detect provider from email
+    const provider = getProviderByEmail(email);
+    if (!provider) {
+      throw new Error(`Could not auto-detect provider for ${email}. Use imap_add_account for manual configuration or imap_add_account_with_provider with a specific provider.`);
+    }
+
+    // Create account with auto-detected provider settings
+    const account = db.createAccount({
+      user_id: context.userId,
+      name,
+      host: provider.imapHost,
+      port: provider.imapPort,
+      username: email,
+      password,
+      tls: provider.imapSecurity === 'SSL' || provider.imapSecurity === 'TLS',
+      is_active: true,
+      smtp_host: smtpEnabled && provider.smtpHost ? provider.smtpHost : undefined,
+      smtp_port: smtpEnabled && provider.smtpPort ? provider.smtpPort : undefined,
+      smtp_secure: smtpEnabled && provider.smtpSecurity ? (provider.smtpSecurity === 'SSL' || provider.smtpSecurity === 'TLS') : undefined,
+      smtp_username: smtpEnabled ? email : undefined,
+      smtp_password: smtpEnabled ? password : undefined,
+    });
+
+    let message = `Account "${name}" added successfully (auto-detected: ${provider.displayName})`;
+    if (provider.requiresAppPassword) {
+      message += ` ⚠️ NOTE: ${provider.notes || 'This provider requires an app-specific password.'}`;
+    }
+    if (provider.helpUrl) {
+      message += ` See: ${provider.helpUrl}`;
+    }
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: true,
+          user: context.username,
+          accountId: account.account_id,
+          provider: provider.displayName,
+          autoDetected: true,
+          message,
+          settings: {
+            imap: {
+              host: provider.imapHost,
+              port: provider.imapPort,
+              security: provider.imapSecurity,
+            },
+            smtp: smtpEnabled && provider.smtpHost ? {
+              host: provider.smtpHost,
+              port: provider.smtpPort,
+              security: provider.smtpSecurity,
+            } : undefined,
+          },
+        }, null, 2)
+      }]
+    };
+  })));
 }

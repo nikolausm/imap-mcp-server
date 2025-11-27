@@ -62,6 +62,11 @@ const expectedTools = {
     'imap_connect',
     'imap_disconnect',
   ],
+  'Email Provider Presets': [
+    'imap_list_providers',
+    'imap_add_account_with_provider',
+    'imap_add_account_auto',
+  ],
   'Email Operations': [
     'imap_search_emails',
     'imap_get_email',
