@@ -866,10 +866,10 @@ function cancelAccountForm() {
 }
 
 async function testAccountConnection() {
-  const email = document.getElementById('accountEmail').value;
+  const email = document.getElementById('accountEmail').value.trim();
   const password = document.getElementById('accountPassword').value;
-  const imapHost = document.getElementById('accountImapHost').value;
-  const imapPort = document.getElementById('accountImapPort').value;
+  const imapHost = document.getElementById('accountImapHost').value.trim();
+  const imapPort = document.getElementById('accountImapPort').value.trim();
 
   if (!email || !password || !imapHost || !imapPort) {
     showAccountFormMessage('Please fill in all fields', 'error');
@@ -882,7 +882,13 @@ async function testAccountConnection() {
     const response = await fetch('/api/accounts/test', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, imapHost, imapPort: parseInt(imapPort) })
+      body: JSON.stringify({
+        email: email,
+        password: password,
+        host: imapHost,  // Backend expects 'host', not 'imapHost'
+        port: parseInt(imapPort),
+        tls: true  // Backend expects 'tls', not 'imapSecure'
+      })
     });
 
     const result = await response.json();
@@ -898,10 +904,10 @@ async function testAccountConnection() {
 }
 
 async function saveAccount() {
-  const email = document.getElementById('accountEmail').value;
+  const email = document.getElementById('accountEmail').value.trim();
   const password = document.getElementById('accountPassword').value;
-  const imapHost = document.getElementById('accountImapHost').value;
-  const imapPort = document.getElementById('accountImapPort').value;
+  const imapHost = document.getElementById('accountImapHost').value.trim();
+  const imapPort = document.getElementById('accountImapPort').value.trim();
 
   if (!email || !password || !imapHost || !imapPort) {
     showAccountFormMessage('Please fill in all fields', 'error');
@@ -912,26 +918,28 @@ async function saveAccount() {
 
   try {
     const accountData = {
-      email,
-      password,
-      imapHost,
-      imapPort: parseInt(imapPort),
-      imapSecure: true
+      email: email,
+      password: password,
+      host: imapHost,  // Backend expects 'host', not 'imapHost'
+      port: parseInt(imapPort),
+      tls: true  // Backend expects 'tls', not 'imapSecure'
     };
 
     // Add SMTP configuration if enabled
     const smtpEnabled = document.getElementById('smtpEnabled').checked;
     if (smtpEnabled) {
-      const smtpHost = document.getElementById('accountSmtpHost').value;
-      const smtpPort = document.getElementById('accountSmtpPort').value;
+      const smtpHost = document.getElementById('accountSmtpHost').value.trim();
+      const smtpPort = document.getElementById('accountSmtpPort').value.trim();
       const smtpSecure = document.getElementById('accountSmtpSecure').checked;
 
       if (smtpHost && smtpPort) {
-        accountData.smtpHost = smtpHost;
-        accountData.smtpPort = parseInt(smtpPort);
-        accountData.smtpSecure = smtpSecure;
-        accountData.smtpUser = email; // Use same email as SMTP user
-        accountData.smtpPassword = password; // Use same password
+        accountData.smtp = {
+          host: smtpHost,
+          port: parseInt(smtpPort),
+          secure: smtpSecure,  // Backend expects 'secure' or 'tls'
+          user: email,  // Use same email as SMTP user
+          password: password  // Use same password
+        };
       }
     }
 
