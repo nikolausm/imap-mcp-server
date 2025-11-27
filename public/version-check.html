@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Version Check - IMAP MCP Pro</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            padding: 40px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .section {
+            background: #f5f5f5;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+        }
+        .success { color: green; font-weight: bold; }
+        .warning { color: orange; font-weight: bold; }
+        .error { color: red; font-weight: bold; }
+        pre { background: white; padding: 10px; border-radius: 4px; overflow: auto; }
+        h2 { color: #333; }
+    </style>
+</head>
+<body>
+    <h1>🔍 IMAP MCP Pro - Version Check</h1>
+    <p>This page helps diagnose version display issues by checking multiple sources.</p>
+
+    <div class="section">
+        <h2>1. Static HTML Version (Hardcoded)</h2>
+        <p>This version is hardcoded in the HTML file:</p>
+        <div style="font-size: 24px; font-weight: bold; color: #007AFF;">v2.13.0</div>
+        <p><small>Location: public/index.html line 55</small></p>
+    </div>
+
+    <div class="section">
+        <h2>2. API Profile Version (Dynamic)</h2>
+        <p>This version is returned by the backend API:</p>
+        <div id="apiVersion" style="font-size: 24px; font-weight: bold;">Loading...</div>
+        <pre id="apiResponse">Fetching from /api/profile...</pre>
+    </div>
+
+    <div class="section">
+        <h2>3. Browser Cache Status</h2>
+        <div id="cacheStatus">Checking...</div>
+    </div>
+
+    <div class="section">
+        <h2>4. Expected vs Actual</h2>
+        <table style="width: 100%; border-collapse: collapse;">
+            <tr style="background: white;">
+                <td style="padding: 10px; border: 1px solid #ddd;"><strong>Expected Version:</strong></td>
+                <td style="padding: 10px; border: 1px solid #ddd;">v2.13.0</td>
+            </tr>
+            <tr style="background: white;">
+                <td style="padding: 10px; border: 1px solid #ddd;"><strong>API Version:</strong></td>
+                <td id="actualVersion" style="padding: 10px; border: 1px solid #ddd;">...</td>
+            </tr>
+            <tr style="background: white;">
+                <td style="padding: 10px; border: 1px solid #ddd;"><strong>Match:</strong></td>
+                <td id="versionMatch" style="padding: 10px; border: 1px solid #ddd;">...</td>
+            </tr>
+        </table>
+    </div>
+
+    <div class="section">
+        <h2>5. Cache-Busting Test</h2>
+        <button onclick="testWithCacheBusting()" style="padding: 10px 20px; font-size: 16px;">
+            🔄 Test with Cache Bypass
+        </button>
+        <div id="cacheBustResult" style="margin-top: 10px;"></div>
+    </div>
+
+    <div class="section">
+        <h2>6. Troubleshooting</h2>
+        <p>If versions don't match or you see old versions:</p>
+        <ol>
+            <li><strong>Hard Refresh:</strong> Press <kbd>Cmd + Shift + R</kbd> (Mac) or <kbd>Ctrl + Shift + R</kbd> (Windows/Linux)</li>
+            <li><strong>Clear Browser Cache:</strong> Chrome: Settings → Privacy → Clear browsing data</li>
+            <li><strong>Force Reload:</strong> Open DevTools (F12), right-click refresh, select "Empty Cache and Hard Reload"</li>
+            <li><strong>Private/Incognito Window:</strong> Test in a fresh window</li>
+        </ol>
+    </div>
+
+    <script>
+        async function checkVersion() {
+            try {
+                const response = await fetch('/api/profile');
+                const data = await response.json();
+
+                document.getElementById('apiResponse').textContent = JSON.stringify(data, null, 2);
+
+                if (data.success && data.profile) {
+                    const version = data.profile.version;
+                    document.getElementById('apiVersion').textContent = version;
+                    document.getElementById('apiVersion').className = 'success';
+                    document.getElementById('actualVersion').textContent = version;
+
+                    const expectedVersion = '2.13.0';
+                    if (version === expectedVersion) {
+                        document.getElementById('versionMatch').innerHTML = '<span class="success">✅ Versions Match!</span>';
+                    } else {
+                        document.getElementById('versionMatch').innerHTML = '<span class="error">❌ Version Mismatch!</span>';
+                    }
+                } else {
+                    document.getElementById('apiVersion').textContent = 'Error loading version';
+                    document.getElementById('apiVersion').className = 'error';
+                }
+            } catch (error) {
+                document.getElementById('apiVersion').textContent = 'Error: ' + error.message;
+                document.getElementById('apiVersion').className = 'error';
+                document.getElementById('apiResponse').textContent = 'Error: ' + error.message;
+            }
+        }
+
+        async function testWithCacheBusting() {
+            const resultDiv = document.getElementById('cacheBustResult');
+            resultDiv.innerHTML = 'Testing with cache bypass...';
+
+            try {
+                const response = await fetch('/api/profile?_cachebust=' + Date.now());
+                const data = await response.json();
+
+                if (data.success && data.profile) {
+                    resultDiv.innerHTML = `<span class="success">✅ Cache-busted version: ${data.profile.version}</span>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<span class="error">❌ Error: ${error.message}</span>`;
+            }
+        }
+
+        function checkCacheStatus() {
+            const div = document.getElementById('cacheStatus');
+            const now = new Date().getTime();
+            const pageLoadTime = now;
+
+            div.innerHTML = `
+                <p>Page loaded at: ${new Date().toLocaleTimeString()}</p>
+                <p>If you see an old version on the main page but this page shows v2.12.0,
+                   your browser is caching the old HTML/JavaScript files.</p>
+                <p><strong>Solution:</strong> Press <kbd>Cmd + Shift + R</kbd> on the main page.</p>
+            `;
+        }
+
+        // Run checks on load
+        window.onload = () => {
+            checkVersion();
+            checkCacheStatus();
+        };
+    </script>
+</body>
+</html>

@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>API Test - IMAP MCP Pro</title>
+    <style>
+        body { font-family: monospace; padding: 20px; }
+        .success { color: green; }
+        .error { color: red; }
+        pre { background: #f5f5f5; padding: 10px; border-radius: 4px; }
+        button { margin: 5px; padding: 10px; }
+    </style>
+</head>
+<body>
+    <h1>IMAP MCP Pro - API Test</h1>
+
+    <button onclick="testProviders()">Test Email Providers API</button>
+    <button onclick="testDnsProviders()">Test DNS Providers API</button>
+    <button onclick="clearCacheAndReload()">Force Reload (Cache Bypass)</button>
+
+    <div id="results"></div>
+
+    <script>
+        const resultsDiv = document.getElementById('results');
+
+        async function testProviders() {
+            resultsDiv.innerHTML = '<p>Testing /api/providers...</p>';
+            try {
+                // Add cache-busting query parameter
+                const response = await fetch('/api/providers?_=' + Date.now());
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const contentType = response.headers.get('content-type');
+                resultsDiv.innerHTML += `<p class="success">✓ Response Content-Type: ${contentType}</p>`;
+
+                const data = await response.json();
+                resultsDiv.innerHTML += `<p class="success">✓ Valid JSON received</p>`;
+                resultsDiv.innerHTML += `<p class="success">✓ Provider count: ${data.length}</p>`;
+
+                const hostinger = data.find(p => p.id === 'hostinger');
+                if (hostinger) {
+                    resultsDiv.innerHTML += `<p class="success">✓ Hostinger found!</p>`;
+                    resultsDiv.innerHTML += `<pre>${JSON.stringify(hostinger, null, 2)}</pre>`;
+                } else {
+                    resultsDiv.innerHTML += `<p class="error">✗ Hostinger NOT found</p>`;
+                }
+
+                resultsDiv.innerHTML += `<h3>All Providers:</h3>`;
+                resultsDiv.innerHTML += `<pre>${JSON.stringify(data.map(p => p.displayName), null, 2)}</pre>`;
+            } catch (error) {
+                resultsDiv.innerHTML += `<p class="error">✗ Error: ${error.message}</p>`;
+                console.error('Full error:', error);
+            }
+        }
+
+        async function testDnsProviders() {
+            resultsDiv.innerHTML = '<p>Testing /api/dns-providers...</p>';
+            try {
+                // Add cache-busting query parameter
+                const response = await fetch('/api/dns-providers?_=' + Date.now());
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const contentType = response.headers.get('content-type');
+                resultsDiv.innerHTML += `<p class="success">✓ Response Content-Type: ${contentType}</p>`;
+
+                const data = await response.json();
+                resultsDiv.innerHTML += `<p class="success">✓ Valid JSON received</p>`;
+                resultsDiv.innerHTML += `<p class="success">✓ Provider count: ${data.length}</p>`;
+
+                resultsDiv.innerHTML += `<h3>All DNS Providers:</h3>`;
+                resultsDiv.innerHTML += `<pre>${JSON.stringify(data.map(p => ({ id: p.id, name: p.displayName })), null, 2)}</pre>`;
+            } catch (error) {
+                resultsDiv.innerHTML += `<p class="error">✗ Error: ${error.message}</p>`;
+                console.error('Full error:', error);
+            }
+        }
+
+        function clearCacheAndReload() {
+            // Clear browser cache via service worker unregister + hard reload
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.getRegistrations().then(registrations => {
+                    registrations.forEach(reg => reg.unregister());
+                });
+            }
+
+            // Force reload with cache bypass
+            window.location.href = window.location.href + '?nocache=' + Date.now();
+        }
+
+        // Auto-run test on load
+        window.onload = () => {
+            resultsDiv.innerHTML = '<p>Ready to test. Click a button above.</p>';
+        };
+    </script>
+</body>
+</html>
