@@ -1,7 +1,7 @@
 // IMAP MCP Pro - Tile-based Dashboard UI
 // Author: Colin Bitterfield
 // Email: colin@bitterfield.com
-// Version: 2.11.0
+// Version: 2.12.0
 
 // View Management
 function hideAllViews() {
@@ -80,7 +80,133 @@ function formatBytes(bytes) {
 }
 
 // DNS Firewall Management
+// DNS Provider Presets
+let dnsProviderPresets = [];
+
+async function loadDnsProviderPresets() {
+  try {
+    const response = await fetch('/api/dns-providers');
+    dnsProviderPresets = await response.json();
+
+    // Populate dropdown
+    const select = document.getElementById('dnsProviderSelect');
+    select.innerHTML = '<option value="">-- Choose a DNS Provider --</option>';
+
+    dnsProviderPresets.forEach(provider => {
+      const option = document.createElement('option');
+      option.value = provider.id;
+      option.textContent = provider.displayName;
+      if (provider.id === 'quad9') {
+        option.textContent += ' ⭐';
+      }
+      select.appendChild(option);
+    });
+  } catch (error) {
+    console.error('Failed to load DNS provider presets:', error);
+  }
+}
+
+function onDnsProviderChange() {
+  const providerId = document.getElementById('dnsProviderSelect').value;
+  const provider = dnsProviderPresets.find(p => p.id === providerId);
+
+  if (provider && provider.id !== 'custom') {
+    document.getElementById('dnsProviderDetails').classList.remove('hidden');
+
+    // Populate provider details
+    document.getElementById('selectedProviderName').textContent = provider.displayName;
+    document.getElementById('selectedProviderDescription').textContent = provider.description;
+    document.getElementById('selectedPrimaryDNS').textContent = provider.primaryDNS;
+    document.getElementById('selectedSecondaryDNS').textContent = provider.secondaryDNS;
+    document.getElementById('dnsProviderName').value = provider.name;
+
+    // Display features as badges
+    const featuresDiv = document.getElementById('selectedFeatures');
+    featuresDiv.innerHTML = '';
+
+    if (provider.features.malwareBlocking) {
+      featuresDiv.innerHTML += '<span class="text-xs bg-red-100 text-red-800 px-2 py-1 rounded">Malware Blocking</span>';
+    }
+    if (provider.features.adBlocking) {
+      featuresDiv.innerHTML += '<span class="text-xs bg-orange-100 text-orange-800 px-2 py-1 rounded">Ad Blocking</span>';
+    }
+    if (provider.features.adultContentFiltering) {
+      featuresDiv.innerHTML += '<span class="text-xs bg-purple-100 text-purple-800 px-2 py-1 rounded">Adult Content Filter</span>';
+    }
+    if (provider.features.dnssec) {
+      featuresDiv.innerHTML += '<span class="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">DNSSEC</span>';
+    }
+    if (provider.features.noLogging) {
+      featuresDiv.innerHTML += '<span class="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">No Logging</span>';
+    }
+    if (provider.features.encrypted) {
+      featuresDiv.innerHTML += '<span class="text-xs bg-indigo-100 text-indigo-800 px-2 py-1 rounded">Encrypted (DoH/DoT)</span>';
+    }
+  } else if (provider && provider.id === 'custom') {
+    document.getElementById('dnsProviderDetails').classList.remove('hidden');
+    document.getElementById('selectedProviderName').textContent = 'Custom DNS Server';
+    document.getElementById('selectedProviderDescription').textContent = 'Enter custom DNS server addresses';
+    document.getElementById('selectedPrimaryDNS').textContent = 'Not set';
+    document.getElementById('selectedSecondaryDNS').textContent = 'Not set';
+    document.getElementById('selectedFeatures').innerHTML = '';
+    document.getElementById('dnsProviderName').value = '';
+  } else {
+    document.getElementById('dnsProviderDetails').classList.add('hidden');
+  }
+}
+
+async function addDnsProviderFromPreset() {
+  const providerId = document.getElementById('dnsProviderSelect').value;
+  const providerName = document.getElementById('dnsProviderName').value;
+  const apiKey = document.getElementById('dnsProviderApiKey').value;
+
+  if (!providerId) {
+    alert('Please select a DNS provider');
+    return;
+  }
+
+  const provider = dnsProviderPresets.find(p => p.id === providerId);
+  if (!provider) {
+    alert('Invalid provider selected');
+    return;
+  }
+
+  try {
+    const response = await fetch('/api/dns-firewall/providers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        providerType: 'quad9',
+        providerName: providerName || provider.name,
+        apiEndpoint: `https://dns.quad9.net:5053/dns-query`,
+        apiKey: apiKey || '',
+        timeoutMs: 5000,
+        isEnabled: true,
+        isDefault: false
+      })
+    });
+
+    const result = await response.json();
+
+    if (result.success) {
+      alert('✅ DNS provider added successfully!');
+      document.getElementById('dnsProviderSelect').value = '';
+      document.getElementById('dnsProviderDetails').classList.add('hidden');
+      loadDnsProviders();
+    } else {
+      alert('❌ Failed to add provider: ' + result.error);
+    }
+  } catch (error) {
+    alert('❌ Error: ' + error.message);
+  }
+}
+
 async function loadDnsProviders() {
+  // Load presets if not already loaded
+  if (dnsProviderPresets.length === 0) {
+    await loadDnsProviderPresets();
+  }
+
   try {
     const response = await fetch('/api/dns-firewall/providers');
     const result = await response.json();
@@ -579,6 +705,89 @@ async function deleteCategory(categoryId) {
 }
 
 // Accounts Management
+let emailProviders = [];
+
+async function loadEmailProviders() {
+  try {
+    const response = await fetch('/api/providers');
+    emailProviders = await response.json();
+
+    // Populate provider dropdown
+    const providerSelect = document.getElementById('accountProvider');
+    providerSelect.innerHTML = '<option value="">-- Select Provider (or enter custom) --</option>';
+
+    emailProviders.forEach(provider => {
+      const option = document.createElement('option');
+      option.value = provider.id;
+      option.textContent = provider.displayName;
+      providerSelect.appendChild(option);
+    });
+  } catch (error) {
+    console.error('Failed to load email providers:', error);
+  }
+}
+
+function onProviderChange() {
+  const providerId = document.getElementById('accountProvider').value;
+  const provider = emailProviders.find(p => p.id === providerId);
+
+  if (provider && provider.id !== 'custom') {
+    // Auto-fill IMAP settings
+    document.getElementById('accountImapHost').value = provider.imapHost;
+    document.getElementById('accountImapPort').value = provider.imapPort;
+
+    // Auto-fill SMTP settings if available
+    if (provider.smtpHost) {
+      document.getElementById('smtpEnabled').checked = true;
+      document.getElementById('accountSmtpHost').value = provider.smtpHost;
+      document.getElementById('accountSmtpPort').value = provider.smtpPort || 465;
+      document.getElementById('accountSmtpSecure').checked = provider.smtpSecurity !== 'STARTTLS';
+      document.getElementById('smtpDetails').style.display = 'block';
+    }
+
+    // Show provider notes if available
+    if (provider.requiresAppPassword || provider.notes) {
+      const notesEl = document.getElementById('providerNotes');
+      notesEl.textContent = provider.notes || 'Note: This provider may require an app-specific password';
+      notesEl.classList.remove('hidden');
+    } else {
+      document.getElementById('providerNotes').classList.add('hidden');
+    }
+  } else {
+    // Clear provider notes for custom/manual entry
+    document.getElementById('providerNotes').classList.add('hidden');
+  }
+}
+
+function onEmailChange() {
+  const email = document.getElementById('accountEmail').value;
+  const domain = email.split('@')[1];
+
+  if (!domain) return;
+
+  // Auto-detect provider from email domain
+  const provider = emailProviders.find(p =>
+    p.domains && p.domains.some(d => domain.toLowerCase().endsWith(d.toLowerCase()))
+  );
+
+  if (provider) {
+    document.getElementById('accountProvider').value = provider.id;
+    onProviderChange();
+    showAccountFormMessage(`✓ Detected ${provider.displayName}`, 'success');
+  }
+}
+
+function onSmtpToggle() {
+  const smtpEnabled = document.getElementById('smtpEnabled').checked;
+  const smtpDetails = document.getElementById('smtpDetails');
+
+  if (smtpEnabled) {
+    smtpDetails.style.display = 'block';
+  } else {
+    smtpDetails.style.display = 'none';
+  }
+}
+
 async function loadAccountsUI() {
   document.getElementById('accountsList').classList.remove('hidden');
   document.getElementById('accountFormView').classList.add('hidden');
@@ -626,17 +835,29 @@ async function loadAccountsList() {
   }
 }
 
-function startAddAccount() {
+async function startAddAccount() {
   document.getElementById('accountsList').classList.add('hidden');
   document.getElementById('accountFormView').classList.remove('hidden');
   document.getElementById('formTitle').textContent = 'Add New Account';
 
+  // Load email providers if not already loaded
+  if (emailProviders.length === 0) {
+    await loadEmailProviders();
+  }
+
   // Clear form
+  document.getElementById('accountProvider').value = '';
   document.getElementById('accountEmail').value = '';
   document.getElementById('accountPassword').value = '';
   document.getElementById('accountImapHost').value = '';
   document.getElementById('accountImapPort').value = '993';
+  document.getElementById('accountSmtpHost').value = '';
+  document.getElementById('accountSmtpPort').value = '465';
+  document.getElementById('smtpEnabled').checked = true;
+  document.getElementById('accountSmtpSecure').checked = true;
+  document.getElementById('providerNotes').classList.add('hidden');
   document.getElementById('accountFormMessage').classList.add('hidden');
+  document.getElementById('smtpDetails').style.display = 'block';
 }
 
 function cancelAccountForm() {
@@ -690,16 +911,34 @@ async function saveAccount() {
   showAccountFormMessage('Saving account...', 'info');
 
   try {
+    const accountData = {
+      email,
+      password,
+      imapHost,
+      imapPort: parseInt(imapPort),
+      imapSecure: true
+    };
+
+    // Add SMTP configuration if enabled
+    const smtpEnabled = document.getElementById('smtpEnabled').checked;
+    if (smtpEnabled) {
+      const smtpHost = document.getElementById('accountSmtpHost').value;
+      const smtpPort = document.getElementById('accountSmtpPort').value;
+      const smtpSecure = document.getElementById('accountSmtpSecure').checked;
+
+      if (smtpHost && smtpPort) {
+        accountData.smtpHost = smtpHost;
+        accountData.smtpPort = parseInt(smtpPort);
+        accountData.smtpSecure = smtpSecure;
+        accountData.smtpUser = email; // Use same email as SMTP user
+        accountData.smtpPassword = password; // Use same password
+      }
+    }
+
     const response = await fetch('/api/accounts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email,
-        password,
-        imapHost,
-        imapPort: parseInt(imapPort),
-        imapSecure: true
-      })
+      body: JSON.stringify(accountData)
     });
 
     const result = await response.json();

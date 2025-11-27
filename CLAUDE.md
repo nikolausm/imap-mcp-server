@@ -139,3 +139,4 @@ See tracked issues for implementation:
 - RFC 9051 (IMAP4rev2): `rfc/rfc9051.txt`
 - ImapFlow Documentation: https://imapflow.com/
 - Related Issues: #48, #49, #50
+- Check specification document when large modifications or replacements of code happen.

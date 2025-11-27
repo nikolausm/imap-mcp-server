@@ -13,6 +13,7 @@ import { DatabaseService } from '../services/database-service.js';
 import { ImapService } from '../services/imap-service.js';
 import { UserCheckService } from '../services/usercheck-service.js';
 import { emailProviders, getProviderByEmail } from '../providers/email-providers.js';
+import { dnsProviders } from '../providers/dns-providers.js';
 import { ImapAccount } from '../types/index.js';
 import crypto from 'crypto';
 
@@ -108,9 +109,14 @@ export class WebUIServer {
   }
 
   private setupRoutes(): void {
-    // Get all providers
+    // Get all email providers
     this.app.get('/api/providers', (req, res) => {
       res.json(emailProviders);
+    });
+
+    // Get all DNS firewall providers
+    this.app.get('/api/dns-providers', (req, res) => {
+      res.json(dnsProviders);
     });
 
     // Get all accounts

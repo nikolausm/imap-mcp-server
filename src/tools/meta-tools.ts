@@ -52,6 +52,26 @@ export function metaTools(server: McpServer): void {
           'SMTP TLS/SSL support (port 465, 587, 25)',
           'Folder management (list, status, unread counts, create, delete, rename)'
         ],
+        spamFiltering: [
+          'CleanTalk spam detection API integration',
+          'UserCheck DNS firewall for domain reputation',
+          'Bulk spam checking for multiple emails',
+          'Per-folder spam scanning',
+          'Per-account spam analysis',
+          'Domain confidence scoring',
+          'Message domain extraction and analysis',
+          'Spam cache for performance optimization'
+        ],
+        subscriptionManagement: [
+          'Automatic unsubscribe link extraction',
+          'List-Unsubscribe header support (RFC 2369)',
+          'One-click unsubscribe execution',
+          'Subscription tracking and categorization',
+          'Newsletter sender identification',
+          'Subscription summary and statistics',
+          'Bulk unsubscribe candidate identification',
+          'Custom notes and category tagging'
+        ],
         monitoring: [
           'Per-connection metrics (operations, success rate, latency, uptime)',
           'Per-operation metrics (count, latency stats, success rate)',
@@ -76,18 +96,26 @@ export function metaTools(server: McpServer): void {
         ]
       },
       capabilities: {
-        totalTools: 41,
+        totalTools: 72,
         toolCategories: [
-          'User Management (9 tools) - NEW in v2.6.0',
+          'User Management (9 tools)',
           'Account Management (5 tools)',
           'Email Operations (18 tools)',
           'Folder Operations (6 tools)',
-          'Meta/Discovery (3 tools)'
+          'Spam Detection (9 tools) - CleanTalk/UserCheck integration',
+          'Subscription Management (8 tools) - Unsubscribe automation',
+          'DNS Firewall (3 tools) - Domain reputation checking',
+          'RFC 9051 Compliance (7 tools) - Keywords, APPEND, SUBSCRIBE',
+          'Metrics & Monitoring (3 tools)',
+          'Meta/Discovery (2 tools)'
         ],
         bulkOperations: true,
         circuitBreaker: true,
         metrics: true,
-        smtp: true
+        smtp: true,
+        spamFiltering: true,
+        subscriptionManagement: true,
+        dnsFirewall: true
       },
       attribution: {
         organization: 'Temple of Epiphany',

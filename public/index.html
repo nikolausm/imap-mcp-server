@@ -197,25 +197,70 @@
                     <div class="bg-white rounded-lg shadow-md p-6 mb-4">
                         <h3 class="text-lg font-semibold mb-4" id="formTitle">Add New Account</h3>
 
+                        <!-- Provider Selection -->
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Email Provider</label>
+                            <select id="accountProvider" class="w-full px-3 py-2 border border-gray-300 rounded-md" onchange="onProviderChange()">
+                                <option value="">-- Select Provider (or enter custom) --</option>
+                            </select>
+                        </div>
+
                         <div class="mb-4">
                             <label class="block text-sm font-medium text-gray-700 mb-2">Email Address</label>
-                            <input type="email" id="accountEmail" class="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="your@email.com">
+                            <input type="email" id="accountEmail" class="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="your@email.com" onchange="onEmailChange()">
                         </div>
 
                         <div class="mb-4">
                             <label class="block text-sm font-medium text-gray-700 mb-2">Password</label>
                             <input type="password" id="accountPassword" class="w-full px-3 py-2 border border-gray-300 rounded-md">
+                            <p id="providerNotes" class="text-sm text-amber-600 mt-1 hidden"></p>
                         </div>
 
-                        <div class="mb-4">
-                            <label class="block text-sm font-medium text-gray-700 mb-2">IMAP Host</label>
-                            <input type="text" id="accountImapHost" class="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="imap.example.com">
+                        <!-- IMAP Settings -->
+                        <details open>
+                            <summary class="text-sm font-medium text-gray-700 mb-2 cursor-pointer">IMAP Settings</summary>
+                            <div class="ml-4 mt-2 space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">IMAP Host</label>
+                                    <input type="text" id="accountImapHost" class="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="imap.example.com">
+                                </div>
+
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">IMAP Port</label>
+                                    <input type="number" id="accountImapPort" class="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="993" value="993">
+                                </div>
+                            </div>
+                        </details>
+
+                        <!-- SMTP Settings -->
+                        <div class="mb-4 mt-4">
+                            <label class="flex items-center">
+                                <input type="checkbox" id="smtpEnabled" class="mr-2" onchange="onSmtpToggle()" checked>
+                                <span class="text-sm font-medium text-gray-700">Enable Email Sending (SMTP)</span>
+                            </label>
                         </div>
 
-                        <div class="mb-4">
-                            <label class="block text-sm font-medium text-gray-700 mb-2">IMAP Port</label>
-                            <input type="number" id="accountImapPort" class="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="993" value="993">
-                        </div>
+                        <details id="smtpDetails" open>
+                            <summary class="text-sm font-medium text-gray-700 mb-2 cursor-pointer">SMTP Settings</summary>
+                            <div class="ml-4 mt-2 space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">SMTP Host</label>
+                                    <input type="text" id="accountSmtpHost" class="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="smtp.example.com">
+                                </div>
+
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">SMTP Port</label>
+                                    <input type="number" id="accountSmtpPort" class="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="465" value="465">
+                                </div>
+
+                                <div>
+                                    <label class="flex items-center">
+                                        <input type="checkbox" id="accountSmtpSecure" class="mr-2" checked>
+                                        <span class="text-sm font-medium text-gray-700">Use SSL/TLS</span>
+                                    </label>
+                                </div>
+                            </div>
+                        </details>
 
                         <div class="flex gap-2">
                             <button onclick="cancelAccountForm()" class="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50">
@@ -242,13 +287,59 @@
                     </button>
                 </div>
                 <h2 class="text-3xl font-bold text-gray-900 mb-6">DNS Firewall Providers</h2>
-                <div class="bg-white rounded-lg shadow-md p-6">
-                    <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-                        <p class="text-sm text-gray-700">
-                            Configure DNS-based threat intelligence services to validate domains in email messages.
-                            Currently only <a href="https://quad9.net/" target="_blank" class="text-blue-600 hover:underline font-semibold">Quad9</a> is supported.
-                        </p>
+
+                <!-- Add New DNS Provider -->
+                <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                    <h3 class="text-lg font-semibold mb-4">Add DNS Provider</h3>
+
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Select Provider</label>
+                        <select id="dnsProviderSelect" class="w-full px-3 py-2 border border-gray-300 rounded-md" onchange="onDnsProviderChange()">
+                            <option value="">-- Choose a DNS Provider --</option>
+                        </select>
                     </div>
+
+                    <div id="dnsProviderDetails" class="hidden">
+                        <div class="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-4">
+                            <h4 class="font-semibold mb-2" id="selectedProviderName"></h4>
+                            <p class="text-sm text-gray-700 mb-2" id="selectedProviderDescription"></p>
+
+                            <div class="grid grid-cols-2 gap-4 mt-3">
+                                <div>
+                                    <p class="text-xs font-medium text-gray-500">Primary DNS</p>
+                                    <p class="text-sm font-mono" id="selectedPrimaryDNS"></p>
+                                </div>
+                                <div>
+                                    <p class="text-xs font-medium text-gray-500">Secondary DNS</p>
+                                    <p class="text-sm font-mono" id="selectedSecondaryDNS"></p>
+                                </div>
+                            </div>
+
+                            <div class="mt-3">
+                                <p class="text-xs font-medium text-gray-500 mb-1">Features</p>
+                                <div class="flex flex-wrap gap-2" id="selectedFeatures"></div>
+                            </div>
+
+                            <div class="mt-3">
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Provider Name (optional)</label>
+                                <input type="text" id="dnsProviderName" class="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="My DNS Provider">
+                            </div>
+
+                            <div class="mt-3">
+                                <label class="block text-sm font-medium text-gray-700 mb-2">API Key (if required)</label>
+                                <input type="text" id="dnsProviderApiKey" class="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="Optional API key">
+                            </div>
+                        </div>
+
+                        <button onclick="addDnsProviderFromPreset()" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
+                            Add Provider
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Existing DNS Providers -->
+                <div class="bg-white rounded-lg shadow-md p-6">
+                    <h3 class="text-lg font-semibold mb-4">Configured Providers</h3>
                     <div id="dnsProvidersList">
                         <p class="text-sm text-gray-500">Loading...</p>
                     </div>
