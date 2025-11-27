@@ -879,15 +879,15 @@ async function testAccountConnection() {
   showAccountFormMessage('Testing connection...', 'info');
 
   try {
-    const response = await fetch('/api/accounts/test', {
+    const response = await fetch('/api/test-connection', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         email: email,
         password: password,
-        host: imapHost,  // Backend expects 'host', not 'imapHost'
+        host: imapHost,
         port: parseInt(imapPort),
-        tls: true  // Backend expects 'tls', not 'imapSecure'
+        tls: true
       })
     });
 
