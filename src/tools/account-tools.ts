@@ -11,9 +11,9 @@ export function accountTools(
   db: DatabaseService,
   imapService: ImapService
 ): void {
-  // Add account tool - DEPRECATED: Use imap_db_add_account instead
+  // Add account tool with SMTP support
   server.registerTool('imap_add_account', {
-    description: 'Add a new IMAP account for current user (from MCP_USER_ID environment variable)',
+    description: 'Add a new IMAP account with optional SMTP configuration for current user (from MCP_USER_ID environment variable)',
     inputSchema: {
       name: z.string().describe('Friendly name for the account'),
       host: z.string().describe('IMAP server hostname'),
@@ -21,8 +21,14 @@ export function accountTools(
       user: z.string().describe('Username for authentication'),
       password: z.string().describe('Password for authentication'),
       tls: z.boolean().default(true).describe('Use TLS/SSL (default: true)'),
+      // SMTP Configuration (optional)
+      smtpHost: z.string().optional().describe('SMTP server hostname (optional, for sending emails)'),
+      smtpPort: z.number().optional().describe('SMTP server port (default: 587 for STARTTLS, 465 for SSL)'),
+      smtpSecure: z.boolean().optional().describe('Use SSL/TLS for SMTP (default: false, uses STARTTLS)'),
+      smtpUser: z.string().optional().describe('SMTP username (defaults to IMAP user if not provided)'),
+      smtpPassword: z.string().optional().describe('SMTP password (defaults to IMAP password if not provided)'),
     }
-  }, withErrorHandling(withUserAuthorization(db, async ({ name, host, port, user, password, tls }, context) => {
+  }, withErrorHandling(withUserAuthorization(db, async ({ name, host, port, user, password, tls, smtpHost, smtpPort, smtpSecure, smtpUser, smtpPassword }, context) => {
     // Create account for the authenticated user from context
     const account = db.createAccount({
       user_id: context.userId,
@@ -32,8 +38,19 @@ export function accountTools(
       username: user,
       password,
       tls,
-      is_active: true
+      is_active: true,
+      // SMTP configuration if provided
+      smtp_host: smtpHost,
+      smtp_port: smtpPort,
+      smtp_secure: smtpSecure,
+      smtp_username: smtpUser || (smtpHost ? user : undefined),
+      smtp_password: smtpPassword || (smtpHost ? password : undefined),
     });
+
+    let message = `Account "${name}" added successfully for user ${context.username} (encrypted in database)`;
+    if (smtpHost) {
+      message += ` with SMTP enabled (${smtpHost}:${smtpPort || 587})`;
+    }
 
     return {
       content: [{
@@ -42,7 +59,15 @@ export function accountTools(
           success: true,
           user: context.username,
           accountId: account.account_id,
-          message: `Account "${name}" added successfully for user ${context.username} (encrypted in database)`,
+          message,
+          smtp: smtpHost ? {
+            enabled: true,
+            host: smtpHost,
+            port: smtpPort || 587,
+            secure: smtpSecure || false,
+          } : {
+            enabled: false
+          },
         }, null, 2)
       }]
     };
