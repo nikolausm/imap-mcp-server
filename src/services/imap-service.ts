@@ -213,7 +213,7 @@ export class ImapService {
   async deleteEmail(accountId: string, folderName: string, uid: number): Promise<void> {
     await this.selectFolder(accountId, folderName);
     const connection = this.getConnection(accountId);
-    
+
     return new Promise((resolve, reject) => {
       connection.addFlags(uid, '\\Deleted', (err: Error) => {
         if (err) {
@@ -224,6 +224,18 @@ export class ImapService {
           if (err) reject(err);
           else resolve();
         });
+      });
+    });
+  }
+
+  async moveEmail(accountId: string, sourceFolder: string, destinationFolder: string, uid: number): Promise<void> {
+    await this.selectFolder(accountId, sourceFolder);
+    const connection = this.getConnection(accountId);
+
+    return new Promise((resolve, reject) => {
+      connection.move(uid, destinationFolder, (err: Error) => {
+        if (err) reject(err);
+        else resolve();
       });
     });
   }

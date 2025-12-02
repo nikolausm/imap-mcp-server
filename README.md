@@ -6,7 +6,7 @@ A powerful Model Context Protocol (MCP) server that provides seamless IMAP email
 
 - 🔐 **Secure Account Management**: Encrypted credential storage with AES-256 encryption
 - 🚀 **Connection Pooling**: Efficient IMAP connection management
-- 📧 **Comprehensive Email Operations**: Search, read, mark, delete emails
+- 📧 **Comprehensive Email Operations**: Search, read, mark, move, delete emails
 - ✉️ **Email Sending**: Send, reply, and forward emails via SMTP
 - 📁 **Folder Management**: List folders, check status, get unread counts
 - 🔄 **Multiple Account Support**: Manage multiple IMAP accounts simultaneously
@@ -189,6 +189,15 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
   - uid: Email UID
   ```
 
+- **imap_move_email**: Move an email from one folder to another
+  ```
+  Parameters:
+  - accountId: Account ID
+  - sourceFolder: Source folder name
+  - destinationFolder: Destination folder name
+  - uid: Email UID
+  ```
+
 - **imap_send_email**: Send a new email
   ```
   Parameters:
@@ -311,7 +320,10 @@ src/
 6. **Forward emails:**
    "Forward the email with subject 'Meeting Notes' to team@company.com"
 
-7. **Manage folders:**
+7. **Move emails:**
+   "Move the email with UID 12345 from INBOX to the Archive folder"
+
+8. **Manage folders:**
    "List all folders in my email account and show unread counts"
 
 ## Troubleshooting

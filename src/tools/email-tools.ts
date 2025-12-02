@@ -132,13 +132,36 @@ export function emailTools(
     }
   }, async ({ accountId, folder, uid }) => {
     await imapService.deleteEmail(accountId, folder, uid);
-    
+
     return {
       content: [{
         type: 'text',
         text: JSON.stringify({
           success: true,
           message: `Email ${uid} deleted`,
+        }, null, 2)
+      }]
+    };
+  });
+
+  // Move email tool
+  server.registerTool('imap_move_email', {
+    description: 'Move an email from one folder to another',
+    inputSchema: {
+      accountId: z.string().describe('Account ID'),
+      sourceFolder: z.string().describe('Source folder name'),
+      destinationFolder: z.string().describe('Destination folder name'),
+      uid: z.number().describe('Email UID'),
+    }
+  }, async ({ accountId, sourceFolder, destinationFolder, uid }) => {
+    await imapService.moveEmail(accountId, sourceFolder, destinationFolder, uid);
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: true,
+          message: `Email ${uid} moved from '${sourceFolder}' to '${destinationFolder}'`,
         }, null, 2)
       }]
     };
