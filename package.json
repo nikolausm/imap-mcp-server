@@ -55,7 +55,7 @@
     "express": "^5.1.0",
     "mailparser": "^3.7.4",
     "node-imap": "^0.9.6",
-    "nodemailer": "^7.0.5",
+    "nodemailer": "^7.0.11",
     "open": "^10.2.0",
     "ora": "^8.2.0",
     "zod": "^3.25.76"
