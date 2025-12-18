@@ -5,6 +5,13 @@ on:
     branches: [main, master, develop]
   pull_request:
     branches: [main, master, develop]
+  workflow_dispatch:
+    inputs:
+      skip_tests:
+        description: 'Skip test jobs'
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   test:
