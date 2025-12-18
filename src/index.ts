@@ -6,6 +6,7 @@ import dotenv from 'dotenv';
 import { ImapService } from './services/imap-service.js';
 import { AccountManager } from './services/account-manager.js';
 import { SmtpService } from './services/smtp-service.js';
+import { SpamService } from './services/spam-service.js';
 import { registerTools } from './tools/index.js';
 
 // Silence any package version output to stdout
@@ -28,9 +29,10 @@ const server = new McpServer({
 const imapService = new ImapService();
 const accountManager = new AccountManager();
 const smtpService = new SmtpService();
+const spamService = new SpamService();
 
 // Register all tools
-registerTools(server, imapService, accountManager, smtpService);
+registerTools(server, imapService, accountManager, smtpService, spamService);
 
 async function main() {
   const transport = new StdioServerTransport();

@@ -189,6 +189,34 @@ export class WebUIServer {
       }
     });
 
+    // Test existing account connection (without re-entering password)
+    this.app.post('/api/accounts/:id/test', async (req, res) => {
+      try {
+        const account = this.accountManager.getAccount(req.params.id);
+        if (!account) {
+          res.status(404).json({ success: false, error: 'Account not found' });
+          return;
+        }
+
+        const result = await this.imapService.testConnection(account);
+
+        res.json({
+          success: result.success,
+          accountId: account.id,
+          accountName: account.name,
+          host: account.host,
+          folders: result.folders,
+          messageCount: result.messageCount,
+          error: result.error,
+        });
+      } catch (error) {
+        res.status(400).json({
+          success: false,
+          error: error instanceof Error ? error.message : 'Test failed',
+        });
+      }
+    });
+
     // Health check
     this.app.get('/api/health', (req, res) => {
       res.json({ status: 'ok', version: '1.0.0' });

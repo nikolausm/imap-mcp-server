@@ -132,13 +132,123 @@ export function emailTools(
     }
   }, async ({ accountId, folder, uid }) => {
     await imapService.deleteEmail(accountId, folder, uid);
-    
+
     return {
       content: [{
         type: 'text',
         text: JSON.stringify({
           success: true,
           message: `Email ${uid} deleted`,
+        }, null, 2)
+      }]
+    };
+  });
+
+  // Bulk delete emails tool
+  server.registerTool('imap_bulk_delete', {
+    description: 'Delete multiple emails at once with chunking and auto-reconnection. Processes deletions in batches to prevent connection timeouts.',
+    inputSchema: {
+      accountId: z.string().describe('Account ID'),
+      folder: z.string().default('INBOX').describe('Folder name'),
+      uids: z.array(z.number()).describe('Array of email UIDs to delete'),
+      chunkSize: z.number().default(50).describe('Number of emails to delete per batch (default: 50)'),
+    }
+  }, async ({ accountId, folder, uids, chunkSize }) => {
+    const result = await imapService.bulkDelete(accountId, folder, uids, chunkSize);
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: result.failed === 0,
+          totalRequested: uids.length,
+          deleted: result.deleted,
+          failed: result.failed,
+          errors: result.errors.length > 0 ? result.errors : undefined,
+          message: result.failed === 0
+            ? `Successfully deleted ${result.deleted} emails`
+            : `Deleted ${result.deleted} emails, ${result.failed} failed`,
+        }, null, 2)
+      }]
+    };
+  });
+
+  // Bulk delete by search criteria tool
+  server.registerTool('imap_bulk_delete_by_search', {
+    description: 'Search for emails matching criteria and delete them all. Useful for cleaning up spam or unwanted emails.',
+    inputSchema: {
+      accountId: z.string().describe('Account ID'),
+      folder: z.string().default('INBOX').describe('Folder name'),
+      from: z.string().optional().describe('Delete emails from this sender'),
+      to: z.string().optional().describe('Delete emails to this recipient'),
+      subject: z.string().optional().describe('Delete emails with this subject'),
+      before: z.string().optional().describe('Delete emails before this date (YYYY-MM-DD)'),
+      since: z.string().optional().describe('Delete emails since this date (YYYY-MM-DD)'),
+      chunkSize: z.number().default(50).describe('Number of emails to delete per batch'),
+      dryRun: z.boolean().default(false).describe('If true, only return what would be deleted without actually deleting'),
+    }
+  }, async ({ accountId, folder, from, to, subject, before, since, chunkSize, dryRun }) => {
+    const criteria: any = {};
+    if (from) criteria.from = from;
+    if (to) criteria.to = to;
+    if (subject) criteria.subject = subject;
+    if (before) criteria.before = new Date(before);
+    if (since) criteria.since = new Date(since);
+
+    // First search for matching emails
+    const messages = await imapService.searchEmails(accountId, folder, criteria);
+
+    if (messages.length === 0) {
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            success: true,
+            found: 0,
+            deleted: 0,
+            message: 'No emails matched the search criteria',
+          }, null, 2)
+        }]
+      };
+    }
+
+    if (dryRun) {
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            success: true,
+            dryRun: true,
+            found: messages.length,
+            wouldDelete: messages.length,
+            samples: messages.slice(0, 10).map(m => ({
+              uid: m.uid,
+              from: m.from,
+              subject: m.subject,
+              date: m.date,
+            })),
+            message: `Would delete ${messages.length} emails (dry run)`,
+          }, null, 2)
+        }]
+      };
+    }
+
+    // Delete all matching emails
+    const uids = messages.map(m => m.uid);
+    const result = await imapService.bulkDelete(accountId, folder, uids, chunkSize);
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: result.failed === 0,
+          found: messages.length,
+          deleted: result.deleted,
+          failed: result.failed,
+          errors: result.errors.length > 0 ? result.errors : undefined,
+          message: result.failed === 0
+            ? `Successfully deleted ${result.deleted} emails matching criteria`
+            : `Deleted ${result.deleted} emails, ${result.failed} failed`,
         }, null, 2)
       }]
     };

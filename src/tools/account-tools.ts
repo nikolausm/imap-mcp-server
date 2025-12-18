@@ -130,13 +130,40 @@ export function accountTools(
     }
   }, async ({ accountId }) => {
     await imapService.disconnect(accountId);
-    
+
     return {
       content: [{
         type: 'text',
         text: JSON.stringify({
           success: true,
           message: `Disconnected from account ${accountId}`,
+        }, null, 2)
+      }]
+    };
+  });
+
+  // Test account connection tool (without re-entering password)
+  server.registerTool('imap_test_account', {
+    description: 'Test an existing account connection without re-entering credentials. Validates IMAP connectivity and returns folder count and message count.',
+    inputSchema: {
+      accountId: z.string().describe('Account ID to test'),
+    }
+  }, async ({ accountId }) => {
+    const account = accountManager.getAccount(accountId);
+    if (!account) {
+      throw new Error(`Account ${accountId} not found`);
+    }
+
+    const result = await imapService.testConnection(account);
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          accountId,
+          accountName: account.name,
+          host: account.host,
+          ...result,
         }, null, 2)
       }]
     };

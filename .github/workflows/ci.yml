@@ -1,0 +1,113 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+
+jobs:
+  test:
+    runs-on: self-hosted
+
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x, 22.x]
+      fail-fast: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run linter (TypeScript check)
+        run: npm run lint
+
+      - name: Run tests
+        run: npm test
+
+      - name: Run tests with coverage
+        run: npm run test:coverage
+
+      - name: Upload coverage reports
+        uses: actions/upload-artifact@v4
+        if: matrix.node-version == '20.x'
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 7
+
+  build:
+    runs-on: self-hosted
+    needs: test
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build project
+        run: npm run build
+
+      - name: Verify build output
+        run: |
+          test -f dist/index.js || (echo "dist/index.js not found" && exit 1)
+          test -f dist/setup.js || (echo "dist/setup.js not found" && exit 1)
+          test -f dist/web/server.js || (echo "dist/web/server.js not found" && exit 1)
+          echo "Build verification passed!"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7
+
+  security:
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run security audit
+        run: npm audit --audit-level=high
+
+      - name: Check for known vulnerabilities
+        run: |
+          AUDIT_RESULT=$(npm audit --json 2>/dev/null || true)
+          HIGH_VULNS=$(echo "$AUDIT_RESULT" | jq '.metadata.vulnerabilities.high // 0')
+          CRITICAL_VULNS=$(echo "$AUDIT_RESULT" | jq '.metadata.vulnerabilities.critical // 0')
+
+          if [ "$HIGH_VULNS" -gt 0 ] || [ "$CRITICAL_VULNS" -gt 0 ]; then
+            echo "Found $HIGH_VULNS high and $CRITICAL_VULNS critical vulnerabilities"
+            npm audit
+            exit 1
+          fi
+
+          echo "No high or critical vulnerabilities found"
