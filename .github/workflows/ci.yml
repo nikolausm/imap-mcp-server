@@ -15,7 +15,7 @@ on:
 
 jobs:
   test:
-    runs-on: self-hosted
+    runs-on: [self-hosted, Linux]
 
     strategy:
       matrix:
@@ -53,7 +53,7 @@ jobs:
           retention-days: 7
 
   build:
-    runs-on: self-hosted
+    runs-on: [self-hosted, Linux]
     needs: test
 
     steps:
@@ -87,7 +87,7 @@ jobs:
           retention-days: 7
 
   security:
-    runs-on: self-hosted
+    runs-on: [self-hosted, Linux]
 
     steps:
       - name: Checkout repository
