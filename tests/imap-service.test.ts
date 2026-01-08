@@ -26,7 +26,7 @@ class MockImapFlow {
   mailboxOpen(name: string) { return this.mailboxOpenMock(name); }
   getMailboxLock(name: string) { return this.getMailboxLockMock(name); }
   search(query: any, opts: any) { return this.searchMock(query, opts); }
-  fetch(uids: any, opts: any) { return this.fetchMock(uids, opts); }
+  fetch(uids: any, query: any, options?: any) { return this.fetchMock(uids, query, options); }
   fetchOne(uid: any, opts: any, options: any) { return this.fetchOneMock(uid, opts, options); }
   messageFlagsAdd(uid: any, flags: any, opts: any) { return this.messageFlagsAddMock(uid, flags, opts); }
   messageFlagsRemove(uid: any, flags: any, opts: any) { return this.messageFlagsRemoveMock(uid, flags, opts); }
@@ -236,6 +236,73 @@ describe('ImapService', () => {
         expect.objectContaining({ all: true }),
         expect.any(Object)
       );
+    });
+
+    it('should fetch search results using UIDs', async () => {
+      mockInstance.searchMock.mockResolvedValue([101, 105]);
+      mockInstance.fetchMock.mockReturnValue({
+        [Symbol.asyncIterator]: () => ({
+          next: () => Promise.resolve({ done: true }),
+        }),
+      });
+
+      await imapService.connect(mockAccount);
+      await imapService.searchEmails(mockAccount.id, 'INBOX', {});
+
+      expect(mockInstance.fetchMock).toHaveBeenCalledWith(
+        [101, 105],
+        expect.objectContaining({ uid: true, envelope: true, flags: true, internalDate: true }),
+        { uid: true }
+      );
+    });
+  });
+
+  describe('getLatestEmails', () => {
+    it('should fetch only the latest UIDs and sort by date', async () => {
+      const messageDates = [
+        new Date('2025-01-08T10:00:00Z'),
+        new Date('2025-01-09T09:00:00Z'),
+      ];
+
+      mockInstance.searchMock.mockResolvedValue([1, 2, 3, 4]);
+      mockInstance.fetchMock.mockReturnValue({
+        [Symbol.asyncIterator]: () => {
+          let index = 0;
+          return {
+            next: () => {
+              if (index >= messageDates.length) {
+                return Promise.resolve({ done: true });
+              }
+              const msg = {
+                uid: index === 0 ? 3 : 4,
+                internalDate: messageDates[index],
+                envelope: {
+                  date: messageDates[index],
+                  from: [{ name: 'Tester', address: 'tester@example.com' }],
+                  to: [{ name: 'Recipient', address: 'recipient@example.com' }],
+                  subject: `Test ${index}`,
+                  messageId: `<test-${index}@example.com>`,
+                },
+                flags: new Set<string>(),
+              };
+              index += 1;
+              return Promise.resolve({ value: msg, done: false });
+            },
+          };
+        },
+      });
+
+      await imapService.connect(mockAccount);
+      const result = await imapService.getLatestEmails(mockAccount.id, 'INBOX', 2);
+
+      expect(mockInstance.fetchMock).toHaveBeenCalledWith(
+        [3, 4],
+        expect.objectContaining({ uid: true, envelope: true, flags: true, internalDate: true }),
+        { uid: true }
+      );
+      expect(result).toHaveLength(2);
+      expect(result[0].uid).toBe(4);
+      expect(result[1].uid).toBe(3);
     });
   });
 
