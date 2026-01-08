@@ -10,6 +10,15 @@ export function emailTools(
   accountManager: AccountManager,
   smtpService: SmtpService
 ): void {
+  const parseDateOnly = (value: string): Date => {
+    const parts = value.split('-').map(Number);
+    if (parts.length !== 3 || parts.some(Number.isNaN)) {
+      return new Date(value);
+    }
+    const [year, month, day] = parts;
+    return new Date(year, month - 1, day);
+  };
+
   // Search emails tool
   server.registerTool('imap_search_emails', {
     description: 'Search for emails in a folder',
@@ -33,8 +42,8 @@ export function emailTools(
     if (searchCriteria.to) criteria.to = searchCriteria.to;
     if (searchCriteria.subject) criteria.subject = searchCriteria.subject;
     if (searchCriteria.body) criteria.body = searchCriteria.body;
-    if (searchCriteria.since) criteria.since = new Date(searchCriteria.since);
-    if (searchCriteria.before) criteria.before = new Date(searchCriteria.before);
+    if (searchCriteria.since) criteria.since = parseDateOnly(searchCriteria.since);
+    if (searchCriteria.before) criteria.before = parseDateOnly(searchCriteria.before);
     if (searchCriteria.seen !== undefined) criteria.seen = searchCriteria.seen;
     if (searchCriteria.flagged !== undefined) criteria.flagged = searchCriteria.flagged;
     
@@ -55,14 +64,25 @@ export function emailTools(
 
   // Get email content tool
   server.registerTool('imap_get_email', {
-    description: 'Get the full content of an email',
+    description: 'Get the full content of an email, with optional text attachment previews',
     inputSchema: {
       accountId: z.string().describe('Account ID'),
       folder: z.string().default('INBOX').describe('Folder name'),
       uid: z.number().describe('Email UID'),
+      maxContentLength: z.number().default(10000).describe('Maximum characters to return for text and HTML body content'),
+      includeAttachmentText: z.boolean().default(true).describe('Include text attachment previews when available'),
+      maxAttachmentTextChars: z.number().default(100000).describe('Maximum characters to return per text attachment'),
     }
-  }, async ({ accountId, folder, uid }) => {
-    const email = await imapService.getEmailContent(accountId, folder, uid);
+  }, async ({ accountId, folder, uid, maxContentLength, includeAttachmentText, maxAttachmentTextChars }) => {
+    const email = await imapService.getEmailContent(accountId, folder, uid, {
+      includeAttachmentText,
+      maxAttachmentTextChars,
+    });
+    const textTruncated = email.textContent ? email.textContent.length > maxContentLength : false;
+    const htmlTruncated = email.htmlContent ? email.htmlContent.length > maxContentLength : false;
+    const contentTruncated = (textTruncated || htmlTruncated)
+      ? { text: textTruncated || undefined, html: htmlTruncated || undefined }
+      : undefined;
     
     return {
       content: [{
@@ -70,8 +90,9 @@ export function emailTools(
         text: JSON.stringify({
           email: {
             ...email,
-            textContent: email.textContent?.substring(0, 10000), // Limit text content
-            htmlContent: email.htmlContent?.substring(0, 10000), // Limit HTML content
+            textContent: email.textContent?.substring(0, maxContentLength),
+            htmlContent: email.htmlContent?.substring(0, maxContentLength),
+            contentTruncated,
           },
         }, null, 2)
       }]
@@ -192,8 +213,8 @@ export function emailTools(
     if (from) criteria.from = from;
     if (to) criteria.to = to;
     if (subject) criteria.subject = subject;
-    if (before) criteria.before = new Date(before);
-    if (since) criteria.since = new Date(since);
+    if (before) criteria.before = parseDateOnly(before);
+    if (since) criteria.since = parseDateOnly(since);
 
     // First search for matching emails
     const messages = await imapService.searchEmails(accountId, folder, criteria);
@@ -263,12 +284,7 @@ export function emailTools(
       count: z.number().default(10).describe('Number of emails to retrieve'),
     }
   }, async ({ accountId, folder, count }) => {
-    const messages = await imapService.searchEmails(accountId, folder, {});
-    
-    // Sort by date descending and take the latest
-    const sortedMessages = messages
-      .sort((a, b) => b.date.getTime() - a.date.getTime())
-      .slice(0, count);
+    const sortedMessages = await imapService.getLatestEmails(accountId, folder, count);
     
     return {
       content: [{
