@@ -8,6 +8,12 @@ interface ConnectionState {
   isConnected: boolean;
 }
 
+interface EmailContentOptions {
+  includeAttachmentText?: boolean;
+  maxAttachmentTextBytes?: number;
+  maxAttachmentTextChars?: number;
+}
+
 export class ImapService {
   private connections: Map<string, ConnectionState> = new Map();
   private reconnectAttempts: Map<string, number> = new Map();
@@ -149,10 +155,11 @@ export class ImapService {
         uid: true,
         envelope: true,
         flags: true,
-      })) {
+        internalDate: true,
+      }, { uid: true })) {
         messages.push({
           uid: msg.uid,
-          date: msg.envelope?.date || new Date(),
+          date: msg.internalDate || msg.envelope?.date || new Date(),
           from: msg.envelope?.from?.[0] ? this.formatAddress(msg.envelope.from[0]) : '',
           to: msg.envelope?.to?.map((addr: any) => this.formatAddress(addr)) || [],
           subject: msg.envelope?.subject || '',
@@ -170,6 +177,47 @@ export class ImapService {
     }
   }
 
+  async getLatestEmails(accountId: string, folderName: string, count: number): Promise<EmailMessage[]> {
+    const client = await this.ensureConnected(accountId);
+
+    let lock;
+    try {
+      lock = await client.getMailboxLock(folderName);
+
+      const uids = await client.search({ all: true }, { uid: true });
+      if (uids.length === 0) {
+        return [];
+      }
+
+      const latestUids = [...uids].sort((a, b) => a - b).slice(-count);
+      const messages: EmailMessage[] = [];
+
+      for await (const msg of client.fetch(latestUids, {
+        uid: true,
+        envelope: true,
+        flags: true,
+        internalDate: true,
+      }, { uid: true })) {
+        messages.push({
+          uid: msg.uid,
+          date: msg.internalDate || msg.envelope?.date || new Date(),
+          from: msg.envelope?.from?.[0] ? this.formatAddress(msg.envelope.from[0]) : '',
+          to: msg.envelope?.to?.map((addr: any) => this.formatAddress(addr)) || [],
+          subject: msg.envelope?.subject || '',
+          messageId: msg.envelope?.messageId || '',
+          inReplyTo: msg.envelope?.inReplyTo,
+          flags: Array.from(msg.flags || []),
+        });
+      }
+
+      return messages.sort((a, b) => b.date.getTime() - a.date.getTime());
+    } finally {
+      if (lock) {
+        lock.release();
+      }
+    }
+  }
+
   private formatAddress(addr: any): string {
     if (!addr) return '';
     if (addr.name) {
@@ -178,7 +226,12 @@ export class ImapService {
     return addr.address || '';
   }
 
-  async getEmailContent(accountId: string, folderName: string, uid: number): Promise<EmailContent> {
+  async getEmailContent(
+    accountId: string,
+    folderName: string,
+    uid: number,
+    options: EmailContentOptions = {}
+  ): Promise<EmailContent> {
     const client = await this.ensureConnected(accountId);
 
     let lock;
@@ -192,6 +245,12 @@ export class ImapService {
       }
 
       const parsed = await simpleParser(source.source);
+      const {
+        includeAttachmentText = false,
+        maxAttachmentTextBytes = 256 * 1024,
+        maxAttachmentTextChars = 100000,
+      } = options;
+      const textAttachmentExtensions = ['.txt', '.md', '.markdown', '.csv', '.log', '.json', '.xml', '.yml', '.yaml'];
 
       return {
         uid,
@@ -204,12 +263,49 @@ export class ImapService {
         flags: Array.from(source.flags || []),
         textContent: parsed.text,
         htmlContent: parsed.html || undefined,
-        attachments: parsed.attachments?.map((att: any) => ({
-          filename: att.filename || 'unknown',
-          contentType: att.contentType || 'application/octet-stream',
-          size: att.size || 0,
-          contentId: att.contentId,
-        })) || [],
+        attachments: parsed.attachments?.map((att: any) => {
+          const filename = att.filename || 'unknown';
+          const contentType = att.contentType || 'application/octet-stream';
+          const size = att.size || 0;
+          const attachment = {
+            filename,
+            contentType,
+            size,
+            contentId: att.contentId,
+          };
+
+          if (!includeAttachmentText || !att?.content) {
+            return attachment;
+          }
+
+          const contentTypeLower = String(contentType).toLowerCase();
+          const filenameLower = String(filename).toLowerCase();
+          const isTextContentType =
+            contentTypeLower.startsWith('text/') ||
+            ['application/json', 'application/xml', 'application/xhtml+xml', 'application/yaml', 'application/x-yaml'].includes(contentTypeLower);
+          const hasTextExtension = textAttachmentExtensions.some(ext => filenameLower.endsWith(ext));
+          const isTextAttachment = isTextContentType || hasTextExtension;
+
+          if (!isTextAttachment) {
+            return attachment;
+          }
+
+          const contentBuffer = Buffer.isBuffer(att.content) ? att.content : undefined;
+          const contentLength = contentBuffer?.length ?? (typeof att.content === 'string' ? att.content.length : 0);
+          if (contentLength > maxAttachmentTextBytes) {
+            return attachment;
+          }
+
+          const rawText = contentBuffer ? contentBuffer.toString('utf8') : String(att.content);
+          const textTruncated = rawText.length > maxAttachmentTextChars;
+          const textContent = textTruncated ? rawText.slice(0, maxAttachmentTextChars) : rawText;
+
+          return {
+            ...attachment,
+            textContent,
+            textContentTruncated: textTruncated || undefined,
+          };
+        }) || [],
       };
     } finally {
       if (lock) {

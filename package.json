@@ -51,7 +51,7 @@
     "vitest": "^4.0.16"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.15.1",
+    "@modelcontextprotocol/sdk": "^1.25.2",
     "@types/nodemailer": "^6.4.17",
     "body-parser": "^2.2.0",
     "chalk": "^5.4.1",
@@ -65,5 +65,8 @@
     "open": "^10.2.0",
     "ora": "^8.2.0",
     "zod": "^3.25.76"
+  },
+  "overrides": {
+    "qs": "^6.14.1"
   }
 }

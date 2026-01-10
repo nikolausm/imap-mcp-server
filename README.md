@@ -163,6 +163,9 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
   - accountId: Account ID
   - folder: Folder name
   - uid: Email UID
+  - maxContentLength: Max characters for text/html body (default: 10000)
+  - includeAttachmentText: Include text attachment previews (default: true)
+  - maxAttachmentTextChars: Max characters per text attachment (default: 100000)
   ```
 
 - **imap_get_latest_emails**: Get recent emails

@@ -46,6 +46,8 @@ export interface Attachment {
   contentType: string;
   size: number;
   contentId?: string;
+  textContent?: string;
+  textContentTruncated?: boolean;
 }
 
 export interface Folder {
