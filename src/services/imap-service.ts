@@ -314,6 +314,45 @@ export class ImapService {
     }
   }
 
+  async getAttachmentContent(
+    accountId: string,
+    folderName: string,
+    uid: number,
+    filename: string
+  ): Promise<{ content: Buffer; contentType: string; filename: string }> {
+    const client = await this.ensureConnected(accountId);
+
+    let lock;
+    try {
+      lock = await client.getMailboxLock(folderName);
+
+      const source = await client.fetchOne(uid, { source: true }, { uid: true });
+
+      if (!source || !source.source) {
+        throw new Error(`Email with UID ${uid} not found`);
+      }
+
+      const parsed = await simpleParser(source.source);
+      const attachment = parsed.attachments?.find(
+        (att: any) => att.filename === filename || att.contentId === filename
+      );
+
+      if (!attachment) {
+        throw new Error(`Attachment "${filename}" not found in email UID ${uid}`);
+      }
+
+      return {
+        content: attachment.content,
+        contentType: attachment.contentType || 'application/octet-stream',
+        filename: attachment.filename || 'unknown',
+      };
+    } finally {
+      if (lock) {
+        lock.release();
+      }
+    }
+  }
+
   async markAsRead(accountId: string, folderName: string, uid: number): Promise<void> {
     const client = await this.ensureConnected(accountId);
 
@@ -344,11 +383,20 @@ export class ImapService {
 
   async deleteEmail(accountId: string, folderName: string, uid: number): Promise<void> {
     const client = await this.ensureConnected(accountId);
+    const connState = this.connections.get(accountId);
+    const isGmail = connState?.account?.host?.includes('gmail') || connState?.account?.host?.includes('google');
+    const trashFolder = isGmail ? '[Gmail]/Trash' : 'Trash';
 
     let lock;
     try {
       lock = await client.getMailboxLock(folderName);
-      await client.messageDelete(uid, { uid: true });
+      if (folderName === trashFolder) {
+        // Already in Trash, permanently delete
+        await client.messageDelete(uid, { uid: true });
+      } else {
+        // Move to Trash instead of permanent expunge
+        await client.messageMove(uid, trashFolder, { uid: true });
+      }
     } finally {
       if (lock) {
         lock.release();
@@ -364,6 +412,10 @@ export class ImapService {
     onProgress?: (deleted: number, total: number) => void
   ): Promise<{ deleted: number; failed: number; errors: string[] }> {
     const client = await this.ensureConnected(accountId);
+    const connState = this.connections.get(accountId);
+    const isGmail = connState?.account?.host?.includes('gmail') || connState?.account?.host?.includes('google');
+    const trashFolder = isGmail ? '[Gmail]/Trash' : 'Trash';
+    const isAlreadyInTrash = folderName === trashFolder;
 
     let deleted = 0;
     let failed = 0;
@@ -380,9 +432,13 @@ export class ImapService {
 
         lock = await client.getMailboxLock(folderName);
 
-        // Use sequence set for bulk delete
+        // Use sequence set for bulk operations
         const uidSet = chunk.join(',');
-        await client.messageDelete(uidSet, { uid: true });
+        if (isAlreadyInTrash) {
+          await client.messageDelete(uidSet, { uid: true });
+        } else {
+          await client.messageMove(uidSet, trashFolder, { uid: true });
+        }
 
         deleted += chunk.length;
 
