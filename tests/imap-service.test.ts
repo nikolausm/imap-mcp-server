@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { simpleParser } from 'mailparser';
 import { ImapService } from '../src/services/imap-service.js';
 import { ImapAccount } from '../src/types/index.js';
 
@@ -384,6 +385,130 @@ describe('ImapService', () => {
         'Archive',
         { uid: true }
       );
+    });
+  });
+
+  describe('getAttachmentContent', () => {
+    const mockedSimpleParser = vi.mocked(simpleParser);
+
+    beforeEach(() => {
+      // Reset simpleParser to default mock for non-attachment tests
+      mockedSimpleParser.mockResolvedValue({
+        date: new Date(),
+        from: { text: 'sender@test.com' },
+        to: [{ text: 'recipient@test.com' }],
+        subject: 'Test Subject',
+        messageId: '<test@message.id>',
+        text: 'Plain text content',
+        html: '<p>HTML content</p>',
+        attachments: [],
+      } as any);
+    });
+
+    it('should download attachment by filename', async () => {
+      const attachmentBuffer = Buffer.from('file content here');
+
+      mockInstance.fetchOneMock.mockResolvedValue({
+        source: Buffer.from('fake raw email source'),
+      });
+
+      mockedSimpleParser.mockResolvedValue({
+        attachments: [
+          {
+            filename: 'report.pdf',
+            content: attachmentBuffer,
+            contentType: 'application/pdf',
+            contentId: undefined,
+          },
+        ],
+      } as any);
+
+      await imapService.connect(mockAccount);
+      const result = await imapService.getAttachmentContent(
+        mockAccount.id,
+        'INBOX',
+        42,
+        'report.pdf'
+      );
+
+      expect(result.content).toBe(attachmentBuffer);
+      expect(result.contentType).toBe('application/pdf');
+      expect(result.filename).toBe('report.pdf');
+      expect(mockInstance.fetchOneMock).toHaveBeenCalledWith(42, { source: true }, { uid: true });
+    });
+
+    it('should download attachment by contentId', async () => {
+      const attachmentBuffer = Buffer.from('inline image data');
+
+      mockInstance.fetchOneMock.mockResolvedValue({
+        source: Buffer.from('fake raw email source'),
+      });
+
+      mockedSimpleParser.mockResolvedValue({
+        attachments: [
+          {
+            filename: 'image.png',
+            content: attachmentBuffer,
+            contentType: 'image/png',
+            contentId: 'cid-12345',
+          },
+        ],
+      } as any);
+
+      await imapService.connect(mockAccount);
+      const result = await imapService.getAttachmentContent(
+        mockAccount.id,
+        'INBOX',
+        99,
+        'cid-12345'
+      );
+
+      expect(result.content).toBe(attachmentBuffer);
+      expect(result.contentType).toBe('image/png');
+      expect(result.filename).toBe('image.png');
+    });
+
+    it('should throw error when email not found', async () => {
+      mockInstance.fetchOneMock.mockResolvedValue(null);
+
+      await imapService.connect(mockAccount);
+
+      await expect(
+        imapService.getAttachmentContent(mockAccount.id, 'INBOX', 999, 'file.txt')
+      ).rejects.toThrow('Email with UID 999 not found');
+    });
+
+    it('should throw error when source is empty', async () => {
+      mockInstance.fetchOneMock.mockResolvedValue({ source: null });
+
+      await imapService.connect(mockAccount);
+
+      await expect(
+        imapService.getAttachmentContent(mockAccount.id, 'INBOX', 888, 'file.txt')
+      ).rejects.toThrow('Email with UID 888 not found');
+    });
+
+    it('should throw error when attachment not found in email', async () => {
+      mockInstance.fetchOneMock.mockResolvedValue({
+        source: Buffer.from('fake raw email source'),
+      });
+
+      mockedSimpleParser.mockResolvedValue({
+        attachments: [
+          {
+            filename: 'other-file.doc',
+            content: Buffer.from('other content'),
+            contentType: 'application/msword',
+            contentId: undefined,
+          },
+        ],
+      } as any);
+
+      await imapService.connect(mockAccount);
+
+      await expect(
+        imapService.getAttachmentContent(mockAccount.id, 'INBOX', 42, 'missing-file.pdf')
+      ).rejects.toThrow('Attachment "missing-file.pdf" not found in email UID 42');
     });
   });
 });
