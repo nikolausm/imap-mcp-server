@@ -64,6 +64,16 @@ export class SmtpService {
         port: 587,
         secure: false,
       },
+      'imap.zoho.com': {
+        host: 'smtp.zoho.com',
+        port: 465,
+        secure: true,
+      },
+      'imappro.zoho.com': {
+        host: 'smtppro.zoho.com',
+        port: 465,
+        secure: true,
+      },
     };
 
     const providerConfig = commonProviders[account.host];

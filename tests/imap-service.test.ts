@@ -166,7 +166,7 @@ describe('ImapService', () => {
   });
 
   describe('bulkDelete', () => {
-    it('should delete emails in chunks', async () => {
+    it('should move emails to Trash in chunks', async () => {
       await imapService.connect(mockAccount);
 
       const uids = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
@@ -174,13 +174,24 @@ describe('ImapService', () => {
 
       expect(result.deleted).toBe(10);
       expect(result.failed).toBe(0);
-      expect(mockInstance.messageDeleteMock).toHaveBeenCalledTimes(2); // 2 chunks of 5
+      expect(mockInstance.messageMoveMock).toHaveBeenCalledTimes(2); // 2 chunks of 5
+      expect(mockInstance.messageMoveMock).toHaveBeenCalledWith('1,2,3,4,5', 'Trash', { uid: true });
+    });
+
+    it('should permanently delete when already in Trash', async () => {
+      await imapService.connect(mockAccount);
+
+      const uids = [1, 2, 3];
+      const result = await imapService.bulkDelete(mockAccount.id, 'Trash', uids, 5);
+
+      expect(result.deleted).toBe(3);
+      expect(mockInstance.messageDeleteMock).toHaveBeenCalledTimes(1);
     });
 
     it('should handle errors during bulk delete', async () => {
-      mockInstance.messageDeleteMock
+      mockInstance.messageMoveMock
         .mockResolvedValueOnce(undefined)
-        .mockRejectedValueOnce(new Error('Delete failed'));
+        .mockRejectedValueOnce(new Error('Move failed'));
 
       await imapService.connect(mockAccount);
 
@@ -341,9 +352,20 @@ describe('ImapService', () => {
   });
 
   describe('deleteEmail', () => {
-    it('should delete single email', async () => {
+    it('should move email to Trash when not in Trash', async () => {
       await imapService.connect(mockAccount);
       await imapService.deleteEmail(mockAccount.id, 'INBOX', 123);
+
+      expect(mockInstance.messageMoveMock).toHaveBeenCalledWith(
+        123,
+        'Trash',
+        { uid: true }
+      );
+    });
+
+    it('should permanently delete when already in Trash', async () => {
+      await imapService.connect(mockAccount);
+      await imapService.deleteEmail(mockAccount.id, 'Trash', 123);
 
       expect(mockInstance.messageDeleteMock).toHaveBeenCalledWith(
         123,
