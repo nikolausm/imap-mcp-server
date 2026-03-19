@@ -338,15 +338,24 @@ export function emailTools(
       })),
     };
 
-    const messageId = await smtpService.sendEmail(accountId, account, emailComposer);
-    
+    const { messageId, rawMessage } = await smtpService.sendEmail(accountId, account, emailComposer);
+
+    // Save copy to Sent folder
+    let savedToSent = false;
+    if (rawMessage) {
+      try {
+        savedToSent = await imapService.appendToSentFolder(accountId, rawMessage);
+      } catch { /* non-critical */ }
+    }
+
     return {
       content: [{
         type: 'text',
         text: JSON.stringify({
           success: true,
           messageId,
-          message: 'Email sent successfully',
+          savedToSent,
+          message: savedToSent ? 'Email sent successfully (saved to Sent folder)' : 'Email sent successfully',
         }, null, 2)
       }]
     };
@@ -400,15 +409,24 @@ export function emailTools(
       })),
     };
 
-    const messageId = await smtpService.sendEmail(accountId, account, emailComposer);
-    
+    const { messageId, rawMessage } = await smtpService.sendEmail(accountId, account, emailComposer);
+
+    // Save copy to Sent folder
+    let savedToSent = false;
+    if (rawMessage) {
+      try {
+        savedToSent = await imapService.appendToSentFolder(accountId, rawMessage);
+      } catch { /* non-critical */ }
+    }
+
     return {
       content: [{
         type: 'text',
         text: JSON.stringify({
           success: true,
           messageId,
-          message: 'Reply sent successfully',
+          savedToSent,
+          message: savedToSent ? 'Reply sent successfully (saved to Sent folder)' : 'Reply sent successfully',
         }, null, 2)
       }]
     };
@@ -446,15 +464,24 @@ export function emailTools(
       references: originalEmail.messageId,
     };
 
-    const messageId = await smtpService.sendEmail(accountId, account, emailComposer);
-    
+    const { messageId, rawMessage } = await smtpService.sendEmail(accountId, account, emailComposer);
+
+    // Save copy to Sent folder
+    let savedToSent = false;
+    if (rawMessage) {
+      try {
+        savedToSent = await imapService.appendToSentFolder(accountId, rawMessage);
+      } catch { /* non-critical */ }
+    }
+
     return {
       content: [{
         type: 'text',
         text: JSON.stringify({
           success: true,
           messageId,
-          message: 'Email forwarded successfully',
+          savedToSent,
+          message: savedToSent ? 'Email forwarded successfully (saved to Sent folder)' : 'Email forwarded successfully',
         }, null, 2)
       }]
     };

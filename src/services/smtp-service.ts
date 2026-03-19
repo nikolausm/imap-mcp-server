@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer';
+import MailComposer from 'nodemailer/lib/mail-composer/index.js';
 import { ImapAccount, EmailComposer, SmtpConfig } from '../types/index.js';
 
 export class SmtpService {
@@ -79,10 +80,10 @@ export class SmtpService {
     };
   }
 
-  async sendEmail(accountId: string, account: ImapAccount, email: EmailComposer): Promise<string> {
+  async sendEmail(accountId: string, account: ImapAccount, email: EmailComposer): Promise<{ messageId: string; rawMessage?: Buffer }> {
     try {
       const transporter = await this.createTransporter(account);
-      
+
       const mailOptions: nodemailer.SendMailOptions = {
         from: email.from || account.user,
         to: email.to,
@@ -104,8 +105,17 @@ export class SmtpService {
         references: Array.isArray(email.references) ? email.references.join(' ') : email.references,
       };
 
+      // Build raw message for IMAP Sent folder append
+      let rawMessage: Buffer | undefined;
+      try {
+        const compiled = new MailComposer(mailOptions);
+        rawMessage = await compiled.compile().build();
+      } catch {
+        // Non-critical: sent folder copy will be skipped
+      }
+
       const info = await transporter.sendMail(mailOptions);
-      return info.messageId;
+      return { messageId: info.messageId, rawMessage };
     } catch (error) {
       throw new Error(`Failed to send email: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
