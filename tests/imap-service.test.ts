@@ -66,6 +66,11 @@ vi.mock('imapflow', () => {
   };
 });
 
+// Helper to create a mock Headers Map
+function createMockHeaders(entries: [string, any][]): Map<string, any> {
+  return new Map(entries);
+}
+
 // Mock mailparser
 vi.mock('mailparser', () => ({
   simpleParser: vi.fn().mockResolvedValue({
@@ -76,6 +81,7 @@ vi.mock('mailparser', () => ({
     messageId: '<test@message.id>',
     text: 'Plain text content',
     html: '<p>HTML content</p>',
+    headers: new Map(),
     attachments: [],
   }),
 }));
@@ -388,6 +394,122 @@ describe('ImapService', () => {
     });
   });
 
+  describe('getEmailContent', () => {
+    const mockedSimpleParser = vi.mocked(simpleParser);
+
+    it('should return headers from parsed email', async () => {
+      mockInstance.fetchOneMock.mockResolvedValue({
+        source: Buffer.from('fake raw email'),
+        flags: new Set(['\\Seen']),
+      });
+
+      const headers = createMockHeaders([
+        ['list-unsubscribe', '<https://example.com/unsub>, <mailto:unsub@example.com>'],
+        ['list-unsubscribe-post', 'List-Unsubscribe=One-Click'],
+        ['x-mailer', 'TestMailer 1.0'],
+      ]);
+
+      mockedSimpleParser.mockResolvedValue({
+        date: new Date('2025-01-01'),
+        from: { text: 'sender@test.com' },
+        to: [{ text: 'recipient@test.com' }],
+        subject: 'Newsletter',
+        messageId: '<news@test.com>',
+        text: 'Hello',
+        html: '<p>Hello</p>',
+        headers,
+        attachments: [],
+      } as any);
+
+      await imapService.connect(mockAccount);
+      const result = await imapService.getEmailContent(mockAccount.id, 'INBOX', 42);
+
+      expect(result.headers).toBeDefined();
+      expect(result.headers['list-unsubscribe']).toBe('<https://example.com/unsub>, <mailto:unsub@example.com>');
+      expect(result.headers['list-unsubscribe-post']).toBe('List-Unsubscribe=One-Click');
+      expect(result.headers['x-mailer']).toBe('TestMailer 1.0');
+    });
+
+    it('should handle structured header values with text property', async () => {
+      mockInstance.fetchOneMock.mockResolvedValue({
+        source: Buffer.from('fake raw email'),
+        flags: new Set(),
+      });
+
+      const headers = createMockHeaders([
+        ['from', { text: 'Sender <sender@test.com>' }],
+        ['subject', 'Test'],
+      ]);
+
+      mockedSimpleParser.mockResolvedValue({
+        date: new Date(),
+        from: { text: 'sender@test.com' },
+        to: [{ text: 'recipient@test.com' }],
+        subject: 'Test',
+        messageId: '<test@id>',
+        text: 'body',
+        headers,
+        attachments: [],
+      } as any);
+
+      await imapService.connect(mockAccount);
+      const result = await imapService.getEmailContent(mockAccount.id, 'INBOX', 1);
+
+      expect(result.headers['from']).toBe('Sender <sender@test.com>');
+    });
+
+    it('should return empty headers when parsed headers are absent', async () => {
+      mockInstance.fetchOneMock.mockResolvedValue({
+        source: Buffer.from('fake raw email'),
+        flags: new Set(),
+      });
+
+      mockedSimpleParser.mockResolvedValue({
+        date: new Date(),
+        from: { text: 'sender@test.com' },
+        to: [{ text: 'recipient@test.com' }],
+        subject: 'Test',
+        messageId: '<test@id>',
+        text: 'body',
+        headers: undefined,
+        attachments: [],
+      } as any);
+
+      await imapService.connect(mockAccount);
+      const result = await imapService.getEmailContent(mockAccount.id, 'INBOX', 1);
+
+      expect(result.headers).toEqual({});
+    });
+
+    it('should preserve existing fields unchanged', async () => {
+      mockInstance.fetchOneMock.mockResolvedValue({
+        source: Buffer.from('fake raw email'),
+        flags: new Set(['\\Seen']),
+      });
+
+      mockedSimpleParser.mockResolvedValue({
+        date: new Date('2025-06-01'),
+        from: { text: 'sender@test.com' },
+        to: [{ text: 'recipient@test.com' }],
+        subject: 'Backward compat',
+        messageId: '<compat@test.com>',
+        text: 'Plain text',
+        html: '<b>HTML</b>',
+        headers: new Map(),
+        attachments: [],
+      } as any);
+
+      await imapService.connect(mockAccount);
+      const result = await imapService.getEmailContent(mockAccount.id, 'INBOX', 5);
+
+      expect(result.from).toBe('sender@test.com');
+      expect(result.subject).toBe('Backward compat');
+      expect(result.textContent).toBe('Plain text');
+      expect(result.htmlContent).toBe('<b>HTML</b>');
+      expect(result.uid).toBe(5);
+    });
+  });
+
   describe('getAttachmentContent', () => {
     const mockedSimpleParser = vi.mocked(simpleParser);
 
@@ -401,6 +523,7 @@ describe('ImapService', () => {
         messageId: '<test@message.id>',
         text: 'Plain text content',
         html: '<p>HTML content</p>',
+        headers: new Map(),
         attachments: [],
       } as any);
     });

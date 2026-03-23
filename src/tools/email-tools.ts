@@ -68,12 +68,13 @@ export function emailTools(
     inputSchema: {
       accountId: z.string().describe('Account ID'),
       folder: z.string().default('INBOX').describe('Folder name'),
-      uid: z.number().describe('Email UID'),
+      uid: z.coerce.number().describe('Email UID'),
       maxContentLength: z.number().default(10000).describe('Maximum characters to return for text and HTML body content'),
       includeAttachmentText: z.boolean().default(true).describe('Include text attachment previews when available'),
       maxAttachmentTextChars: z.number().default(100000).describe('Maximum characters to return per text attachment'),
+      includeHeaders: z.boolean().default(false).describe('Include raw email headers (e.g. List-Unsubscribe, List-Unsubscribe-Post)'),
     }
-  }, async ({ accountId, folder, uid, maxContentLength, includeAttachmentText, maxAttachmentTextChars }) => {
+  }, async ({ accountId, folder, uid, maxContentLength, includeAttachmentText, maxAttachmentTextChars, includeHeaders }) => {
     const email = await imapService.getEmailContent(accountId, folder, uid, {
       includeAttachmentText,
       maxAttachmentTextChars,
@@ -84,15 +85,18 @@ export function emailTools(
       ? { text: textTruncated || undefined, html: htmlTruncated || undefined }
       : undefined;
     
+    const { headers: rawHeaders, ...emailWithoutHeaders } = email;
+
     return {
       content: [{
         type: 'text',
         text: JSON.stringify({
           email: {
-            ...email,
+            ...emailWithoutHeaders,
             textContent: email.textContent?.substring(0, maxContentLength),
             htmlContent: email.htmlContent?.substring(0, maxContentLength),
             contentTruncated,
+            ...(includeHeaders ? { headers: rawHeaders } : {}),
           },
         }, null, 2)
       }]
@@ -105,7 +109,7 @@ export function emailTools(
     inputSchema: {
       accountId: z.string().describe('Account ID'),
       folder: z.string().default('INBOX').describe('Folder name'),
-      uid: z.number().describe('Email UID'),
+      uid: z.coerce.number().describe('Email UID'),
       filename: z.string().describe('Attachment filename or contentId'),
       savePath: z.string().optional().describe('Optional file path to save the attachment to. If not provided, images are returned inline and other files are saved to /tmp/'),
     }
@@ -157,7 +161,7 @@ export function emailTools(
     inputSchema: {
       accountId: z.string().describe('Account ID'),
       folder: z.string().default('INBOX').describe('Folder name'),
-      uid: z.number().describe('Email UID'),
+      uid: z.coerce.number().describe('Email UID'),
     }
   }, async ({ accountId, folder, uid }) => {
     await imapService.markAsRead(accountId, folder, uid);
@@ -179,7 +183,7 @@ export function emailTools(
     inputSchema: {
       accountId: z.string().describe('Account ID'),
       folder: z.string().default('INBOX').describe('Folder name'),
-      uid: z.number().describe('Email UID'),
+      uid: z.coerce.number().describe('Email UID'),
     }
   }, async ({ accountId, folder, uid }) => {
     await imapService.markAsUnread(accountId, folder, uid);
@@ -201,7 +205,7 @@ export function emailTools(
     inputSchema: {
       accountId: z.string().describe('Account ID'),
       folder: z.string().default('INBOX').describe('Folder name'),
-      uid: z.number().describe('Email UID'),
+      uid: z.coerce.number().describe('Email UID'),
     }
   }, async ({ accountId, folder, uid }) => {
     await imapService.deleteEmail(accountId, folder, uid);
@@ -223,7 +227,7 @@ export function emailTools(
     inputSchema: {
       accountId: z.string().describe('Account ID'),
       folder: z.string().default('INBOX').describe('Source folder name'),
-      uid: z.number().describe('Email UID'),
+      uid: z.coerce.number().describe('Email UID'),
       targetFolder: z.string().describe('Destination folder name'),
     }
   }, async ({ accountId, folder, uid, targetFolder }) => {
@@ -246,7 +250,7 @@ export function emailTools(
     inputSchema: {
       accountId: z.string().describe('Account ID'),
       folder: z.string().default('INBOX').describe('Folder name'),
-      uids: z.array(z.number()).describe('Array of email UIDs to delete'),
+      uids: z.array(z.coerce.number()).describe('Array of email UIDs to delete'),
       chunkSize: z.number().default(50).describe('Number of emails to delete per batch (default: 50)'),
     }
   }, async ({ accountId, folder, uids, chunkSize }) => {
@@ -433,7 +437,7 @@ export function emailTools(
     inputSchema: {
       accountId: z.string().describe('Account ID'),
       folder: z.string().default('INBOX').describe('Folder containing the original email'),
-      uid: z.number().describe('UID of the email to reply to'),
+      uid: z.coerce.number().describe('UID of the email to reply to'),
       text: z.string().optional().describe('Plain text reply content'),
       html: z.string().optional().describe('HTML reply content'),
       replyAll: z.boolean().default(false).describe('Reply to all recipients'),
@@ -495,7 +499,7 @@ export function emailTools(
     inputSchema: {
       accountId: z.string().describe('Account ID'),
       folder: z.string().default('INBOX').describe('Folder containing the original email'),
-      uid: z.number().describe('UID of the email to forward'),
+      uid: z.coerce.number().describe('UID of the email to forward'),
       to: z.union([z.string(), z.array(z.string())]).describe('Forward to email address(es)'),
       text: z.string().optional().describe('Additional text to include'),
       includeAttachments: z.boolean().default(true).describe('Include original attachments'),

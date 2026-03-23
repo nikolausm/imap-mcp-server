@@ -38,6 +38,7 @@ export interface EmailMessage {
 export interface EmailContent extends EmailMessage {
   textContent?: string;
   htmlContent?: string;
+  headers: Record<string, string | string[]>;
   attachments: Attachment[];
 }
 

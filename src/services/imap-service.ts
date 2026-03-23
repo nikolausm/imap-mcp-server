@@ -1,6 +1,7 @@
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import { ImapAccount, EmailMessage, EmailContent, Folder, SearchCriteria } from '../types/index.js';
+import type { AccountManager } from './account-manager.js';
 
 interface ConnectionState {
   client: ImapFlow;
@@ -18,6 +19,11 @@ export class ImapService {
   private connections: Map<string, ConnectionState> = new Map();
   private reconnectAttempts: Map<string, number> = new Map();
   private maxReconnectAttempts = 3;
+  private accountManager?: AccountManager;
+
+  setAccountManager(accountManager: AccountManager): void {
+    this.accountManager = accountManager;
+  }
 
   async connect(account: ImapAccount): Promise<void> {
     const existing = this.connections.get(account.id);
@@ -76,9 +82,19 @@ export class ImapService {
   }
 
   private async ensureConnected(accountId: string): Promise<ImapFlow> {
-    const state = this.connections.get(accountId);
+    let state = this.connections.get(accountId);
     if (!state) {
-      throw new Error(`No connection configured for account ${accountId}`);
+      // Auto-connect using stored account credentials
+      if (this.accountManager) {
+        const account = this.accountManager.getAccount(accountId);
+        if (account) {
+          await this.connect(account);
+          state = this.connections.get(accountId);
+        }
+      }
+      if (!state) {
+        throw new Error(`No connection configured for account ${accountId}`);
+      }
     }
 
     if (!state.isConnected || !state.client.usable) {
@@ -252,6 +268,29 @@ export class ImapService {
       } = options;
       const textAttachmentExtensions = ['.txt', '.md', '.markdown', '.csv', '.log', '.json', '.xml', '.yml', '.yaml'];
 
+      // Extract all raw headers as key-value pairs
+      const headers: Record<string, string | string[]> = {};
+      if (parsed.headers) {
+        const headerToString = (v: unknown): string => {
+          if (typeof v === 'string') return v;
+          if (v instanceof Date) return v.toISOString();
+          if (v && typeof v === 'object' && 'text' in v) return String((v as { text: string }).text);
+          if (v && typeof v === 'object' && 'value' in v) return String((v as { value: string }).value);
+          if (v && typeof v === 'object') return JSON.stringify(v);
+          return String(v);
+        };
+
+        for (const [key, value] of parsed.headers) {
+          if (typeof value === 'string') {
+            headers[key] = value;
+          } else if (Array.isArray(value)) {
+            headers[key] = value.map(headerToString);
+          } else {
+            headers[key] = headerToString(value);
+          }
+        }
+      }
+
       return {
         uid,
         date: parsed.date || new Date(),
@@ -261,6 +300,7 @@ export class ImapService {
         messageId: parsed.messageId || '',
         inReplyTo: parsed.inReplyTo as string | undefined,
         flags: Array.from(source.flags || []),
+        headers,
         textContent: parsed.text,
         htmlContent: parsed.html || undefined,
         attachments: parsed.attachments?.map((att: any) => {
