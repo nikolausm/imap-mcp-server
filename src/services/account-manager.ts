@@ -13,7 +13,7 @@ export class AccountManager {
   constructor() {
     this.configPath = path.join(os.homedir(), '.imap-mcp', 'accounts.json');
     this.encryptionKey = this.getOrCreateEncryptionKey();
-    this.loadAccounts();
+    this.loadAccountsSync();
   }
 
   async addAccount(account: Omit<ImapAccount, 'id'>): Promise<ImapAccount> {
@@ -150,11 +150,11 @@ export class AccountManager {
     return decrypted;
   }
 
-  private async loadAccounts(): Promise<void> {
+  private loadAccountsSync(): void {
     try {
-      const data = await fs.readFile(this.configPath, 'utf-8');
+      const data = readFileSync(this.configPath, 'utf-8');
       const accounts = JSON.parse(data) as ImapAccount[];
-      
+
       for (const account of accounts) {
         this.accounts.set(account.id, account);
       }

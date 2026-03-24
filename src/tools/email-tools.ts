@@ -3,6 +3,10 @@ import { ImapService } from '../services/imap-service.js';
 import { AccountManager } from '../services/account-manager.js';
 import { SmtpService } from '../services/smtp-service.js';
 import { z } from 'zod';
+import { join } from 'path';
+import { homedir } from 'os';
+
+const DOWNLOAD_DIR = process.env.IMAP_DOWNLOAD_DIR || join(homedir(), 'Downloads', 'imap-attachments');
 
 export function emailTools(
   server: McpServer,
@@ -105,19 +109,21 @@ export function emailTools(
 
   // Download attachment tool
   server.registerTool('imap_download_attachment', {
-    description: 'Download an attachment from an email. Returns image content directly for image attachments, or saves to a file for other types.',
+    description: 'Download an attachment from an email. Returns image content directly for image attachments, extracts text from PDFs, or saves to a shared downloads directory accessible from the host.',
     inputSchema: {
       accountId: z.string().describe('Account ID'),
       folder: z.string().default('INBOX').describe('Folder name'),
       uid: z.coerce.number().describe('Email UID'),
       filename: z.string().describe('Attachment filename or contentId'),
-      savePath: z.string().optional().describe('Optional file path to save the attachment to. If not provided, images are returned inline and other files are saved to /tmp/'),
+      savePath: z.string().optional().describe('Optional file path to save the attachment to. If not provided, files are saved to the shared downloads directory.'),
+      extractText: z.boolean().default(true).describe('For PDFs, extract and return text content inline'),
     }
-  }, async ({ accountId, folder, uid, filename, savePath }) => {
+  }, async ({ accountId, folder, uid, filename, savePath, extractText }) => {
     const { content, contentType, filename: resolvedFilename } = await imapService.getAttachmentContent(accountId, folder, uid, filename);
-    
+
     const isImage = contentType.startsWith('image/');
-    
+    const isPdf = contentType === 'application/pdf' || resolvedFilename.toLowerCase().endsWith('.pdf');
+
     if (isImage && !savePath) {
       // Return image inline as base64 for Claude to view
       return {
@@ -134,13 +140,49 @@ export function emailTools(
         ]
       };
     }
-    
-    // Save to file
+
+    // For PDFs, try to extract text inline
+    if (isPdf && extractText) {
+      try {
+        const pdfParse = (await import('pdf-parse/lib/pdf-parse.js')).default;
+        const pdfData = await pdfParse(content);
+
+        // Also save the file for binary access
+        const fs = await import('fs');
+        const path = await import('path');
+        const downloadDir = savePath ? path.dirname(savePath) : DOWNLOAD_DIR;
+        fs.mkdirSync(downloadDir, { recursive: true });
+        const targetPath = savePath || path.join(DOWNLOAD_DIR, resolvedFilename);
+        fs.writeFileSync(targetPath, content);
+
+        return {
+          content: [{
+            type: 'text' as const,
+            text: JSON.stringify({
+              saved: true,
+              path: targetPath,
+              filename: resolvedFilename,
+              contentType,
+              size: content.length,
+              pages: pdfData.numpages,
+              textContent: pdfData.text,
+            }, null, 2)
+          }]
+        };
+      } catch (err) {
+        // Fall through to save-only if PDF parsing fails
+        console.error('PDF text extraction failed:', err);
+      }
+    }
+
+    // Save to shared downloads directory
     const fs = await import('fs');
     const path = await import('path');
-    const targetPath = savePath || path.join('/tmp', resolvedFilename);
+    const downloadDir = savePath ? path.dirname(savePath) : DOWNLOAD_DIR;
+    fs.mkdirSync(downloadDir, { recursive: true });
+    const targetPath = savePath || path.join(DOWNLOAD_DIR, resolvedFilename);
     fs.writeFileSync(targetPath, content);
-    
+
     return {
       content: [{
         type: 'text' as const,

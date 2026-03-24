@@ -267,6 +267,7 @@ export class ImapService {
         maxAttachmentTextChars = 100000,
       } = options;
       const textAttachmentExtensions = ['.txt', '.md', '.markdown', '.csv', '.log', '.json', '.xml', '.yml', '.yaml'];
+      const pdfExtensions = ['.pdf'];
 
       // Extract all raw headers as key-value pairs
       const headers: Record<string, string | string[]> = {};
@@ -303,7 +304,7 @@ export class ImapService {
         headers,
         textContent: parsed.text,
         htmlContent: parsed.html || undefined,
-        attachments: parsed.attachments?.map((att: any) => {
+        attachments: await Promise.all((parsed.attachments || []).map(async (att: any) => {
           const filename = att.filename || 'unknown';
           const contentType = att.contentType || 'application/octet-stream';
           const size = att.size || 0;
@@ -326,6 +327,29 @@ export class ImapService {
           const hasTextExtension = textAttachmentExtensions.some(ext => filenameLower.endsWith(ext));
           const isTextAttachment = isTextContentType || hasTextExtension;
 
+          // Check if this is a PDF
+          const isPdf = contentTypeLower === 'application/pdf' || pdfExtensions.some(ext => filenameLower.endsWith(ext));
+
+          if (isPdf && att?.content) {
+            try {
+              const pdfParse = (await import('pdf-parse/lib/pdf-parse.js')).default;
+              const contentBuffer = Buffer.isBuffer(att.content) ? att.content : Buffer.from(att.content);
+              const pdfData = await pdfParse(contentBuffer);
+              const rawText = pdfData.text;
+              const textTruncated = rawText.length > maxAttachmentTextChars;
+              const textContent = textTruncated ? rawText.slice(0, maxAttachmentTextChars) : rawText;
+
+              return {
+                ...attachment,
+                textContent,
+                textContentTruncated: textTruncated || undefined,
+              };
+            } catch {
+              // PDF parsing failed, return without text
+              return attachment;
+            }
+          }
+
           if (!isTextAttachment) {
             return attachment;
           }
@@ -345,7 +369,7 @@ export class ImapService {
             textContent,
             textContentTruncated: textTruncated || undefined,
           };
-        }) || [],
+        })),
       };
     } finally {
       if (lock) {

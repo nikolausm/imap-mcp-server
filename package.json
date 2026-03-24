@@ -43,6 +43,7 @@
     "@types/express": "^5.0.3",
     "@types/mailparser": "^3.4.6",
     "@types/node": "^24.0.14",
+    "@types/pdf-parse": "^1.1.5",
     "@vitest/coverage-v8": "^4.0.16",
     "esbuild": "^0.27.2",
     "nodemon": "^3.1.10",
@@ -64,6 +65,7 @@
     "nodemailer": "^7.0.5",
     "open": "^10.2.0",
     "ora": "^8.2.0",
+    "pdf-parse": "^1.1.1",
     "zod": "^3.25.76"
   },
   "overrides": {
