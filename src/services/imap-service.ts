@@ -38,6 +38,7 @@ export class ImapService {
       auth: {
         user: account.user,
         pass: account.password,
+        loginMethod: account.loginMethod,
       },
       logger: false,
     });
@@ -542,6 +543,28 @@ export class ImapService {
     }
   }
 
+  async appendToSentFolder(accountId: string, rawMessage: Buffer | string): Promise<boolean> {
+    const client = await this.ensureConnected(accountId);
+
+    // Auto-detect sent folder name
+    const folders = await this.listFolders(accountId);
+    const sentFolderNames = ['Sent Messages', 'Sent', 'INBOX.Sent', 'Sent Items', 'Sent Mail', '[Gmail]/Sent Mail'];
+    const sentFolder = folders.find(f => sentFolderNames.includes(f.name));
+
+    if (!sentFolder) {
+      console.warn(`[IMAP] No sent folder found for account ${accountId}. Tried: ${sentFolderNames.join(', ')}`);
+      return false;
+    }
+
+    try {
+      await client.append(sentFolder.name, rawMessage, ['\\Seen']);
+      return true;
+    } catch (err) {
+      console.error(`[IMAP] Failed to append to ${sentFolder.name}:`, err instanceof Error ? err.message : err);
+      return false;
+    }
+  }
+
   async testConnection(account: ImapAccount): Promise<{ success: boolean; folders?: string[]; messageCount?: number; error?: string }> {
     const testClient = new ImapFlow({
       host: account.host,
@@ -550,6 +573,7 @@ export class ImapService {
       auth: {
         user: account.user,
         pass: account.password,
+        loginMethod: account.loginMethod,
       },
       logger: false,
     });

@@ -1,5 +1,3 @@
-#!/usr/bin/env node
-
 import { WebUIServer } from './web/server.js';
 import chalk from 'chalk';
 import ora from 'ora';
