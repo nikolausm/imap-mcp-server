@@ -17,9 +17,6 @@ await esbuild.build({
   format: 'esm',
   outfile: 'dist/index.js',
   external,
-  banner: {
-    js: '#!/usr/bin/env node',
-  },
 });
 
 // Build setup entry point
@@ -30,9 +27,6 @@ await esbuild.build({
   format: 'esm',
   outfile: 'dist/setup.js',
   external,
-  banner: {
-    js: '#!/usr/bin/env node',
-  },
 });
 
 // Build web server entry point

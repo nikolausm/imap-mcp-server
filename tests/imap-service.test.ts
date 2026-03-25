@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { simpleParser } from 'mailparser';
 import { ImapService } from '../src/services/imap-service.js';
 import { ImapAccount } from '../src/types/index.js';
 
@@ -65,6 +66,11 @@ vi.mock('imapflow', () => {
   };
 });
 
+// Helper to create a mock Headers Map
+function createMockHeaders(entries: [string, any][]): Map<string, any> {
+  return new Map(entries);
+}
+
 // Mock mailparser
 vi.mock('mailparser', () => ({
   simpleParser: vi.fn().mockResolvedValue({
@@ -75,6 +81,7 @@ vi.mock('mailparser', () => ({
     messageId: '<test@message.id>',
     text: 'Plain text content',
     html: '<p>HTML content</p>',
+    headers: new Map(),
     attachments: [],
   }),
 }));
@@ -166,7 +173,7 @@ describe('ImapService', () => {
   });
 
   describe('bulkDelete', () => {
-    it('should delete emails in chunks', async () => {
+    it('should move emails to Trash in chunks', async () => {
       await imapService.connect(mockAccount);
 
       const uids = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
@@ -174,13 +181,24 @@ describe('ImapService', () => {
 
       expect(result.deleted).toBe(10);
       expect(result.failed).toBe(0);
-      expect(mockInstance.messageDeleteMock).toHaveBeenCalledTimes(2); // 2 chunks of 5
+      expect(mockInstance.messageMoveMock).toHaveBeenCalledTimes(2); // 2 chunks of 5
+      expect(mockInstance.messageMoveMock).toHaveBeenCalledWith('1,2,3,4,5', 'Trash', { uid: true });
+    });
+
+    it('should permanently delete when already in Trash', async () => {
+      await imapService.connect(mockAccount);
+
+      const uids = [1, 2, 3];
+      const result = await imapService.bulkDelete(mockAccount.id, 'Trash', uids, 5);
+
+      expect(result.deleted).toBe(3);
+      expect(mockInstance.messageDeleteMock).toHaveBeenCalledTimes(1);
     });
 
     it('should handle errors during bulk delete', async () => {
-      mockInstance.messageDeleteMock
+      mockInstance.messageMoveMock
         .mockResolvedValueOnce(undefined)
-        .mockRejectedValueOnce(new Error('Delete failed'));
+        .mockRejectedValueOnce(new Error('Move failed'));
 
       await imapService.connect(mockAccount);
 
@@ -341,9 +359,20 @@ describe('ImapService', () => {
   });
 
   describe('deleteEmail', () => {
-    it('should delete single email', async () => {
+    it('should move email to Trash when not in Trash', async () => {
       await imapService.connect(mockAccount);
       await imapService.deleteEmail(mockAccount.id, 'INBOX', 123);
+
+      expect(mockInstance.messageMoveMock).toHaveBeenCalledWith(
+        123,
+        'Trash',
+        { uid: true }
+      );
+    });
+
+    it('should permanently delete when already in Trash', async () => {
+      await imapService.connect(mockAccount);
+      await imapService.deleteEmail(mockAccount.id, 'Trash', 123);
 
       expect(mockInstance.messageDeleteMock).toHaveBeenCalledWith(
         123,
@@ -362,6 +391,247 @@ describe('ImapService', () => {
         'Archive',
         { uid: true }
       );
+    });
+  });
+
+  describe('getEmailContent', () => {
+    const mockedSimpleParser = vi.mocked(simpleParser);
+
+    it('should return headers from parsed email', async () => {
+      mockInstance.fetchOneMock.mockResolvedValue({
+        source: Buffer.from('fake raw email'),
+        flags: new Set(['\\Seen']),
+      });
+
+      const headers = createMockHeaders([
+        ['list-unsubscribe', '<https://example.com/unsub>, <mailto:unsub@example.com>'],
+        ['list-unsubscribe-post', 'List-Unsubscribe=One-Click'],
+        ['x-mailer', 'TestMailer 1.0'],
+      ]);
+
+      mockedSimpleParser.mockResolvedValue({
+        date: new Date('2025-01-01'),
+        from: { text: 'sender@test.com' },
+        to: [{ text: 'recipient@test.com' }],
+        subject: 'Newsletter',
+        messageId: '<news@test.com>',
+        text: 'Hello',
+        html: '<p>Hello</p>',
+        headers,
+        attachments: [],
+      } as any);
+
+      await imapService.connect(mockAccount);
+      const result = await imapService.getEmailContent(mockAccount.id, 'INBOX', 42);
+
+      expect(result.headers).toBeDefined();
+      expect(result.headers['list-unsubscribe']).toBe('<https://example.com/unsub>, <mailto:unsub@example.com>');
+      expect(result.headers['list-unsubscribe-post']).toBe('List-Unsubscribe=One-Click');
+      expect(result.headers['x-mailer']).toBe('TestMailer 1.0');
+    });
+
+    it('should handle structured header values with text property', async () => {
+      mockInstance.fetchOneMock.mockResolvedValue({
+        source: Buffer.from('fake raw email'),
+        flags: new Set(),
+      });
+
+      const headers = createMockHeaders([
+        ['from', { text: 'Sender <sender@test.com>' }],
+        ['subject', 'Test'],
+      ]);
+
+      mockedSimpleParser.mockResolvedValue({
+        date: new Date(),
+        from: { text: 'sender@test.com' },
+        to: [{ text: 'recipient@test.com' }],
+        subject: 'Test',
+        messageId: '<test@id>',
+        text: 'body',
+        headers,
+        attachments: [],
+      } as any);
+
+      await imapService.connect(mockAccount);
+      const result = await imapService.getEmailContent(mockAccount.id, 'INBOX', 1);
+
+      expect(result.headers['from']).toBe('Sender <sender@test.com>');
+    });
+
+    it('should return empty headers when parsed headers are absent', async () => {
+      mockInstance.fetchOneMock.mockResolvedValue({
+        source: Buffer.from('fake raw email'),
+        flags: new Set(),
+      });
+
+      mockedSimpleParser.mockResolvedValue({
+        date: new Date(),
+        from: { text: 'sender@test.com' },
+        to: [{ text: 'recipient@test.com' }],
+        subject: 'Test',
+        messageId: '<test@id>',
+        text: 'body',
+        headers: undefined,
+        attachments: [],
+      } as any);
+
+      await imapService.connect(mockAccount);
+      const result = await imapService.getEmailContent(mockAccount.id, 'INBOX', 1);
+
+      expect(result.headers).toEqual({});
+    });
+
+    it('should preserve existing fields unchanged', async () => {
+      mockInstance.fetchOneMock.mockResolvedValue({
+        source: Buffer.from('fake raw email'),
+        flags: new Set(['\\Seen']),
+      });
+
+      mockedSimpleParser.mockResolvedValue({
+        date: new Date('2025-06-01'),
+        from: { text: 'sender@test.com' },
+        to: [{ text: 'recipient@test.com' }],
+        subject: 'Backward compat',
+        messageId: '<compat@test.com>',
+        text: 'Plain text',
+        html: '<b>HTML</b>',
+        headers: new Map(),
+        attachments: [],
+      } as any);
+
+      await imapService.connect(mockAccount);
+      const result = await imapService.getEmailContent(mockAccount.id, 'INBOX', 5);
+
+      expect(result.from).toBe('sender@test.com');
+      expect(result.subject).toBe('Backward compat');
+      expect(result.textContent).toBe('Plain text');
+      expect(result.htmlContent).toBe('<b>HTML</b>');
+      expect(result.uid).toBe(5);
+    });
+  });
+
+  describe('getAttachmentContent', () => {
+    const mockedSimpleParser = vi.mocked(simpleParser);
+
+    beforeEach(() => {
+      // Reset simpleParser to default mock for non-attachment tests
+      mockedSimpleParser.mockResolvedValue({
+        date: new Date(),
+        from: { text: 'sender@test.com' },
+        to: [{ text: 'recipient@test.com' }],
+        subject: 'Test Subject',
+        messageId: '<test@message.id>',
+        text: 'Plain text content',
+        html: '<p>HTML content</p>',
+        headers: new Map(),
+        attachments: [],
+      } as any);
+    });
+
+    it('should download attachment by filename', async () => {
+      const attachmentBuffer = Buffer.from('file content here');
+
+      mockInstance.fetchOneMock.mockResolvedValue({
+        source: Buffer.from('fake raw email source'),
+      });
+
+      mockedSimpleParser.mockResolvedValue({
+        attachments: [
+          {
+            filename: 'report.pdf',
+            content: attachmentBuffer,
+            contentType: 'application/pdf',
+            contentId: undefined,
+          },
+        ],
+      } as any);
+
+      await imapService.connect(mockAccount);
+      const result = await imapService.getAttachmentContent(
+        mockAccount.id,
+        'INBOX',
+        42,
+        'report.pdf'
+      );
+
+      expect(result.content).toBe(attachmentBuffer);
+      expect(result.contentType).toBe('application/pdf');
+      expect(result.filename).toBe('report.pdf');
+      expect(mockInstance.fetchOneMock).toHaveBeenCalledWith(42, { source: true }, { uid: true });
+    });
+
+    it('should download attachment by contentId', async () => {
+      const attachmentBuffer = Buffer.from('inline image data');
+
+      mockInstance.fetchOneMock.mockResolvedValue({
+        source: Buffer.from('fake raw email source'),
+      });
+
+      mockedSimpleParser.mockResolvedValue({
+        attachments: [
+          {
+            filename: 'image.png',
+            content: attachmentBuffer,
+            contentType: 'image/png',
+            contentId: 'cid-12345',
+          },
+        ],
+      } as any);
+
+      await imapService.connect(mockAccount);
+      const result = await imapService.getAttachmentContent(
+        mockAccount.id,
+        'INBOX',
+        99,
+        'cid-12345'
+      );
+
+      expect(result.content).toBe(attachmentBuffer);
+      expect(result.contentType).toBe('image/png');
+      expect(result.filename).toBe('image.png');
+    });
+
+    it('should throw error when email not found', async () => {
+      mockInstance.fetchOneMock.mockResolvedValue(null);
+
+      await imapService.connect(mockAccount);
+
+      await expect(
+        imapService.getAttachmentContent(mockAccount.id, 'INBOX', 999, 'file.txt')
+      ).rejects.toThrow('Email with UID 999 not found');
+    });
+
+    it('should throw error when source is empty', async () => {
+      mockInstance.fetchOneMock.mockResolvedValue({ source: null });
+
+      await imapService.connect(mockAccount);
+
+      await expect(
+        imapService.getAttachmentContent(mockAccount.id, 'INBOX', 888, 'file.txt')
+      ).rejects.toThrow('Email with UID 888 not found');
+    });
+
+    it('should throw error when attachment not found in email', async () => {
+      mockInstance.fetchOneMock.mockResolvedValue({
+        source: Buffer.from('fake raw email source'),
+      });
+
+      mockedSimpleParser.mockResolvedValue({
+        attachments: [
+          {
+            filename: 'other-file.doc',
+            content: Buffer.from('other content'),
+            contentType: 'application/msword',
+            contentId: undefined,
+          },
+        ],
+      } as any);
+
+      await imapService.connect(mockAccount);
+
+      await expect(
+        imapService.getAttachmentContent(mockAccount.id, 'INBOX', 42, 'missing-file.pdf')
+      ).rejects.toThrow('Attachment "missing-file.pdf" not found in email UID 42');
     });
   });
 });
