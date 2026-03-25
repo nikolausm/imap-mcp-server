@@ -61,7 +61,7 @@
     "dotenv": "^17.2.0",
     "express": "^5.1.0",
     "imapflow": "^1.2.1",
-    "mailparser": "^3.7.4",
+    "mailparser": "^3.9.3",
     "nodemailer": "^7.0.5",
     "open": "^10.2.0",
     "ora": "^8.2.0",
