@@ -10,6 +10,7 @@ export interface ImapAccount {
   connTimeout?: number;
   keepalive?: boolean;
   smtp?: SmtpConfig;
+  saveToSent?: boolean;
 }
 
 export interface SmtpConfig {
