@@ -141,8 +141,8 @@ export class WebUIServer {
     // Update account
     this.app.put('/api/accounts/:id', async (req, res) => {
       try {
-        const { name, email, password, host, port, tls, smtp } = req.body;
-        
+        const { name, email, password, host, port, tls, smtp, saveToSent } = req.body;
+
         const updates: any = {};
         if (name !== undefined) updates.name = name;
         if (email !== undefined) updates.user = email;
@@ -151,6 +151,7 @@ export class WebUIServer {
         if (port !== undefined) updates.port = port;
         if (tls !== undefined) updates.tls = tls;
         if (smtp !== undefined) updates.smtp = smtp;
+        if (saveToSent !== undefined) updates.saveToSent = saveToSent;
         
         const account = await this.accountManager.updateAccount(req.params.id, updates);
         res.json({ success: true, account });

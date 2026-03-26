@@ -95,6 +95,7 @@ export class AccountManager {
   }
 
   getAccount(id: string): ImapAccount | undefined {
+    this.loadAccountsSync();
     const account = this.accounts.get(id);
     if (!account) return undefined;
 
@@ -155,6 +156,7 @@ export class AccountManager {
       const data = readFileSync(this.configPath, 'utf-8');
       const accounts = JSON.parse(data) as ImapAccount[];
 
+      this.accounts.clear();
       for (const account of accounts) {
         this.accounts.set(account.id, account);
       }
