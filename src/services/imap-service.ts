@@ -3,6 +3,84 @@ import { simpleParser } from 'mailparser';
 import { ImapAccount, EmailMessage, EmailContent, Folder, SearchCriteria } from '../types/index.js';
 import type { AccountManager } from './account-manager.js';
 
+/**
+ * Providers that require IMAP access to be manually enabled in account settings.
+ * Each entry maps a host pattern to a human-readable hint.
+ */
+const PROVIDERS_REQUIRING_IMAP_ENABLE: Array<{ pattern: RegExp; name: string; settingsPath: string }> = [
+  {
+    pattern: /gmx\.(net|de|at|ch|com)/i,
+    name: 'GMX',
+    settingsPath: 'Settings → Email → POP3 & IMAP → Enable IMAP access',
+  },
+  {
+    pattern: /web\.de/i,
+    name: 'WEB.DE',
+    settingsPath: 'Settings → Email → POP3 & IMAP → Enable IMAP access',
+  },
+  {
+    pattern: /zoho\.(com|eu)/i,
+    name: 'Zoho Mail',
+    settingsPath: 'Settings → Mail Accounts → IMAP Access → Enable',
+  },
+  {
+    pattern: /yahoo\.(com|de|co\.uk|fr|es|it)/i,
+    name: 'Yahoo Mail',
+    settingsPath: 'Account Security settings → Generate app password',
+  },
+  {
+    pattern: /gmail\.com|googlemail\.com/i,
+    name: 'Gmail',
+    settingsPath: 'Settings → See all settings → Forwarding and POP/IMAP → Enable IMAP',
+  },
+];
+
+/**
+ * Error message patterns that indicate IMAP access is disabled at the provider.
+ */
+const IMAP_DISABLED_PATTERNS = [
+  /imap.*disabled/i,
+  /imap.*not.*enabled/i,
+  /imap.*access.*denied/i,
+  /\[UNAVAILABLE\]/i,
+  /\[ALERT\].*imap/i,
+  /imap.*not.*activated/i,
+  /please.*enable.*imap/i,
+  /enable.*imap.*access/i,
+  /pop3.*imap.*disabled/i,
+];
+
+/**
+ * Enriches a connection error with a provider-specific hint when IMAP access
+ * may need to be manually enabled in the account settings.
+ */
+function enrichConnectionError(error: unknown, host: string): string {
+  const originalMessage = error instanceof Error ? error.message : 'Connection failed';
+
+  // Check if the error message already indicates IMAP is disabled
+  const looksLikeImapDisabled = IMAP_DISABLED_PATTERNS.some(pattern => pattern.test(originalMessage));
+
+  const matchedProvider = PROVIDERS_REQUIRING_IMAP_ENABLE.find(p => p.pattern.test(host));
+
+  if (looksLikeImapDisabled || matchedProvider) {
+    if (matchedProvider) {
+      return (
+        `${originalMessage}\n\n` +
+        `Hint: ${matchedProvider.name} requires IMAP access to be manually enabled. ` +
+        `Go to: ${matchedProvider.settingsPath}`
+      );
+    }
+    // Generic hint when error looks IMAP-related but provider is unknown
+    return (
+      `${originalMessage}\n\n` +
+      `Hint: Some providers (e.g. GMX, WEB.DE, Zoho) require IMAP access to be manually enabled ` +
+      `in the account settings (usually under Settings → Email → POP3 & IMAP).`
+    );
+  }
+
+  return originalMessage;
+}
+
 interface ConnectionState {
   client: ImapFlow;
   account: ImapAccount;
@@ -59,7 +137,11 @@ export class ImapService {
       }
     });
 
-    await client.connect();
+    try {
+      await client.connect();
+    } catch (err) {
+      throw new Error(enrichConnectionError(err, account.host));
+    }
 
     this.connections.set(account.id, {
       client,
@@ -114,7 +196,7 @@ export class ImapService {
         this.reconnectAttempts.set(accountId, 0);
       } catch (err) {
         state.isConnected = false;
-        throw new Error(`Failed to reconnect: ${err instanceof Error ? err.message : 'Unknown error'}`);
+        throw new Error(`Failed to reconnect: ${enrichConnectionError(err, state.account.host)}`);
       }
     }
 
@@ -604,7 +686,7 @@ export class ImapService {
     } catch (err) {
       return {
         success: false,
-        error: err instanceof Error ? err.message : 'Connection failed',
+        error: enrichConnectionError(err, account.host),
       };
     }
   }
