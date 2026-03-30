@@ -463,7 +463,7 @@ export function emailTools(
 
     // Save copy to Sent folder
     let savedToSent = false;
-    if (rawMessage) {
+    if (rawMessage && account.saveToSent !== false) {
       try {
         savedToSent = await imapService.appendToSentFolder(accountId, rawMessage);
       } catch { /* non-critical */ }
@@ -534,7 +534,7 @@ export function emailTools(
 
     // Save copy to Sent folder
     let savedToSent = false;
-    if (rawMessage) {
+    if (rawMessage && account.saveToSent !== false) {
       try {
         savedToSent = await imapService.appendToSentFolder(accountId, rawMessage);
       } catch { /* non-critical */ }
@@ -589,7 +589,7 @@ export function emailTools(
 
     // Save copy to Sent folder
     let savedToSent = false;
-    if (rawMessage) {
+    if (rawMessage && account.saveToSent !== false) {
       try {
         savedToSent = await imapService.appendToSentFolder(accountId, rawMessage);
       } catch { /* non-critical */ }

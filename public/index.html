@@ -110,7 +110,7 @@
                         <div class="mb-4">
                             <label class="block text-sm font-medium text-gray-700 mb-2">Password</label>
                             <div class="relative">
-                                <input type="password" id="password" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 pr-10" required>
+                                <input type="password" id="password" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 pr-10">
                                 <button type="button" onclick="togglePassword()" class="absolute right-2 top-2 text-gray-500 hover:text-gray-700">
                                     <span id="passwordToggle">👁️</span>
                                 </button>
@@ -174,6 +174,15 @@
                                     </div>
                                 </div>
                             </div>
+
+                            <!-- Save to Sent setting -->
+                            <div class="mt-4">
+                                <label class="flex items-center gap-2 cursor-pointer">
+                                    <input type="checkbox" id="saveToSent" class="w-4 h-4 text-blue-600 rounded" checked>
+                                    <span class="text-sm text-gray-700">Save sent emails to Sent folder</span>
+                                </label>
+                                <p class="text-xs text-gray-500 mt-1 ml-6">Automatically saves a copy of each sent email to your Sent folder via IMAP.</p>
+                            </div>
                         </div>
 
                         <button type="button" onclick="toggleAdvanced()" class="text-blue-600 hover:text-blue-800 text-sm mb-4">
@@ -225,7 +234,7 @@
                         <button onclick="addAnotherAccount()" class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 mr-3">
                             <span class="mr-2">➕</span>Add Another Account
                         </button>
-                        <button onclick="closeWindow()" class="px-6 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700">
+                        <button onclick="viewAccounts()" class="px-6 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700">
                             <span class="mr-2">✅</span>Done
                         </button>
                     </div>
