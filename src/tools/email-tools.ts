@@ -443,7 +443,7 @@ export function emailTools(
     }
 
     const emailComposer = {
-      from: account.user,
+      from: account.email || account.user,
       to,
       subject,
       text,
@@ -511,11 +511,12 @@ export function emailTools(
     // Prepare reply
     const recipients = [originalEmail.from];
     if (replyAll) {
-      recipients.push(...originalEmail.to.filter(addr => addr !== account.user));
+      const accountEmail = account.email || account.user;
+      recipients.push(...originalEmail.to.filter(addr => addr !== accountEmail));
     }
 
     const emailComposer = {
-      from: account.user,
+      from: account.email || account.user,
       to: recipients,
       subject: originalEmail.subject.startsWith('Re: ') ? originalEmail.subject : `Re: ${originalEmail.subject}`,
       text,
@@ -577,7 +578,7 @@ export function emailTools(
     const forwardHeader = `\n\n---------- Forwarded message ----------\nFrom: ${originalEmail.from}\nDate: ${originalEmail.date.toLocaleString()}\nSubject: ${originalEmail.subject}\nTo: ${originalEmail.to.join(', ')}\n\n`;
     
     const emailComposer = {
-      from: account.user,
+      from: account.email || account.user,
       to,
       subject: originalEmail.subject.startsWith('Fwd: ') ? originalEmail.subject : `Fwd: ${originalEmail.subject}`,
       text: (text || '') + forwardHeader + (originalEmail.textContent || ''),

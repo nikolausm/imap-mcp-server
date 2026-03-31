@@ -95,7 +95,7 @@ export class SmtpService {
       const transporter = await this.createTransporter(account);
 
       const mailOptions: nodemailer.SendMailOptions = {
-        from: email.from || account.user,
+        from: email.from || account.email || account.user,
         to: email.to,
         cc: email.cc,
         bcc: email.bcc,

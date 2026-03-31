@@ -53,7 +53,7 @@ export class WebUIServer {
     // Add new account
     this.app.post('/api/accounts', async (req, res) => {
       try {
-        const { name, email, password, host, port, tls, smtp } = req.body;
+        const { name, email, password, host, port, tls, smtp, imapUsername } = req.body;
         
         // Auto-detect provider if not specified
         let imapHost = host;
@@ -73,9 +73,10 @@ export class WebUIServer {
           name: name || email,
           host: imapHost,
           port: imapPort || 993,
-          user: email,
+          user: imapUsername || email,
           password,
           tls: useTls !== false,
+          ...(imapUsername ? { email } : {}),
           smtp: smtp || undefined,
         });
         
@@ -91,15 +92,15 @@ export class WebUIServer {
     // Test connection
     this.app.post('/api/test-connection', async (req, res) => {
       try {
-        const { email, password, host, port, tls } = req.body;
-        
+        const { email, password, host, port, tls, imapUsername } = req.body;
+
         // Create temporary account for testing
         const testAccount: ImapAccount = {
           id: 'test-' + Date.now(),
           name: 'Test',
           host: host || 'imap.gmail.com',
           port: port || 993,
-          user: email,
+          user: imapUsername || email,
           password,
           tls: tls !== false,
         };
@@ -141,11 +142,17 @@ export class WebUIServer {
     // Update account
     this.app.put('/api/accounts/:id', async (req, res) => {
       try {
-        const { name, email, password, host, port, tls, smtp, saveToSent } = req.body;
+        const { name, email, password, host, port, tls, smtp, saveToSent, imapUsername } = req.body;
 
         const updates: any = {};
         if (name !== undefined) updates.name = name;
-        if (email !== undefined) updates.user = email;
+        if (imapUsername) {
+          updates.user = imapUsername;
+          if (email !== undefined) updates.email = email;
+        } else if (email !== undefined) {
+          updates.user = email;
+          updates.email = undefined;
+        }
         if (password !== undefined) updates.password = password;
         if (host !== undefined) updates.host = host;
         if (port !== undefined) updates.port = port;
