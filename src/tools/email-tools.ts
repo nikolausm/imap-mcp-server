@@ -37,7 +37,7 @@ export function emailTools(
       before: z.string().optional().describe('Search emails before date (YYYY-MM-DD)'),
       seen: z.boolean().optional().describe('Filter by read/unread status'),
       flagged: z.boolean().optional().describe('Filter by flagged status'),
-      limit: z.number().optional().default(50).describe('Maximum number of results'),
+      limit: z.coerce.number().optional().default(50).describe('Maximum number of results'),
     }
   }, async ({ accountId, folder, limit, ...searchCriteria }) => {
     const criteria: any = {};
@@ -73,9 +73,9 @@ export function emailTools(
       accountId: z.string().describe('Account ID'),
       folder: z.string().default('INBOX').describe('Folder name'),
       uid: z.coerce.number().describe('Email UID'),
-      maxContentLength: z.number().default(10000).describe('Maximum characters to return for text and HTML body content'),
+      maxContentLength: z.coerce.number().default(10000).describe('Maximum characters to return for text and HTML body content'),
       includeAttachmentText: z.boolean().default(true).describe('Include text attachment previews when available'),
-      maxAttachmentTextChars: z.number().default(100000).describe('Maximum characters to return per text attachment'),
+      maxAttachmentTextChars: z.coerce.number().default(100000).describe('Maximum characters to return per text attachment'),
       includeHeaders: z.boolean().default(false).describe('Include raw email headers (e.g. List-Unsubscribe, List-Unsubscribe-Post)'),
     }
   }, async ({ accountId, folder, uid, maxContentLength, includeAttachmentText, maxAttachmentTextChars, includeHeaders }) => {
@@ -293,7 +293,7 @@ export function emailTools(
       accountId: z.string().describe('Account ID'),
       folder: z.string().default('INBOX').describe('Folder name'),
       uids: z.array(z.coerce.number()).describe('Array of email UIDs to delete'),
-      chunkSize: z.number().default(50).describe('Number of emails to delete per batch (default: 50)'),
+      chunkSize: z.coerce.number().default(50).describe('Number of emails to delete per batch (default: 50)'),
     }
   }, async ({ accountId, folder, uids, chunkSize }) => {
     const result = await imapService.bulkDelete(accountId, folder, uids, chunkSize);
@@ -326,7 +326,7 @@ export function emailTools(
       subject: z.string().optional().describe('Delete emails with this subject'),
       before: z.string().optional().describe('Delete emails before this date (YYYY-MM-DD)'),
       since: z.string().optional().describe('Delete emails since this date (YYYY-MM-DD)'),
-      chunkSize: z.number().default(50).describe('Number of emails to delete per batch'),
+      chunkSize: z.coerce.number().default(50).describe('Number of emails to delete per batch'),
       dryRun: z.boolean().default(false).describe('If true, only return what would be deleted without actually deleting'),
     }
   }, async ({ accountId, folder, from, to, subject, before, since, chunkSize, dryRun }) => {
@@ -402,7 +402,7 @@ export function emailTools(
     inputSchema: {
       accountId: z.string().describe('Account ID'),
       folder: z.string().default('INBOX').describe('Folder name'),
-      count: z.number().default(10).describe('Number of emails to retrieve'),
+      count: z.coerce.number().default(10).describe('Number of emails to retrieve'),
     }
   }, async ({ accountId, folder, count }) => {
     const sortedMessages = await imapService.getLatestEmails(accountId, folder, count);
