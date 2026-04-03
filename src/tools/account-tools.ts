@@ -14,7 +14,7 @@ export function accountTools(
     inputSchema: {
       name: z.string().describe('Friendly name for the account'),
       host: z.string().describe('IMAP server hostname'),
-      port: z.number().default(993).describe('IMAP server port (default: 993)'),
+      port: z.coerce.number().default(993).describe('IMAP server port (default: 993)'),
       user: z.string().describe('Username for authentication'),
       password: z.string().describe('Password for authentication'),
       tls: z.boolean().default(true).describe('Use TLS/SSL (default: true)'),

@@ -25,7 +25,7 @@ This is an IMAP MCP (Model Context Protocol) server built with TypeScript that p
 
 3. **Tools**: MCP tools are organized into three categories:
    - `account-tools.ts`: Account management (add, remove, list, connect, disconnect)
-   - `email-tools.ts`: Email operations (search, read, mark, delete)
+   - `email-tools.ts`: Email operations (search, read, download attachments, mark, delete, move, bulk delete, send, reply, forward)
    - `folder-tools.ts`: Folder operations (list, status, unread counts)
 
 ### Key Design Decisions
