@@ -14,7 +14,7 @@ export function spamTools(
     inputSchema: {
       accountId: z.string().describe('Account ID'),
       folder: z.string().default('INBOX').describe('Folder name'),
-      limit: z.number().default(100).describe('Maximum number of emails to check'),
+      limit: z.coerce.number().default(100).describe('Maximum number of emails to check'),
       from: z.string().optional().describe('Filter by sender (optional)'),
       since: z.string().optional().describe('Check emails since date (YYYY-MM-DD)'),
     }
@@ -62,7 +62,7 @@ export function spamTools(
     inputSchema: {
       accountId: z.string().describe('Account ID'),
       folder: z.string().default('INBOX').describe('Folder name'),
-      limit: z.number().default(500).describe('Maximum number of emails to check'),
+      limit: z.coerce.number().default(500).describe('Maximum number of emails to check'),
       minConfidence: z.enum(['high', 'medium', 'low']).default('high').describe('Minimum confidence level for spam detection'),
       dryRun: z.boolean().default(true).describe('If true, only report what would be deleted without deleting'),
     }
@@ -150,8 +150,8 @@ export function spamTools(
     inputSchema: {
       accountId: z.string().describe('Account ID'),
       folder: z.string().default('INBOX').describe('Folder name'),
-      limit: z.number().default(500).describe('Maximum number of emails to analyze'),
-      minCount: z.number().default(2).describe('Minimum email count per domain to include'),
+      limit: z.coerce.number().default(500).describe('Maximum number of emails to analyze'),
+      minCount: z.coerce.number().default(2).describe('Minimum email count per domain to include'),
     }
   }, async ({ accountId, folder, limit, minCount }) => {
     const messages = await imapService.searchEmails(accountId, folder, {});
