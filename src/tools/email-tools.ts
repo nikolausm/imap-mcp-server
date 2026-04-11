@@ -273,17 +273,39 @@ export function emailTools(
       targetFolder: z.string().describe('Destination folder name'),
     }
   }, async ({ accountId, folder, uid, targetFolder }) => {
-    await imapService.moveEmail(accountId, folder, uid, targetFolder);
+    try {
+      const result = await imapService.moveEmail(accountId, folder, uid, targetFolder);
 
-    return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify({
-          success: true,
-          message: `Email ${uid} moved from ${folder} to ${targetFolder}`,
-        }, null, 2)
-      }]
-    };
+      const uidMapObj: Record<string, number> = {};
+      if (result.uidMap) {
+        for (const [srcUid, destUid] of result.uidMap) {
+          uidMapObj[String(srcUid)] = destUid;
+        }
+      }
+
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            success: true,
+            message: `Email ${uid} moved from ${folder} to ${targetFolder}`,
+            destination: result.destination,
+            uidMap: Object.keys(uidMapObj).length > 0 ? uidMapObj : undefined,
+          }, null, 2)
+        }]
+      };
+    } catch (err) {
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            success: false,
+            message: `Failed to move email ${uid} from ${folder} to ${targetFolder}`,
+            error: err instanceof Error ? err.message : 'Unknown error',
+          }, null, 2)
+        }]
+      };
+    }
   });
 
   // Bulk delete emails tool

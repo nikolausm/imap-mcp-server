@@ -16,7 +16,7 @@ class MockImapFlow {
   public messageFlagsAddMock = vi.fn().mockResolvedValue(undefined);
   public messageFlagsRemoveMock = vi.fn().mockResolvedValue(undefined);
   public messageDeleteMock = vi.fn().mockResolvedValue(undefined);
-  public messageMoveMock = vi.fn().mockResolvedValue(undefined);
+  public messageMoveMock = vi.fn().mockResolvedValue({ path: 'INBOX', destination: 'Archive', uidMap: new Map([[123, 456]]) });
   public statusMock = vi.fn().mockResolvedValue({ messages: 10 });
   public usable = true;
   public onMock = vi.fn();
@@ -382,15 +382,79 @@ describe('ImapService', () => {
   });
 
   describe('moveEmail', () => {
-    it('should move email to target folder', async () => {
+    it('should move email to target folder and return result', async () => {
       await imapService.connect(mockAccount);
-      await imapService.moveEmail(mockAccount.id, 'INBOX', 123, 'Archive');
+      const result = await imapService.moveEmail(mockAccount.id, 'INBOX', 123, 'Archive');
 
       expect(mockInstance.messageMoveMock).toHaveBeenCalledWith(
         123,
         'Archive',
         { uid: true }
       );
+      expect(result).toEqual({
+        path: 'INBOX',
+        destination: 'Archive',
+        uidMap: new Map([[123, 456]]),
+      });
+    });
+
+    it('should throw when messageMove returns false', async () => {
+      mockInstance.messageMoveMock.mockResolvedValueOnce(false);
+      await imapService.connect(mockAccount);
+
+      await expect(
+        imapService.moveEmail(mockAccount.id, 'INBOX', 123, 'Archive')
+      ).rejects.toThrow('Failed to move email UID 123 from INBOX to Archive');
+    });
+
+    it('should throw when messageMove returns undefined', async () => {
+      mockInstance.messageMoveMock.mockResolvedValueOnce(undefined);
+      await imapService.connect(mockAccount);
+
+      await expect(
+        imapService.moveEmail(mockAccount.id, 'INBOX', 123, 'Archive')
+      ).rejects.toThrow('Failed to move email UID 123 from INBOX to Archive');
+    });
+
+    it('should release lock even when messageMove fails', async () => {
+      const releaseMock = vi.fn();
+      mockInstance.getMailboxLockMock.mockResolvedValueOnce({ release: releaseMock });
+      mockInstance.messageMoveMock.mockResolvedValueOnce(false);
+      await imapService.connect(mockAccount);
+
+      await expect(
+        imapService.moveEmail(mockAccount.id, 'INBOX', 123, 'Archive')
+      ).rejects.toThrow();
+
+      expect(releaseMock).toHaveBeenCalled();
+    });
+
+    it('should release lock when messageMove throws an exception', async () => {
+      const releaseMock = vi.fn();
+      mockInstance.getMailboxLockMock.mockResolvedValueOnce({ release: releaseMock });
+      mockInstance.messageMoveMock.mockRejectedValueOnce(new Error('Connection lost'));
+      await imapService.connect(mockAccount);
+
+      await expect(
+        imapService.moveEmail(mockAccount.id, 'INBOX', 123, 'Archive')
+      ).rejects.toThrow('Connection lost');
+
+      expect(releaseMock).toHaveBeenCalled();
+    });
+
+    it('should handle success without uidMap', async () => {
+      mockInstance.messageMoveMock.mockResolvedValueOnce({
+        path: 'INBOX',
+        destination: 'Taxes',
+      });
+      await imapService.connect(mockAccount);
+      const result = await imapService.moveEmail(mockAccount.id, 'INBOX', 123, 'Taxes');
+
+      expect(result).toEqual({
+        path: 'INBOX',
+        destination: 'Taxes',
+        uidMap: undefined,
+      });
     });
   });
 
