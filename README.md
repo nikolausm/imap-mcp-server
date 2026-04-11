@@ -88,7 +88,41 @@ The setup wizard includes pre-configured settings for:
 
 ## Configuration
 
-### Claude Desktop Configuration
+### Claude Code (CLI)
+
+If you use [Claude Code](https://docs.anthropic.com/en/docs/claude-code) in the terminal, add the MCP server with a single command:
+
+**Step 1:** Make sure you have built the project first (see [Manual Installation](#manual-installation)).
+
+**Step 2:** Run this command in your terminal:
+
+```bash
+claude mcp add imap -- node /absolute/path/to/imap-mcp-server/dist/index.js
+```
+
+> **Important:** Replace `/absolute/path/to/imap-mcp-server` with the actual path where you cloned the repository. For example:
+> ```bash
+> # macOS/Linux example:
+> claude mcp add imap -- node /Users/yourname/imap-mcp-server/dist/index.js
+>
+> # Windows example:
+> claude mcp add imap -- node C:\Users\yourname\imap-mcp-server\dist\index.js
+> ```
+
+**Step 3:** Verify it was added:
+
+```bash
+claude mcp list
+```
+
+You should see `imap` in the list of configured MCP servers. That's it — the IMAP tools are now available in your Claude Code sessions.
+
+> **Tip:** If you want to remove the server later, run:
+> ```bash
+> claude mcp remove imap
+> ```
+
+### Claude Desktop (GUI App)
 
 Add the IMAP MCP server to your Claude Desktop configuration file:
 
@@ -100,7 +134,7 @@ Add the IMAP MCP server to your Claude Desktop configuration file:
   "mcpServers": {
     "imap": {
       "command": "node",
-      "args": ["/path/to/ImapClient/dist/index.js"],
+      "args": ["/path/to/imap-mcp-server/dist/index.js"],
       "env": {}
     }
   }
