@@ -234,6 +234,30 @@ export class ImapService {
     return await client.mailboxOpen(folderName);
   }
 
+  async getFolderStatus(accountId: string, folderName: string): Promise<{
+    messages: number;
+    recent: number;
+    unseen: number;
+    uidValidity: number;
+    uidNext: number;
+  }> {
+    const client = await this.ensureConnected(accountId);
+    const status = await client.status(folderName, {
+      messages: true,
+      recent: true,
+      unseen: true,
+      uidNext: true,
+      uidValidity: true,
+    });
+    return {
+      messages: Number(status.messages ?? 0),
+      recent: Number(status.recent ?? 0),
+      unseen: Number(status.unseen ?? 0),
+      uidValidity: Number(status.uidValidity ?? 0),
+      uidNext: Number(status.uidNext ?? 0),
+    };
+  }
+
   async searchEmails(accountId: string, folderName: string, criteria: SearchCriteria): Promise<EmailMessage[]> {
     const client = await this.ensureConnected(accountId);
 
@@ -611,13 +635,23 @@ export class ImapService {
     return { deleted, failed, errors };
   }
 
-  async moveEmail(accountId: string, folderName: string, uid: number, targetFolder: string): Promise<void> {
+  async moveEmail(accountId: string, folderName: string, uid: number, targetFolder: string): Promise<{ path: string; destination: string; uidMap?: Map<number, number> }> {
     const client = await this.ensureConnected(accountId);
 
     let lock;
     try {
       lock = await client.getMailboxLock(folderName);
-      await client.messageMove(uid, targetFolder, { uid: true });
+      const result = await client.messageMove(uid, targetFolder, { uid: true });
+
+      if (!result) {
+        throw new Error(`Failed to move email UID ${uid} from ${folderName} to ${targetFolder}`);
+      }
+
+      return {
+        path: result.path,
+        destination: result.destination,
+        uidMap: result.uidMap,
+      };
     } finally {
       if (lock) {
         lock.release();
