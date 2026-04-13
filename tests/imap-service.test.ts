@@ -117,6 +117,14 @@ describe('ImapService', () => {
       expect(mockInstance.onMock).toHaveBeenCalledWith('error', expect.any(Function));
       expect(mockInstance.onMock).toHaveBeenCalledWith('close', expect.any(Function));
     });
+
+    it('should not append IMAP enable hint for unrelated Gmail auth failures', async () => {
+      mockAccount.host = 'imap.gmail.com';
+      mockInstance.connectMock.mockRejectedValue(new Error('Authentication failed'));
+
+      await expect(imapService.connect(mockAccount)).rejects.toThrow('Authentication failed');
+      await expect(imapService.connect(mockAccount)).rejects.not.toThrow(/Enable IMAP|Forwarding and POP\/IMAP/);
+    });
   });
 
   describe('disconnect', () => {
@@ -169,6 +177,18 @@ describe('ImapService', () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toBe('Connection refused');
+    });
+
+    it('should append provider-specific hint for explicit IMAP-disabled errors', async () => {
+      mockAccount.host = 'imap.gmx.net';
+      mockInstance.connectMock.mockRejectedValue(new Error('[ALERT] IMAP access disabled'));
+
+      const result = await imapService.testConnection(mockAccount);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('[ALERT] IMAP access disabled');
+      expect(result.error).toContain('Hint: GMX requires IMAP access to be manually enabled.');
+      expect(result.error).toContain('Settings → Email → POP3 & IMAP → Enable IMAP access');
     });
   });
 

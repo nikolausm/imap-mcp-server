@@ -60,25 +60,26 @@ function enrichConnectionError(error: unknown, host: string): string {
   // Check if the error message already indicates IMAP is disabled
   const looksLikeImapDisabled = IMAP_DISABLED_PATTERNS.some(pattern => pattern.test(originalMessage));
 
+  if (!looksLikeImapDisabled) {
+    return originalMessage;
+  }
+
   const matchedProvider = PROVIDERS_REQUIRING_IMAP_ENABLE.find(p => p.pattern.test(host));
 
-  if (looksLikeImapDisabled || matchedProvider) {
-    if (matchedProvider) {
-      return (
-        `${originalMessage}\n\n` +
-        `Hint: ${matchedProvider.name} requires IMAP access to be manually enabled. ` +
-        `Go to: ${matchedProvider.settingsPath}`
-      );
-    }
-    // Generic hint when error looks IMAP-related but provider is unknown
+  if (matchedProvider) {
     return (
       `${originalMessage}\n\n` +
-      `Hint: Some providers (e.g. GMX, WEB.DE, Zoho) require IMAP access to be manually enabled ` +
-      `in the account settings (usually under Settings → Email → POP3 & IMAP).`
+      `Hint: ${matchedProvider.name} requires IMAP access to be manually enabled. ` +
+      `Go to: ${matchedProvider.settingsPath}`
     );
   }
 
-  return originalMessage;
+  // Generic hint when error looks IMAP-related but provider is unknown
+  return (
+    `${originalMessage}\n\n` +
+    `Hint: Some providers (e.g. GMX, WEB.DE, Zoho) require IMAP access to be manually enabled ` +
+    `in the account settings (usually under Settings → Email → POP3 & IMAP).`
+  );
 }
 
 interface ConnectionState {
