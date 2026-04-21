@@ -661,23 +661,31 @@ export class ImapService {
   }
 
   async appendToSentFolder(accountId: string, rawMessage: Buffer | string): Promise<boolean> {
-    const client = await this.ensureConnected(accountId);
-
-    // Auto-detect sent folder name
-    const folders = await this.listFolders(accountId);
     const sentFolderNames = ['Sent Messages', 'Sent', 'INBOX.Sent', 'Sent Items', 'Sent Mail', '[Gmail]/Sent Mail'];
-    const sentFolder = folders.find(f => sentFolderNames.includes(f.name));
-
-    if (!sentFolder) {
+    const folder = await this.findFolderByNames(accountId, sentFolderNames);
+    if (!folder) {
       console.warn(`[IMAP] No sent folder found for account ${accountId}. Tried: ${sentFolderNames.join(', ')}`);
       return false;
     }
+    return this.appendMessage(accountId, folder, rawMessage, ['\\Seen']);
+  }
 
+  async findFolderByNames(accountId: string, candidates: string[]): Promise<string | undefined> {
+    const folders = await this.listFolders(accountId);
+    return folders.find(f => candidates.includes(f.name))?.name;
+  }
+
+  async findDraftsFolder(accountId: string): Promise<string | undefined> {
+    return this.findFolderByNames(accountId, ['Drafts', 'Draft', 'INBOX.Drafts', 'INBOX.Draft', '[Gmail]/Drafts']);
+  }
+
+  async appendMessage(accountId: string, folder: string, rawMessage: Buffer | string, flags?: string[]): Promise<boolean> {
+    const client = await this.ensureConnected(accountId);
     try {
-      await client.append(sentFolder.name, rawMessage, ['\\Seen']);
+      await client.append(folder, rawMessage, flags ?? []);
       return true;
     } catch (err) {
-      console.error(`[IMAP] Failed to append to ${sentFolder.name}:`, err instanceof Error ? err.message : err);
+      console.error(`[IMAP] Failed to append to ${folder}:`, err instanceof Error ? err.message : err);
       return false;
     }
   }

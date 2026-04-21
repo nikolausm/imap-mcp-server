@@ -504,6 +504,77 @@ export function emailTools(
     };
   });
 
+  // Save draft tool — composes a message and appends it to the Drafts folder with the \Draft flag
+  server.registerTool('imap_save_draft', {
+    description: 'Save an email as a draft in the Drafts folder (no send). Takes the same fields as imap_send_email.',
+    inputSchema: {
+      accountId: z.string().describe('Account ID to save the draft under'),
+      to: z.union([z.string(), z.array(z.string())]).optional().describe('Recipient email address(es)'),
+      subject: z.string().optional().describe('Email subject'),
+      text: z.string().optional().describe('Plain text content'),
+      html: z.string().optional().describe('HTML content'),
+      cc: z.union([z.string(), z.array(z.string())]).optional().describe('CC recipients'),
+      bcc: z.union([z.string(), z.array(z.string())]).optional().describe('BCC recipients'),
+      replyTo: z.string().optional().describe('Reply-to address'),
+      inReplyTo: z.string().optional().describe('Message-Id being replied to'),
+      references: z.union([z.string(), z.array(z.string())]).optional().describe('References header value(s)'),
+      attachments: z.array(z.object({
+        filename: z.string().describe('Attachment filename'),
+        content: z.string().optional().describe('Base64 encoded content'),
+        path: z.string().optional().describe('File path to attach'),
+        contentType: z.string().optional().describe('MIME type'),
+      })).optional().describe('Email attachments'),
+      folder: z.string().optional().describe('Override the Drafts folder name (defaults to auto-detected Drafts folder)'),
+    }
+  }, async ({ accountId, to, subject, text, html, cc, bcc, replyTo, inReplyTo, references, attachments, folder }) => {
+    const account = await accountManager.getAccount(accountId);
+    if (!account) {
+      throw new Error(`Account ${accountId} not found`);
+    }
+
+    const emailComposer = {
+      from: account.email || account.user,
+      to: to ?? '',
+      subject: subject ?? '',
+      text,
+      html,
+      cc,
+      bcc,
+      replyTo,
+      inReplyTo,
+      references,
+      attachments: attachments?.map(att => ({
+        filename: att.filename,
+        content: att.content ? Buffer.from(att.content, 'base64') : undefined,
+        path: att.path,
+        contentType: att.contentType,
+      })),
+    };
+
+    const rawMessage = await smtpService.composeRaw(account, emailComposer);
+
+    const draftsFolder = folder ?? await imapService.findDraftsFolder(accountId);
+    if (!draftsFolder) {
+      throw new Error('No Drafts folder found. Tried: Drafts, Draft, INBOX.Drafts, INBOX.Draft, [Gmail]/Drafts. Pass `folder` to override.');
+    }
+
+    const appended = await imapService.appendMessage(accountId, draftsFolder, rawMessage, ['\\Draft', '\\Seen']);
+    if (!appended) {
+      throw new Error(`Failed to append draft to folder "${draftsFolder}"`);
+    }
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: true,
+          folder: draftsFolder,
+          message: `Draft saved to "${draftsFolder}"`,
+        }, null, 2)
+      }]
+    };
+  });
+
   // Reply to email tool
   server.registerTool('imap_reply_to_email', {
     description: 'Reply to an existing email',

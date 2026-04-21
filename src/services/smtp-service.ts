@@ -90,36 +90,44 @@ export class SmtpService {
     };
   }
 
+  private toMailOptions(account: ImapAccount, email: EmailComposer): nodemailer.SendMailOptions {
+    return {
+      from: email.from || account.email || account.user,
+      to: email.to,
+      cc: email.cc,
+      bcc: email.bcc,
+      subject: email.subject,
+      text: email.text,
+      html: email.html,
+      attachments: email.attachments?.map(att => ({
+        filename: att.filename,
+        content: att.content,
+        path: att.path,
+        contentType: att.contentType,
+        contentDisposition: att.contentDisposition,
+        cid: att.cid,
+      })),
+      replyTo: email.replyTo,
+      inReplyTo: email.inReplyTo,
+      references: Array.isArray(email.references) ? email.references.join(' ') : email.references,
+    };
+  }
+
+  // Build the raw RFC 822 message without sending. Used for drafts and Sent-folder copies.
+  async composeRaw(account: ImapAccount, email: EmailComposer): Promise<Buffer> {
+    const compiled = new MailComposer(this.toMailOptions(account, email));
+    return compiled.compile().build();
+  }
+
   async sendEmail(accountId: string, account: ImapAccount, email: EmailComposer): Promise<{ messageId: string; rawMessage?: Buffer }> {
     try {
       const transporter = await this.createTransporter(account);
-
-      const mailOptions: nodemailer.SendMailOptions = {
-        from: email.from || account.email || account.user,
-        to: email.to,
-        cc: email.cc,
-        bcc: email.bcc,
-        subject: email.subject,
-        text: email.text,
-        html: email.html,
-        attachments: email.attachments?.map(att => ({
-          filename: att.filename,
-          content: att.content,
-          path: att.path,
-          contentType: att.contentType,
-          contentDisposition: att.contentDisposition,
-          cid: att.cid,
-        })),
-        replyTo: email.replyTo,
-        inReplyTo: email.inReplyTo,
-        references: Array.isArray(email.references) ? email.references.join(' ') : email.references,
-      };
+      const mailOptions = this.toMailOptions(account, email);
 
       // Build raw message for IMAP Sent folder append
       let rawMessage: Buffer | undefined;
       try {
-        const compiled = new MailComposer(mailOptions);
-        rawMessage = await compiled.compile().build();
+        rawMessage = await this.composeRaw(account, email);
       } catch {
         // Non-critical: sent folder copy will be skipped
       }
