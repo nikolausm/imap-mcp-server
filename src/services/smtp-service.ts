@@ -11,11 +11,13 @@ export class SmtpService {
     }
 
     const smtpConfig = account.smtp || this.getDefaultSmtpConfig(account);
-    
+    const { secure, requireTLS } = this.resolveTlsMode(smtpConfig.port, smtpConfig.secure);
+
     const transporterOptions = {
       host: smtpConfig.host,
       port: smtpConfig.port,
-      secure: smtpConfig.secure,
+      secure,
+      requireTLS,
       auth: {
         user: smtpConfig.user || account.user,
         pass: smtpConfig.password || account.password,
@@ -30,6 +32,14 @@ export class SmtpService {
     
     this.transporters.set(account.id, transporter);
     return transporter;
+  }
+
+  // Port 465 is implicit TLS (SMTPS); 587/25 are submission ports that upgrade via STARTTLS.
+  // A stored `secure: true` on port 587 is almost always a UI mistake — normalize it.
+  private resolveTlsMode(port: number, secure: boolean): { secure: boolean; requireTLS: boolean } {
+    if (port === 465) return { secure: true, requireTLS: false };
+    if (port === 587 || port === 25) return { secure: false, requireTLS: true };
+    return { secure, requireTLS: !secure };
   }
 
   private getDefaultSmtpConfig(account: ImapAccount): SmtpConfig {
@@ -82,11 +92,15 @@ export class SmtpService {
       return providerConfig;
     }
 
-    // Default: assume SMTP server is on same host with standard ports
+    // Default: submission port 587 with STARTTLS (RFC 8314 recommended).
+    // Guess SMTP host: rewrite imap.* to smtp.* if present, otherwise reuse the IMAP host.
+    const smtpHost = account.host.startsWith('imap.') || account.host.startsWith('imap-')
+      ? account.host.replace(/^imap[.-]/, (m) => m === 'imap.' ? 'smtp.' : 'smtp-')
+      : account.host;
     return {
-      host: account.host.replace('imap.', 'smtp.').replace('imap-', 'smtp-'),
-      port: account.tls ? 465 : 587,
-      secure: account.port === 993,
+      host: smtpHost,
+      port: 587,
+      secure: false,
     };
   }
 
