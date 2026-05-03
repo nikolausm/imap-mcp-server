@@ -265,16 +265,19 @@ export function emailTools(
 
   // Move email to another folder
   server.registerTool('imap_move_email', {
-    description: 'Move an email from one folder to another (e.g., INBOX to Taxes, or INBOX to Archive)',
+    description: 'Move an email from one folder to another (e.g., INBOX to Taxes, or INBOX to Archive). Optionally creates the destination folder if it does not exist.',
     inputSchema: {
       accountId: z.string().describe('Account ID'),
       folder: z.string().default('INBOX').describe('Source folder name'),
       uid: z.coerce.number().describe('Email UID'),
       targetFolder: z.string().describe('Destination folder name'),
+      createDestinationIfMissing: z.boolean().optional().describe('If true, create the destination folder before moving when it does not exist (default: false)'),
     }
-  }, async ({ accountId, folder, uid, targetFolder }) => {
+  }, async ({ accountId, folder, uid, targetFolder, createDestinationIfMissing }) => {
     try {
-      const result = await imapService.moveEmail(accountId, folder, uid, targetFolder);
+      const result = await imapService.moveEmail(accountId, folder, uid, targetFolder, {
+        createDestinationIfMissing,
+      });
 
       const uidMapObj: Record<string, number> = {};
       if (result.uidMap) {
@@ -290,6 +293,7 @@ export function emailTools(
             success: true,
             message: `Email ${uid} moved from ${folder} to ${targetFolder}`,
             destination: result.destination,
+            destinationCreated: result.destinationCreated,
             uidMap: Object.keys(uidMapObj).length > 0 ? uidMapObj : undefined,
           }, null, 2)
         }]
@@ -700,5 +704,49 @@ export function emailTools(
         }, null, 2)
       }]
     };
+  });
+
+  // Find thread messages tool
+  server.registerTool('imap_find_thread_messages', {
+    description:
+      'Find messages in `searchFolder` that belong to the same conversation threads as messages already in `sourceFolder`. ' +
+      'Useful for catching replies that arrived after a thread was sorted. Works on any IMAP server (uses RFC 3501 HEADER search on In-Reply-To and References).',
+    inputSchema: {
+      accountId: z.string().describe('Account ID'),
+      sourceFolder: z.string().describe('Folder containing the already-sorted thread messages (e.g. "Review.Articles")'),
+      searchFolder: z.string().default('INBOX').describe('Folder to search for related thread messages (default: INBOX)'),
+      searchReferences: z.boolean().optional().describe('Also search the References header for multi-level threads (default: true)'),
+    }
+  }, async ({ accountId, sourceFolder, searchFolder, searchReferences }) => {
+    try {
+      const result = await imapService.findThreadMessages(accountId, sourceFolder, searchFolder, {
+        searchReferences,
+      });
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            success: true,
+            sourceFolder,
+            searchFolder,
+            sourceMessageIdCount: result.messageIds.length,
+            threadMessageCount: result.uids.length,
+            uids: result.uids,
+          }, null, 2)
+        }]
+      };
+    } catch (err) {
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            success: false,
+            sourceFolder,
+            searchFolder,
+            error: err instanceof Error ? err.message : 'Unknown error',
+          }, null, 2)
+        }]
+      };
+    }
   });
 }

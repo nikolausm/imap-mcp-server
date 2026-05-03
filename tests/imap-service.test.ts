@@ -17,6 +17,7 @@ class MockImapFlow {
   public messageFlagsRemoveMock = vi.fn().mockResolvedValue(undefined);
   public messageDeleteMock = vi.fn().mockResolvedValue(undefined);
   public messageMoveMock = vi.fn().mockResolvedValue({ path: 'INBOX', destination: 'Archive', uidMap: new Map([[123, 456]]) });
+  public mailboxCreateMock = vi.fn().mockResolvedValue({ path: 'NewFolder', created: true });
   public statusMock = vi.fn().mockResolvedValue({ messages: 10 });
   public usable = true;
   public onMock = vi.fn();
@@ -33,6 +34,7 @@ class MockImapFlow {
   messageFlagsRemove(uid: any, flags: any, opts: any) { return this.messageFlagsRemoveMock(uid, flags, opts); }
   messageDelete(uid: any, opts: any) { return this.messageDeleteMock(uid, opts); }
   messageMove(uid: any, target: any, opts: any) { return this.messageMoveMock(uid, target, opts); }
+  mailboxCreate(path: any) { return this.mailboxCreateMock(path); }
   status(name: string, opts: any) { return this.statusMock(name, opts); }
   on(event: string, handler: any) { return this.onMock(event, handler); }
 }
@@ -59,6 +61,7 @@ vi.mock('imapflow', () => {
         this.messageFlagsRemove = mockInstance.messageFlagsRemove.bind(mockInstance);
         this.messageDelete = mockInstance.messageDelete.bind(mockInstance);
         this.messageMove = mockInstance.messageMove.bind(mockInstance);
+        this.mailboxCreate = mockInstance.mailboxCreate.bind(mockInstance);
         this.status = mockInstance.status.bind(mockInstance);
         this.on = mockInstance.on.bind(mockInstance);
       }
@@ -470,11 +473,154 @@ describe('ImapService', () => {
       await imapService.connect(mockAccount);
       const result = await imapService.moveEmail(mockAccount.id, 'INBOX', 123, 'Taxes');
 
-      expect(result).toEqual({
-        path: 'INBOX',
-        destination: 'Taxes',
-        uidMap: undefined,
+      expect(result.path).toBe('INBOX');
+      expect(result.destination).toBe('Taxes');
+      expect(result.uidMap).toBeUndefined();
+    });
+
+    it('should auto-create destination when missing if requested', async () => {
+      mockInstance.listMock.mockResolvedValue([{ path: 'INBOX', delimiter: '/', flags: [] }]);
+      mockInstance.mailboxCreateMock.mockResolvedValueOnce({ path: 'Archive/2026', created: true });
+      await imapService.connect(mockAccount);
+
+      const result = await imapService.moveEmail(
+        mockAccount.id, 'INBOX', 123, 'Archive/2026',
+        { createDestinationIfMissing: true },
+      );
+
+      expect(mockInstance.mailboxCreateMock).toHaveBeenCalledWith('Archive/2026');
+      expect(result.destinationCreated).toBe(true);
+      expect(mockInstance.messageMoveMock).toHaveBeenCalled();
+    });
+
+    it('should not create destination when it already exists', async () => {
+      mockInstance.listMock.mockResolvedValue([
+        { path: 'INBOX', delimiter: '/', flags: [] },
+        { path: 'Archive', delimiter: '/', flags: [] },
+      ]);
+      await imapService.connect(mockAccount);
+
+      const result = await imapService.moveEmail(
+        mockAccount.id, 'INBOX', 123, 'Archive',
+        { createDestinationIfMissing: true },
+      );
+
+      expect(mockInstance.mailboxCreateMock).not.toHaveBeenCalled();
+      expect(result.destinationCreated).toBeUndefined();
+    });
+  });
+
+  describe('createFolder', () => {
+    it('should create a new folder and return success', async () => {
+      mockInstance.mailboxCreateMock.mockResolvedValueOnce({ path: 'Archive', created: true });
+      await imapService.connect(mockAccount);
+
+      const result = await imapService.createFolder(mockAccount.id, 'Archive');
+
+      expect(mockInstance.mailboxCreateMock).toHaveBeenCalledWith('Archive');
+      expect(result).toEqual({ path: 'Archive', created: true, alreadyExisted: false });
+    });
+
+    it('should mark already-existing folders as alreadyExisted', async () => {
+      mockInstance.mailboxCreateMock.mockResolvedValueOnce({ path: 'INBOX', created: false });
+      await imapService.connect(mockAccount);
+
+      const result = await imapService.createFolder(mockAccount.id, 'INBOX');
+
+      expect(result).toEqual({ path: 'INBOX', created: false, alreadyExisted: true });
+    });
+
+    it('should treat "already exists" errors as alreadyExisted, not failures', async () => {
+      mockInstance.mailboxCreateMock.mockRejectedValueOnce(new Error('Mailbox already exists'));
+      await imapService.connect(mockAccount);
+
+      const result = await imapService.createFolder(mockAccount.id, 'INBOX');
+
+      expect(result).toEqual({ path: 'INBOX', created: false, alreadyExisted: true });
+    });
+
+    it('should rethrow with context on real failures', async () => {
+      mockInstance.mailboxCreateMock.mockRejectedValueOnce(new Error('Permission denied'));
+      await imapService.connect(mockAccount);
+
+      await expect(
+        imapService.createFolder(mockAccount.id, 'Forbidden'),
+      ).rejects.toThrow('Failed to create folder "Forbidden": Permission denied');
+    });
+  });
+
+  describe('findThreadMessages', () => {
+    it('should collect Message-IDs from source and search for replies in target', async () => {
+      mockInstance.searchMock
+        .mockResolvedValueOnce([10, 11])
+        .mockResolvedValueOnce([100])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([101, 102])
+        .mockResolvedValueOnce([102]);
+
+      mockInstance.fetchMock.mockImplementation(async function* () {
+        yield { uid: 10, envelope: { messageId: '<a@x>' } };
+        yield { uid: 11, envelope: { messageId: '<b@x>' } };
       });
+
+      await imapService.connect(mockAccount);
+      const result = await imapService.findThreadMessages(
+        mockAccount.id, 'Review', 'INBOX',
+      );
+
+      expect(result.messageIds).toEqual(['<a@x>', '<b@x>']);
+      expect(result.uids).toEqual([100, 101, 102]);
+    });
+
+    it('should skip References search when disabled', async () => {
+      mockInstance.searchMock
+        .mockResolvedValueOnce([1])
+        .mockResolvedValueOnce([200]);
+
+      mockInstance.fetchMock.mockImplementation(async function* () {
+        yield { uid: 1, envelope: { messageId: '<x@y>' } };
+      });
+
+      await imapService.connect(mockAccount);
+      const result = await imapService.findThreadMessages(
+        mockAccount.id, 'Review', 'INBOX', { searchReferences: false },
+      );
+
+      expect(mockInstance.searchMock).toHaveBeenCalledTimes(2);
+      expect(result.uids).toEqual([200]);
+    });
+
+    it('should return empty result when source folder is empty', async () => {
+      mockInstance.searchMock.mockResolvedValueOnce([]);
+
+      await imapService.connect(mockAccount);
+      const result = await imapService.findThreadMessages(
+        mockAccount.id, 'EmptyFolder', 'INBOX',
+      );
+
+      expect(result.messageIds).toEqual([]);
+      expect(result.uids).toEqual([]);
+    });
+
+    it('should tolerate per-message search errors', async () => {
+      mockInstance.searchMock
+        .mockResolvedValueOnce([1, 2])
+        .mockRejectedValueOnce(new Error('boom'))
+        .mockResolvedValueOnce([300])
+        .mockResolvedValueOnce([301])
+        .mockResolvedValueOnce([]);
+
+      mockInstance.fetchMock.mockImplementation(async function* () {
+        yield { uid: 1, envelope: { messageId: '<a@x>' } };
+        yield { uid: 2, envelope: { messageId: '<b@x>' } };
+      });
+
+      await imapService.connect(mockAccount);
+      const result = await imapService.findThreadMessages(
+        mockAccount.id, 'Review', 'INBOX',
+      );
+
+      expect(result.uids).toEqual([300, 301]);
     });
   });
 

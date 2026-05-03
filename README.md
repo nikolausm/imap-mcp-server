@@ -233,6 +233,16 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
   - folder: Source folder name (default: INBOX)
   - uid: Email UID
   - targetFolder: Destination folder name
+  - createDestinationIfMissing: Create the destination folder if it does not exist (default: false)
+  ```
+
+- **imap_find_thread_messages**: Find inbox messages that belong to the same conversation threads as messages already sorted into another folder. Uses RFC 3501 HEADER search on In-Reply-To and References — works on any IMAP server.
+  ```
+  Parameters:
+  - accountId: Account ID
+  - sourceFolder: Folder containing the already-sorted thread messages
+  - searchFolder: Folder to search for related messages (default: INBOX)
+  - searchReferences: Also match the References header for multi-level threads (default: true)
   ```
 
 - **imap_download_attachment**: Download an email attachment (returns images inline, extracts text from PDFs, or saves to downloads directory)
@@ -320,6 +330,13 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
   Parameters:
   - accountId: Account ID
   - folder: Folder name
+  ```
+
+- **imap_create_folder**: Create a new IMAP folder/mailbox. Most servers also create any missing parent folders. Returns success even if the folder already exists.
+  ```
+  Parameters:
+  - accountId: Account ID
+  - folder: Full folder path to create (e.g. "Archives/2026/2026-05" or "INBOX.Archive")
   ```
 
 - **imap_get_unread_count**: Count unread emails

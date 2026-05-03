@@ -106,6 +106,30 @@ describe('imap_move_email Tool Handler', () => {
     expect(parsed.error).toBe('Unknown error');
   });
 
+  it('should pass createDestinationIfMissing through to service and surface destinationCreated', async () => {
+    mockImapService.moveEmail.mockResolvedValueOnce({
+      path: 'INBOX',
+      destination: 'Archive/2026',
+      destinationCreated: true,
+    });
+
+    const result = await moveEmailHandler({
+      accountId: 'acc1',
+      folder: 'INBOX',
+      uid: 7,
+      targetFolder: 'Archive/2026',
+      createDestinationIfMissing: true,
+    });
+
+    expect(mockImapService.moveEmail).toHaveBeenCalledWith(
+      'acc1', 'INBOX', 7, 'Archive/2026',
+      { createDestinationIfMissing: true },
+    );
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.success).toBe(true);
+    expect(parsed.destinationCreated).toBe(true);
+  });
+
   it('should serialize multiple uidMap entries correctly', async () => {
     mockImapService.moveEmail.mockResolvedValueOnce({
       path: 'INBOX',
