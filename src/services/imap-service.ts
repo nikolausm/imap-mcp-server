@@ -636,8 +636,23 @@ export class ImapService {
     return { deleted, failed, errors };
   }
 
-  async moveEmail(accountId: string, folderName: string, uid: number, targetFolder: string): Promise<{ path: string; destination: string; uidMap?: Map<number, number> }> {
+  async moveEmail(
+    accountId: string,
+    folderName: string,
+    uid: number,
+    targetFolder: string,
+    options?: { createDestinationIfMissing?: boolean },
+  ): Promise<{ path: string; destination: string; destinationCreated?: boolean; uidMap?: Map<number, number> }> {
     const client = await this.ensureConnected(accountId);
+
+    let destinationCreated = false;
+    if (options?.createDestinationIfMissing) {
+      const exists = await this.folderExists(accountId, targetFolder);
+      if (!exists) {
+        await this.createFolder(accountId, targetFolder);
+        destinationCreated = true;
+      }
+    }
 
     let lock;
     try {
@@ -651,6 +666,7 @@ export class ImapService {
       return {
         path: result.path,
         destination: result.destination,
+        destinationCreated: destinationCreated || undefined,
         uidMap: result.uidMap,
       };
     } finally {
@@ -658,6 +674,98 @@ export class ImapService {
         lock.release();
       }
     }
+  }
+
+  async folderExists(accountId: string, folderPath: string): Promise<boolean> {
+    const client = await this.ensureConnected(accountId);
+    const list = await client.list();
+    return list.some(f => f.path === folderPath);
+  }
+
+  async createFolder(
+    accountId: string,
+    folderPath: string,
+  ): Promise<{ path: string; created: boolean; alreadyExisted: boolean }> {
+    const client = await this.ensureConnected(accountId);
+    try {
+      const result = await client.mailboxCreate(folderPath);
+      const path = (result && typeof result === 'object' && 'path' in result) ? (result as any).path : folderPath;
+      const created = (result && typeof result === 'object' && 'created' in result) ? Boolean((result as any).created) : true;
+      return {
+        path,
+        created,
+        alreadyExisted: !created,
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      // ImapFlow throws on already-existing mailboxes; treat that as a non-error.
+      if (/already exists|exists/i.test(message)) {
+        return { path: folderPath, created: false, alreadyExisted: true };
+      }
+      throw new Error(`Failed to create folder "${folderPath}": ${message}`);
+    }
+  }
+
+  async findThreadMessages(
+    accountId: string,
+    sourceFolder: string,
+    searchFolder: string,
+    options?: { searchReferences?: boolean },
+  ): Promise<{ messageIds: string[]; uids: number[] }> {
+    const client = await this.ensureConnected(accountId);
+    const includeReferences = options?.searchReferences !== false;
+
+    // 1) Collect Message-IDs from sourceFolder
+    const messageIds: string[] = [];
+    let lock = await client.getMailboxLock(sourceFolder);
+    try {
+      const allUids = await client.search({ all: true }, { uid: true });
+      if (allUids.length > 0) {
+        for await (const msg of client.fetch(allUids, { uid: true, envelope: true }, { uid: true })) {
+          if (msg.envelope?.messageId) {
+            messageIds.push(msg.envelope.messageId);
+          }
+        }
+      }
+    } finally {
+      lock.release();
+    }
+
+    if (messageIds.length === 0) {
+      return { messageIds: [], uids: [] };
+    }
+
+    // 2) For each Message-ID, search In-Reply-To (and optionally References) in searchFolder
+    const foundUids = new Set<number>();
+    lock = await client.getMailboxLock(searchFolder);
+    try {
+      for (const msgId of messageIds) {
+        try {
+          const inReplyMatches = await client.search(
+            { header: { 'in-reply-to': msgId } as any },
+            { uid: true },
+          );
+          for (const uid of inReplyMatches) foundUids.add(uid);
+
+          if (includeReferences) {
+            const refMatches = await client.search(
+              { header: { 'references': msgId } as any },
+              { uid: true },
+            );
+            for (const uid of refMatches) foundUids.add(uid);
+          }
+        } catch {
+          // Skip per-message errors so one bad search doesn't kill the whole sweep
+        }
+      }
+    } finally {
+      lock.release();
+    }
+
+    return {
+      messageIds,
+      uids: Array.from(foundUids).sort((a, b) => a - b),
+    };
   }
 
   async appendToSentFolder(accountId: string, rawMessage: Buffer | string): Promise<boolean> {

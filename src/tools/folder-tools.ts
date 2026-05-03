@@ -61,6 +61,47 @@ export function folderTools(
     };
   });
 
+  // Create folder tool
+  server.registerTool('imap_create_folder', {
+    description:
+      'Create a new IMAP folder/mailbox. Most servers also create any missing parent folders ' +
+      '(e.g. creating "Archives/2026/2026-05" auto-creates "Archives" and "Archives/2026"). ' +
+      'Returns success even if the folder already exists.',
+    inputSchema: {
+      accountId: z.string().describe('Account ID'),
+      folder: z.string().describe('Full folder path to create (e.g. "Archives/2026/2026-05" or "INBOX.Archive")'),
+    }
+  }, async ({ accountId, folder }) => {
+    try {
+      const result = await imapService.createFolder(accountId, folder);
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            success: true,
+            folder: result.path,
+            created: result.created,
+            alreadyExisted: result.alreadyExisted,
+            message: result.alreadyExisted
+              ? `Folder "${result.path}" already existed`
+              : `Folder "${result.path}" created`,
+          }, null, 2)
+        }]
+      };
+    } catch (err) {
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            success: false,
+            folder,
+            error: err instanceof Error ? err.message : 'Unknown error',
+          }, null, 2)
+        }]
+      };
+    }
+  });
+
   // Get unread count tool
   server.registerTool('imap_get_unread_count', {
     description: 'Get the count of unread emails in specified folders',
