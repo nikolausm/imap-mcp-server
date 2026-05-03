@@ -16,7 +16,7 @@ export function registerTools(
   spamService: SpamService
 ): void {
   // Register account management tools
-  accountTools(server, accountManager, imapService);
+  accountTools(server, accountManager, imapService, smtpService);
 
   // Register email operation tools
   emailTools(server, imapService, accountManager, smtpService);
