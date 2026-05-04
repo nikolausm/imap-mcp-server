@@ -107,6 +107,45 @@ export function emailTools(
     };
   });
 
+  // Upload file tool - writes a file to the container for use as an email attachment
+  server.registerTool('imap_upload_file', {
+    description: 'Upload a file to the server for use as an email attachment. Returns a path that can be used with imap_send_email attachments. This allows sending large attachments without hitting context window limits by passing base64 content through this tool first, then referencing the path.',
+    inputSchema: {
+      filename: z.string().describe('Filename to save as'),
+      content: z.string().describe('Base64 encoded file content'),
+      contentType: z.string().optional().describe('MIME type (optional, used for metadata only)'),
+    }
+  }, async ({ filename, content, contentType }) => {
+    const fs = await import('fs');
+    const path = await import('path');
+
+    // Create uploads directory under the downloads directory
+    const uploadDir = path.join(DOWNLOAD_DIR, 'uploads');
+    fs.mkdirSync(uploadDir, { recursive: true });
+
+    // Sanitize filename to prevent path traversal
+    const sanitizedFilename = path.basename(filename);
+    const targetPath = path.join(uploadDir, sanitizedFilename);
+
+    // Decode base64 and write file
+    const buffer = Buffer.from(content, 'base64');
+    fs.writeFileSync(targetPath, buffer);
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: true,
+          path: targetPath,
+          filename: sanitizedFilename,
+          size: buffer.length,
+          contentType: contentType || 'application/octet-stream',
+          message: `File uploaded successfully. Use this path in imap_send_email attachments: ${targetPath}`,
+        }, null, 2)
+      }]
+    };
+  });
+
   // Download attachment tool
   server.registerTool('imap_download_attachment', {
     description: 'Download an attachment from an email. Returns image content directly for image attachments, extracts text from PDFs, or saves to a shared downloads directory accessible from the host.',
