@@ -5,8 +5,11 @@ import { SmtpService } from '../services/smtp-service.js';
 import { z } from 'zod';
 import { join } from 'path';
 import { homedir } from 'os';
+import { randomBytes } from 'crypto';
 
 const DOWNLOAD_DIR = process.env.IMAP_DOWNLOAD_DIR || join(homedir(), 'Downloads', 'imap-attachments');
+const MAX_UPLOAD_SIZE = parseInt(process.env.IMAP_MAX_UPLOAD_SIZE ?? '', 10) || 25 * 1024 * 1024;
+const UPLOAD_TTL_MS = parseInt(process.env.IMAP_UPLOAD_TTL_MS ?? '', 10) || 24 * 60 * 60 * 1000;
 
 export function emailTools(
   server: McpServer,
@@ -102,6 +105,66 @@ export function emailTools(
             contentTruncated,
             ...(includeHeaders ? { headers: rawHeaders } : {}),
           },
+        }, null, 2)
+      }]
+    };
+  });
+
+  // Upload file tool - writes a file to the server for use as an email attachment
+  server.registerTool('imap_upload_file', {
+    description: `Upload a file to the server for use as an email attachment. Returns a path that can be used with imap_send_email attachments. This allows sending large attachments without hitting context window limits. Max size: ${MAX_UPLOAD_SIZE} bytes (configurable via IMAP_MAX_UPLOAD_SIZE). Uploads are auto-deleted after ${UPLOAD_TTL_MS} ms (configurable via IMAP_UPLOAD_TTL_MS).`,
+    inputSchema: {
+      filename: z.string().describe('Filename to save as'),
+      content: z.string().describe('Base64 encoded file content'),
+      contentType: z.string().optional().describe('MIME type (optional, used for metadata only)'),
+    }
+  }, async ({ filename, content, contentType }) => {
+    const fs = await import('fs');
+    const path = await import('path');
+
+    const uploadDir = path.join(DOWNLOAD_DIR, 'uploads');
+    fs.mkdirSync(uploadDir, { recursive: true });
+
+    // TTL cleanup: remove stale uploads on each call
+    const now = Date.now();
+    try {
+      for (const entry of fs.readdirSync(uploadDir)) {
+        const entryPath = path.join(uploadDir, entry);
+        try {
+          const stat = fs.statSync(entryPath);
+          if (stat.isFile() && now - stat.mtimeMs > UPLOAD_TTL_MS) {
+            fs.unlinkSync(entryPath);
+          }
+        } catch {
+          // ignore individual file errors
+        }
+      }
+    } catch {
+      // ignore directory read errors
+    }
+
+    const buffer = Buffer.from(content, 'base64');
+    if (buffer.length > MAX_UPLOAD_SIZE) {
+      throw new Error(`File exceeds max upload size of ${MAX_UPLOAD_SIZE} bytes (got ${buffer.length}). Increase IMAP_MAX_UPLOAD_SIZE if needed.`);
+    }
+
+    const sanitizedFilename = path.basename(filename);
+    const uniquePrefix = `${Date.now()}-${randomBytes(4).toString('hex')}`;
+    const targetPath = path.join(uploadDir, `${uniquePrefix}-${sanitizedFilename}`);
+
+    fs.writeFileSync(targetPath, buffer);
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: true,
+          path: targetPath,
+          filename: sanitizedFilename,
+          size: buffer.length,
+          contentType: contentType || 'application/octet-stream',
+          expiresAt: new Date(Date.now() + UPLOAD_TTL_MS).toISOString(),
+          message: `File uploaded successfully. Use this path in imap_send_email attachments: ${targetPath}`,
         }, null, 2)
       }]
     };
