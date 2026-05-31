@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `imap_find_email_by_message_id` tool — resolve a stable RFC822 Message-ID to its current `{folder, uid}` across folders, robust to the message having been moved/archived (IMAP UIDs are folder-relative). Gmail `\All` fast path; generic INBOX → `\Archive` → `\Sent` → remaining folders. Exact-match verification against `envelope.messageId` rejects HEADER substring false-positives. Returns basic envelope + `foldersSearched` diagnostic.
+- `messageId` search criterion on `imap_search_emails` (maps to IMAP `HEADER MESSAGE-ID`, substring-matched).
 - `imap_get_email` options to control body and text-attachment output (`maxContentLength`, `includeAttachmentText`, `maxAttachmentTextChars`).
 - Text attachment preview fields in email payloads (`attachments[].textContent`, `attachments[].textContentTruncated`).
 

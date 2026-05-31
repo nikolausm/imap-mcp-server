@@ -1,6 +1,6 @@
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
-import { ImapAccount, EmailMessage, EmailContent, Folder, SearchCriteria } from '../types/index.js';
+import { ImapAccount, EmailMessage, EmailContent, Folder, SearchCriteria, EmailLocation } from '../types/index.js';
 import type { AccountManager } from './account-manager.js';
 
 /**
@@ -1011,6 +1011,12 @@ export class ImapService {
     if (criteria.draft !== undefined) {
       query.draft = criteria.draft;
     }
+    if (criteria.messageId) {
+      // Apple-hosted IMAP only matches the FULL bracketed Message-ID; Gmail
+      // accepts either. Send the bracketed form (works on both); callers verify
+      // exact equality against the fetched envelope.messageId afterwards.
+      query.header = { 'message-id': this.bracketMessageId(criteria.messageId) };
+    }
 
     // If no criteria, search all
     if (Object.keys(query).length === 0) {
@@ -1018,5 +1024,108 @@ export class ImapService {
     }
 
     return query;
+  }
+
+  private normalizeMessageId(id: string | undefined | null): string {
+    if (!id) return '';
+    return id.trim().replace(/^<+/, '').replace(/>+$/, '').trim().toLowerCase();
+  }
+
+  /** Full bracketed Message-ID for IMAP HEADER search (case preserved). */
+  private bracketMessageId(id: string | undefined | null): string {
+    const bare = String(id || '').trim().replace(/^<+/, '').replace(/>+$/, '').trim();
+    return bare ? `<${bare}>` : '';
+  }
+
+  private flattenFolders(folders: Folder[]): Folder[] {
+    const out: Folder[] = [];
+    for (const f of folders) {
+      out.push(f);
+      if (f.children?.length) out.push(...this.flattenFolders(f.children));
+    }
+    return out;
+  }
+
+  /**
+   * Folder search order for findEmailByMessageId. Gmail: the \All mailbox
+   * ([Gmail]/All Mail) holds every message regardless of label, so it alone
+   * finds archived/moved mail (\All excludes Trash/Spam, included explicitly).
+   * Generic IMAP: INBOX → \Archive → \Sent → remaining selectable folders.
+   */
+  private async resolveFolderSearchOrder(accountId: string): Promise<string[]> {
+    const flat = this.flattenFolders(await this.listFolders(accountId));
+    const hasFlag = (f: Folder, flag: string) =>
+      (f.attributes || []).some(a => a.toLowerCase() === flag.toLowerCase());
+
+    const allMail = flat.find(f => hasFlag(f, '\\All'));
+    if (allMail) {
+      return [
+        allMail.name,
+        flat.find(f => hasFlag(f, '\\Trash'))?.name,
+        flat.find(f => hasFlag(f, '\\Junk'))?.name,
+      ].filter(Boolean) as string[];
+    }
+
+    const order: string[] = [];
+    const pushOnce = (name?: string) => {
+      if (name && !order.includes(name)) order.push(name);
+    };
+    pushOnce(flat.find(f => f.name.toUpperCase() === 'INBOX')?.name);
+    pushOnce(flat.find(f => hasFlag(f, '\\Archive'))?.name);
+    pushOnce(flat.find(f => hasFlag(f, '\\Sent'))?.name);
+    for (const f of flat) {
+      if (hasFlag(f, '\\Noselect')) continue;
+      pushOnce(f.name);
+    }
+    return order;
+  }
+
+  /**
+   * Locate a message by its RFC822 Message-ID across folders and return its
+   * current { folder, uid }. Robust to the message having been moved/archived
+   * (IMAP UIDs are folder-relative). Returns found:false if nowhere located.
+   */
+  async findEmailByMessageId(
+    accountId: string,
+    messageId: string,
+    folders?: string[],
+  ): Promise<EmailLocation> {
+    const target = this.normalizeMessageId(messageId);
+    if (!target) return { found: false, foldersSearched: [] };
+
+    const MAX_FOLDERS = 25;
+    const order = (folders && folders.length > 0
+      ? folders
+      : await this.resolveFolderSearchOrder(accountId)
+    ).slice(0, MAX_FOLDERS);
+
+    const foldersSearched: string[] = [];
+    for (const folder of order) {
+      foldersSearched.push(folder);
+      let candidates: EmailMessage[];
+      try {
+        candidates = await this.searchEmails(accountId, folder, { messageId });
+      } catch {
+        // Unselectable (\Noselect) or vanished folder — skip.
+        continue;
+      }
+      for (const msg of candidates) {
+        // HEADER search is substring-matched; reject false-positives.
+        if (this.normalizeMessageId(msg.messageId) === target) {
+          return {
+            found: true,
+            folder,
+            uid: msg.uid,
+            messageId: msg.messageId,
+            subject: msg.subject,
+            from: msg.from,
+            date: msg.date,
+            flags: msg.flags,
+            foldersSearched,
+          };
+        }
+      }
+    }
+    return { found: false, foldersSearched };
   }
 }

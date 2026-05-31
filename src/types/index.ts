@@ -74,6 +74,19 @@ export interface SearchCriteria {
   flagged?: boolean;
   answered?: boolean;
   draft?: boolean;
+  messageId?: string;
+}
+
+export interface EmailLocation {
+  found: boolean;
+  folder?: string;
+  uid?: number;
+  messageId?: string;
+  subject?: string;
+  from?: string;
+  date?: Date;
+  flags?: string[];
+  foldersSearched?: string[];
 }
 
 export interface ConnectionPool {

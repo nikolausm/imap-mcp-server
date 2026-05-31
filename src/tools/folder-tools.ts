@@ -113,7 +113,6 @@ export function folderTools(
   });
 
   // Get unread count tool
-  // @ts-expect-error TS2589: MCP SDK registerTool + zod v3 exceed TS's type instantiation depth. Runtime schema validation is unaffected.
   server.registerTool('imap_get_unread_count', {
     description: 'Count unread (unseen) emails per folder, plus a total. Use for "how many unread do I have?" overviews. Defaults to all folders; pass a folders list to limit scope and speed it up.',
     inputSchema: {

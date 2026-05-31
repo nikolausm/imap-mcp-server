@@ -296,6 +296,125 @@ describe('ImapService', () => {
         { uid: true }
       );
     });
+
+    it('should build a full bracketed HEADER message-id search clause (Apple needs brackets)', async () => {
+      // default searchMock returns [] → searchEmails returns before fetch
+      await imapService.connect(mockAccount);
+      // input without brackets must be wrapped; case preserved
+      await imapService.searchEmails(mockAccount.id, 'INBOX', { messageId: 'ABC@Host' });
+
+      expect(mockInstance.searchMock).toHaveBeenCalledWith(
+        expect.objectContaining({ header: { 'message-id': '<ABC@Host>' } }),
+        expect.any(Object)
+      );
+    });
+  });
+
+  describe('findEmailByMessageId', () => {
+    it('finds a message in Archive and early-exits before later folders', async () => {
+      mockInstance.listMock.mockResolvedValue([
+        { path: 'INBOX', delimiter: '/', flags: [] },
+        { path: 'Archive', delimiter: '/', flags: ['\\Archive'] },
+        { path: 'Junk', delimiter: '/', flags: ['\\Junk'] },
+      ]);
+
+      let currentFolder = '';
+      mockInstance.getMailboxLockMock.mockImplementation((name: string) => {
+        currentFolder = name;
+        return Promise.resolve({ release: vi.fn() });
+      });
+      mockInstance.searchMock.mockImplementation(() =>
+        Promise.resolve(currentFolder === 'Archive' ? [42] : [])
+      );
+      mockInstance.fetchMock.mockImplementation(() => ({
+        [Symbol.asyncIterator]: () => {
+          let yielded = false;
+          return {
+            next: () => {
+              if (currentFolder !== 'Archive' || yielded) return Promise.resolve({ done: true });
+              yielded = true;
+              return Promise.resolve({
+                value: {
+                  uid: 42,
+                  internalDate: new Date('2026-01-01T00:00:00Z'),
+                  envelope: {
+                    subject: 'Archived mail',
+                    messageId: '<found@host>',
+                    from: [{ name: 'A', address: 'a@host' }],
+                    to: [],
+                  },
+                  flags: new Set<string>(['\\Seen']),
+                },
+                done: false,
+              });
+            },
+          };
+        },
+      }));
+
+      await imapService.connect(mockAccount);
+      const res = await imapService.findEmailByMessageId(mockAccount.id, '<found@host>');
+
+      expect(res.found).toBe(true);
+      expect(res.folder).toBe('Archive');
+      expect(res.uid).toBe(42);
+      expect(res.foldersSearched).toEqual(['INBOX', 'Archive']); // Junk never opened
+    });
+
+    it('rejects a substring false-positive Message-ID (exact verify)', async () => {
+      mockInstance.listMock.mockResolvedValue([
+        { path: 'INBOX', delimiter: '/', flags: [] },
+      ]);
+      mockInstance.searchMock.mockResolvedValue([7]);
+      mockInstance.fetchMock.mockReturnValue({
+        [Symbol.asyncIterator]: () => {
+          let done = false;
+          return {
+            next: () => {
+              if (done) return Promise.resolve({ done: true });
+              done = true;
+              return Promise.resolve({
+                value: {
+                  uid: 7,
+                  internalDate: new Date(),
+                  envelope: {
+                    subject: 'Not it',
+                    messageId: '<prefix-abc@host>', // contains 'abc@host' but != target
+                    from: [{ address: 'x@host' }],
+                    to: [],
+                  },
+                  flags: new Set<string>(),
+                },
+                done: false,
+              });
+            },
+          };
+        },
+      });
+
+      await imapService.connect(mockAccount);
+      const res = await imapService.findEmailByMessageId(mockAccount.id, '<abc@host>');
+
+      expect(res.found).toBe(false);
+    });
+
+    it('uses the Gmail \\All mailbox as the sole primary search target', async () => {
+      // real ImapFlow returns `flags` as a Set, not an array (regression guard)
+      mockInstance.listMock.mockResolvedValue([
+        { path: 'INBOX', delimiter: '/', flags: new Set(['\\HasNoChildren']) },
+        { path: '[Gmail]/All Mail', delimiter: '/', flags: new Set(['\\All']) },
+        { path: '[Gmail]/Trash', delimiter: '/', flags: new Set(['\\Trash']) },
+        { path: '[Gmail]/Sent Mail', delimiter: '/', flags: new Set(['\\Sent']) },
+      ]);
+      mockInstance.searchMock.mockResolvedValue([]); // no hit anywhere
+
+      await imapService.connect(mockAccount);
+      const res = await imapService.findEmailByMessageId(mockAccount.id, '<x@host>');
+
+      expect(res.found).toBe(false);
+      // \All fast path: only All Mail + Trash searched, NOT INBOX or Sent
+      expect(res.foldersSearched).toEqual(['[Gmail]/All Mail', '[Gmail]/Trash']);
+    });
   });
 
   describe('getLatestEmails', () => {
