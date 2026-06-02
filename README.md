@@ -17,6 +17,16 @@ A powerful Model Context Protocol (MCP) server that provides seamless IMAP email
 
 ## Installation
 
+### Run via npx (No Installation Required)
+
+Once published to npm, you can run the server directly without cloning or building anything — `npx` downloads the prebuilt package and runs it:
+
+```bash
+npx -y imap-mcp-server
+```
+
+This is the easiest way to use the server in an MCP client (see [Configuration](#configuration) for ready-to-paste `npx` configs).
+
 ### Quick Install (Recommended)
 
 #### macOS/Linux:
@@ -49,6 +59,28 @@ npm run build
 
 ## Account Setup
 
+Accounts are stored encrypted in `~/.imap-mcp/accounts.json`. This file is **shared by all run modes** — whether you start the server via `npx`, a global install, or a local clone, they all read the same accounts. So you only need to set up your accounts once.
+
+### Setting Up Accounts in npx Mode
+
+If you run the server via `npx` (no clone), you have two ways to add accounts:
+
+**Option A — Run the setup wizard directly via npx (no install needed):**
+
+```bash
+npx -p imap-mcp-server imap-setup
+```
+
+This launches the same web-based wizard described below and writes to `~/.imap-mcp/accounts.json`, which your `npx`-configured MCP server then picks up automatically.
+
+**Option B — Add accounts straight from your AI client:**
+
+Once the MCP server is configured, just ask your assistant to add an account — it uses the `imap_add_account` tool. For example:
+
+> "Add my IMAP account: host imap.gmail.com, port 993, user me@gmail.com, password …"
+
+No separate setup step required.
+
 ### Web-Based Setup Wizard (Recommended)
 
 After installation, run the setup wizard:
@@ -61,6 +93,12 @@ Or if installed globally:
 
 ```bash
 imap-setup
+```
+
+Or directly via npx without installing:
+
+```bash
+npx -p imap-mcp-server imap-setup
 ```
 
 This will:
@@ -89,6 +127,16 @@ The setup wizard includes pre-configured settings for:
 ## Configuration
 
 ### Claude Code (CLI)
+
+#### Option A — via npx (no clone/build needed)
+
+```bash
+claude mcp add imap -- npx -y imap-mcp-server
+```
+
+This always runs the latest published version and requires no local build.
+
+#### Option B — from a local clone
 
 If you use [Claude Code](https://docs.anthropic.com/en/docs/claude-code) in the terminal, add the MCP server with a single command:
 
@@ -128,6 +176,22 @@ Add the IMAP MCP server to your Claude Desktop configuration file:
 
 **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
 **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+
+**Option A — via npx (recommended, no clone/build needed):**
+
+```json
+{
+  "mcpServers": {
+    "imap": {
+      "command": "npx",
+      "args": ["-y", "imap-mcp-server"],
+      "env": {}
+    }
+  }
+}
+```
+
+**Option B — from a local clone:**
 
 ```json
 {
