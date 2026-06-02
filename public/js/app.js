@@ -196,10 +196,10 @@ async function handleAccountSubmit(e) {
     
     // Auto-detect provider if not selected
     if (!selectedProvider || selectedProvider.id === 'custom') {
-        const domain = accountData.email.split('@')[1];
-        const detectedProvider = providers.find(p => 
-            p.domains.some(d => domain.endsWith(d))
-        );
+        const domain = (accountData.email || '').split('@')[1]?.toLowerCase();
+        const detectedProvider = domain
+            ? providers.find(p => p.domains.some(d => domain.endsWith(d)))
+            : undefined;
         if (detectedProvider) {
             accountData.host = detectedProvider.imapHost;
             accountData.port = detectedProvider.imapPort;
@@ -424,11 +424,12 @@ async function editAccount(accountId) {
             document.getElementById('smtpSettings').classList.add('hidden');
         }
         
-        // Try to detect provider
-        const domain = account.user.split('@')[1];
-        const detectedProvider = providers.find(p => 
-            p.domains.some(d => domain.endsWith(d))
-        );
+        // Try to detect provider (use email; fall back to user, which may not contain a domain)
+        const detectEmail = account.email || account.user || '';
+        const domain = detectEmail.split('@')[1]?.toLowerCase();
+        const detectedProvider = domain
+            ? providers.find(p => p.domains.some(d => domain.endsWith(d)))
+            : undefined;
         selectedProvider = detectedProvider || providers.find(p => p.id === 'custom');
         
         // Show credentials form
