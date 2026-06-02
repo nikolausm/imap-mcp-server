@@ -59,6 +59,28 @@ npm run build
 
 ## Account Setup
 
+Accounts are stored encrypted in `~/.imap-mcp/accounts.json`. This file is **shared by all run modes** — whether you start the server via `npx`, a global install, or a local clone, they all read the same accounts. So you only need to set up your accounts once.
+
+### Setting Up Accounts in npx Mode
+
+If you run the server via `npx` (no clone), you have two ways to add accounts:
+
+**Option A — Run the setup wizard directly via npx (no install needed):**
+
+```bash
+npx -p imap-mcp-server imap-setup
+```
+
+This launches the same web-based wizard described below and writes to `~/.imap-mcp/accounts.json`, which your `npx`-configured MCP server then picks up automatically.
+
+**Option B — Add accounts straight from your AI client:**
+
+Once the MCP server is configured, just ask your assistant to add an account — it uses the `imap_add_account` tool. For example:
+
+> "Add my IMAP account: host imap.gmail.com, port 993, user me@gmail.com, password …"
+
+No separate setup step required.
+
 ### Web-Based Setup Wizard (Recommended)
 
 After installation, run the setup wizard:
@@ -71,6 +93,12 @@ Or if installed globally:
 
 ```bash
 imap-setup
+```
+
+Or directly via npx without installing:
+
+```bash
+npx -p imap-mcp-server imap-setup
 ```
 
 This will:
