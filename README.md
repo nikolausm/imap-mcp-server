@@ -17,6 +17,16 @@ A powerful Model Context Protocol (MCP) server that provides seamless IMAP email
 
 ## Installation
 
+### Run via npx (No Installation Required)
+
+Once published to npm, you can run the server directly without cloning or building anything — `npx` downloads the prebuilt package and runs it:
+
+```bash
+npx -y imap-mcp-server
+```
+
+This is the easiest way to use the server in an MCP client (see [Configuration](#configuration) for ready-to-paste `npx` configs).
+
 ### Quick Install (Recommended)
 
 #### macOS/Linux:
@@ -90,6 +100,16 @@ The setup wizard includes pre-configured settings for:
 
 ### Claude Code (CLI)
 
+#### Option A — via npx (no clone/build needed)
+
+```bash
+claude mcp add imap -- npx -y imap-mcp-server
+```
+
+This always runs the latest published version and requires no local build.
+
+#### Option B — from a local clone
+
 If you use [Claude Code](https://docs.anthropic.com/en/docs/claude-code) in the terminal, add the MCP server with a single command:
 
 **Step 1:** Make sure you have built the project first (see [Manual Installation](#manual-installation)).
@@ -128,6 +148,22 @@ Add the IMAP MCP server to your Claude Desktop configuration file:
 
 **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
 **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+
+**Option A — via npx (recommended, no clone/build needed):**
+
+```json
+{
+  "mcpServers": {
+    "imap": {
+      "command": "npx",
+      "args": ["-y", "imap-mcp-server"],
+      "env": {}
+    }
+  }
+}
+```
+
+**Option B — from a local clone:**
 
 ```json
 {

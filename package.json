@@ -7,8 +7,14 @@
     "imap-mcp": "./dist/index.js",
     "imap-setup": "./dist/setup.js"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "node build.mjs",
+    "prepublishOnly": "npm run build",
     "build:tsc": "tsc",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
