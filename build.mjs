@@ -9,6 +9,9 @@ const external = [
   ...Object.keys(pkg.devDependencies || {}),
 ];
 
+// Shebang banner so the bin entrypoints are directly executable via npx
+const shebang = { js: '#!/usr/bin/env node' };
+
 // Build main entry point
 await esbuild.build({
   entryPoints: ['src/index.ts'],
@@ -17,6 +20,7 @@ await esbuild.build({
   format: 'esm',
   outfile: 'dist/index.js',
   external,
+  banner: shebang,
 });
 
 // Build setup entry point
@@ -27,6 +31,7 @@ await esbuild.build({
   format: 'esm',
   outfile: 'dist/setup.js',
   external,
+  banner: shebang,
 });
 
 // Build web server entry point
