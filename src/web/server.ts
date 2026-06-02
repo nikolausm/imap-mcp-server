@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import bodyParser from 'body-parser';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import open from 'open';
 import { AccountManager } from '../services/account-manager.js';
@@ -31,7 +32,20 @@ export class WebUIServer {
   private setupMiddleware(): void {
     this.app.use(cors());
     this.app.use(bodyParser.json());
-    this.app.use(express.static(path.join(__dirname, '../../public')));
+    this.app.use(express.static(this.resolvePublicDir()));
+  }
+
+  // The bundled entrypoint may live at dist/web/server.js (npm run web) or be
+  // inlined into dist/setup.js, so __dirname differs. Probe the likely
+  // locations and fall back to the current working directory.
+  private resolvePublicDir(): string {
+    const candidates = [
+      path.join(__dirname, '../../public'),
+      path.join(__dirname, '../public'),
+      path.join(process.cwd(), 'public'),
+    ];
+    const found = candidates.find(dir => fs.existsSync(path.join(dir, 'index.html')));
+    return found ?? candidates[0];
   }
 
   private setupRoutes(): void {
