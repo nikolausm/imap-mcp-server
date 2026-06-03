@@ -830,7 +830,7 @@ describe('ImapService', () => {
       expect(result.headers).toEqual({});
     });
 
-    it('should preserve existing fields unchanged', async () => {
+    it('preserves envelope fields and returns Markdown by default (raw HTML omitted)', async () => {
       mockInstance.fetchOneMock.mockResolvedValue({
         source: Buffer.from('fake raw email'),
         flags: new Set(['\\Seen']),
@@ -853,9 +853,40 @@ describe('ImapService', () => {
 
       expect(result.from).toBe('sender@test.com');
       expect(result.subject).toBe('Backward compat');
+      expect(result.uid).toBe(5);
+      // Default bodyFormat is 'markdown': the short text/plain part is below threshold, so the
+      // body is converted from HTML; raw htmlContent must NOT cross the boundary.
+      expect(result.bodyFormat).toBe('markdown');
+      expect(result.textContent).toBe('Plain text');
+      expect(result.markdownContent).toBe('**HTML**');
+      expect(result.htmlContent).toBeUndefined();
+    });
+
+    it('returns raw htmlContent only when bodyFormat is "html"', async () => {
+      mockInstance.fetchOneMock.mockResolvedValue({
+        source: Buffer.from('fake raw email'),
+        flags: new Set(['\\Seen']),
+      });
+
+      mockedSimpleParser.mockResolvedValue({
+        date: new Date('2025-06-01'),
+        from: { text: 'sender@test.com' },
+        to: [{ text: 'recipient@test.com' }],
+        subject: 'Legacy HTML',
+        messageId: '<legacy@test.com>',
+        text: 'Plain text',
+        html: '<b>HTML</b>',
+        headers: new Map(),
+        attachments: [],
+      } as any);
+
+      await imapService.connect(mockAccount);
+      const result = await imapService.getEmailContent(mockAccount.id, 'INBOX', 6, { bodyFormat: 'html' });
+
+      expect(result.bodyFormat).toBe('html');
       expect(result.textContent).toBe('Plain text');
       expect(result.htmlContent).toBe('<b>HTML</b>');
-      expect(result.uid).toBe(5);
+      expect(result.markdownContent).toBeUndefined();
     });
   });
 

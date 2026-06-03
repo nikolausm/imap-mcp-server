@@ -1,7 +1,8 @@
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
-import { ImapAccount, EmailMessage, EmailContent, Folder, SearchCriteria, EmailLocation } from '../types/index.js';
+import { ImapAccount, EmailMessage, EmailContent, EmailBodyFormat, EmailLocation, Folder, SearchCriteria } from '../types/index.js';
 import type { AccountManager } from './account-manager.js';
+import { htmlToMarkdown, normalizeWhitespace } from './html-to-markdown.js';
 
 /**
  * Providers that require IMAP access to be manually enabled in account settings.
@@ -92,6 +93,12 @@ interface EmailContentOptions {
   includeAttachmentText?: boolean;
   maxAttachmentTextBytes?: number;
   maxAttachmentTextChars?: number;
+  // Controls how the body is returned. 'markdown' (default) returns markdownContent and omits
+  // raw htmlContent so HTML never crosses the MCP boundary; 'html' keeps the legacy raw HTML;
+  // 'text' returns plain text only; 'auto' prefers a substantive text/plain part, else markdown.
+  bodyFormat?: EmailBodyFormat;
+  // Minimum length of a text/plain part to treat it as the substantive body (markdown/auto).
+  markdownThreshold?: number;
 }
 
 export class ImapService {
@@ -392,7 +399,37 @@ export class ImapService {
         includeAttachmentText = false,
         maxAttachmentTextBytes = 256 * 1024,
         maxAttachmentTextChars = 100000,
+        bodyFormat = 'markdown',
+        markdownThreshold = 200,
       } = options;
+
+      // Body assembly per bodyFormat. The point is that raw HTML never crosses the boundary
+      // unless explicitly requested via bodyFormat: 'html'.
+      const rawText = parsed.text || undefined;
+      const rawHtml = parsed.html || undefined;
+      let textContent: string | undefined;
+      let htmlContent: string | undefined;
+      let markdownContent: string | undefined;
+
+      if (bodyFormat === 'html') {
+        textContent = rawText;
+        htmlContent = rawHtml;
+      } else if (bodyFormat === 'text') {
+        // Plain text if present, else a tag-stripped/normalized rendering of the HTML.
+        textContent = rawText ? normalizeWhitespace(rawText) : (rawHtml ? htmlToMarkdown(rawHtml) : undefined);
+      } else {
+        // 'markdown' (default) and 'auto': prefer a substantive text/plain part, else convert HTML.
+        const cleanText = rawText ? normalizeWhitespace(rawText) : '';
+        if (cleanText.length >= markdownThreshold) {
+          markdownContent = cleanText;
+        } else if (rawHtml) {
+          markdownContent = htmlToMarkdown(rawHtml);
+        } else {
+          markdownContent = cleanText || undefined;
+        }
+        // Keep textContent for backward compatibility with consumers that still read it.
+        textContent = rawText;
+      }
       const textAttachmentExtensions = ['.txt', '.md', '.markdown', '.csv', '.log', '.json', '.xml', '.yml', '.yaml'];
       const pdfExtensions = ['.pdf'];
 
@@ -429,8 +466,10 @@ export class ImapService {
         inReplyTo: parsed.inReplyTo as string | undefined,
         flags: Array.from(source.flags || []),
         headers,
-        textContent: parsed.text,
-        htmlContent: parsed.html || undefined,
+        textContent,
+        htmlContent,
+        markdownContent,
+        bodyFormat,
         attachments: await Promise.all((parsed.attachments || []).map(async (att: any) => {
           const filename = att.filename || 'unknown';
           const contentType = att.contentType || 'application/octet-stream';
