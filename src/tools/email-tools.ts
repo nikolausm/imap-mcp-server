@@ -90,29 +90,34 @@ export function emailTools(
   });
 
   // Get email content tool
+  // @ts-expect-error TS2589: MCP SDK registerTool + zod v3 exceed TS's type instantiation depth. Runtime schema validation is unaffected.
   server.registerTool('imap_get_email', {
-    description: 'Read the FULL content of a single email by its UID (plain text + HTML body, sender/recipients, date, attachment list, optional raw headers and text-attachment previews). Use after imap_search_emails or imap_get_latest_emails gives you a uid. Body text is truncated to maxContentLength to protect the context window — raise it for long messages. To fetch attachment bytes, use imap_download_attachment.',
+    description: 'Read the FULL content of a single email by its UID (body, sender/recipients, date, attachment list, optional raw headers and text-attachment previews). By default the body is returned as clean Markdown in markdownContent and raw HTML is omitted so it never crosses the boundary; set bodyFormat to "html" for the legacy raw htmlContent, or "text" for plain text only. Use after imap_search_emails or imap_get_latest_emails gives you a uid. Body text is truncated to maxContentLength to protect the context window — raise it for long messages. To fetch attachment bytes, use imap_download_attachment.',
     inputSchema: {
       ...accountSelector,
       folder: z.string().default('INBOX').describe('Folder name'),
       uid: z.coerce.number().describe('Email UID'),
-      maxContentLength: z.coerce.number().default(10000).describe('Maximum characters to return for text and HTML body content'),
+      maxContentLength: z.coerce.number().default(10000).describe('Maximum characters to return for each body field (text/markdown/html)'),
+      bodyFormat: z.enum(['markdown', 'text', 'html', 'auto']).default('markdown').describe('How to return the body. "markdown" (default): clean Markdown via Turndown in markdownContent, raw htmlContent omitted so HTML never crosses the boundary. "text": plain text only in textContent. "html": legacy raw htmlContent. "auto": substantive text/plain if available, else Markdown.'),
       includeAttachmentText: z.boolean().default(true).describe('Include text attachment previews when available'),
       maxAttachmentTextChars: z.coerce.number().default(100000).describe('Maximum characters to return per text attachment'),
       includeHeaders: z.boolean().default(false).describe('Include raw email headers (e.g. List-Unsubscribe, List-Unsubscribe-Post)'),
     }
-  }, async ({ accountId: rawAccountId, accountName, folder, uid, maxContentLength, includeAttachmentText, maxAttachmentTextChars, includeHeaders }) => {
+  }, async ({ accountId: rawAccountId, accountName, folder, uid, maxContentLength, bodyFormat, includeAttachmentText, maxAttachmentTextChars, includeHeaders }) => {
     const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
     const email = await imapService.getEmailContent(accountId, folder, uid, {
       includeAttachmentText,
       maxAttachmentTextChars,
+      bodyFormat,
     });
+    const cap = (s?: string) => (s === undefined ? undefined : s.substring(0, maxContentLength));
     const textTruncated = email.textContent ? email.textContent.length > maxContentLength : false;
     const htmlTruncated = email.htmlContent ? email.htmlContent.length > maxContentLength : false;
-    const contentTruncated = (textTruncated || htmlTruncated)
-      ? { text: textTruncated || undefined, html: htmlTruncated || undefined }
+    const markdownTruncated = email.markdownContent ? email.markdownContent.length > maxContentLength : false;
+    const contentTruncated = (textTruncated || htmlTruncated || markdownTruncated)
+      ? { text: textTruncated || undefined, html: htmlTruncated || undefined, markdown: markdownTruncated || undefined }
       : undefined;
-    
+
     const { headers: rawHeaders, ...emailWithoutHeaders } = email;
 
     return {
@@ -121,8 +126,9 @@ export function emailTools(
         text: JSON.stringify({
           email: {
             ...emailWithoutHeaders,
-            textContent: email.textContent?.substring(0, maxContentLength),
-            htmlContent: email.htmlContent?.substring(0, maxContentLength),
+            textContent: cap(email.textContent),
+            htmlContent: cap(email.htmlContent),
+            markdownContent: cap(email.markdownContent),
             contentTruncated,
             ...(includeHeaders ? { headers: rawHeaders } : {}),
           },
@@ -694,8 +700,8 @@ export function emailTools(
       throw new Error(`Account ${accountId} not found`);
     }
 
-    // Get original email
-    const originalEmail = await imapService.getEmailContent(accountId, folder, uid);
+    // Get original email (envelope only is needed here; skip body conversion)
+    const originalEmail = await imapService.getEmailContent(accountId, folder, uid, { bodyFormat: 'text' });
 
     // Extract the bare email address from a header value that may include a
     // display name (e.g. 'Alice <alice@example.com>' → 'alice@example.com').
@@ -775,9 +781,9 @@ export function emailTools(
       throw new Error(`Account ${accountId} not found`);
     }
 
-    // Get original email
-    const originalEmail = await imapService.getEmailContent(accountId, folder, uid);
-    
+    // Get original email (needs both plain text and raw HTML to reconstruct the forward)
+    const originalEmail = await imapService.getEmailContent(accountId, folder, uid, { bodyFormat: 'html' });
+
     // Prepare forwarded content
     const forwardHeader = `\n\n---------- Forwarded message ----------\nFrom: ${originalEmail.from}\nDate: ${originalEmail.date.toLocaleString()}\nSubject: ${originalEmail.subject}\nTo: ${originalEmail.to.join(', ')}\n\n`;
     

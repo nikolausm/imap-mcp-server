@@ -10,9 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `imap_get_email` options to control body and text-attachment output (`maxContentLength`, `includeAttachmentText`, `maxAttachmentTextChars`).
 - Text attachment preview fields in email payloads (`attachments[].textContent`, `attachments[].textContentTruncated`).
+- `imap_get_email` `bodyFormat` parameter (`markdown` default, `text`, `html`, `auto`) and a `markdownContent` body field. The body is converted to clean Markdown server-side (Turndown + the GFM strikethrough plugin), with email-specific rules: layout tables flattened, hidden/preheader nodes stripped, `<img>` reduced to its alt text, tracking URLs shortened.
 
 ### Changed
 - `imap_get_email` now reports body truncation via `contentTruncated`.
+- `imap_get_email` returns the body as Markdown by default and omits raw `htmlContent` unless `bodyFormat: "html"` is requested, so large HTML emails (a single marketing mail can be ~119k characters of markup) no longer cross the MCP boundary. `textContent` is still included for backward compatibility.
 - Text extraction only runs for text-like attachments and enforces size limits to avoid binary bloat.
 
 ## [1.1.0] - 2025-12-18

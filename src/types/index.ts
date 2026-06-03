@@ -38,9 +38,13 @@ export interface EmailMessage {
   flags: string[];
 }
 
+export type EmailBodyFormat = 'markdown' | 'text' | 'html' | 'auto';
+
 export interface EmailContent extends EmailMessage {
   textContent?: string;
   htmlContent?: string;
+  markdownContent?: string;
+  bodyFormat?: EmailBodyFormat;
   headers: Record<string, string | string[]>;
   attachments: Attachment[];
 }
