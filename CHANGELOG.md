@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `imap_get_email` now reports body truncation via `contentTruncated`.
 - Text extraction only runs for text-like attachments and enforces size limits to avoid binary bloat.
 
+### Fixed
+- Reconnect after an idle connection drop no longer fails with `Can not re-use ImapFlow instance`. ImapFlow instances are single-use, so `ImapService.ensureConnected` now tears down the dead client and constructs a fresh `ImapFlow` (via `connect()`) instead of calling `.connect()` on the stale object. This affected every multi-step IMAP workflow where the socket idled out between two tool calls (e.g. an `imap_connect` followed minutes later by an `imap_move_email`). Regression test: `tests/imap-service-reconnect.test.ts`.
+
 ## [1.1.0] - 2025-12-18
 
 ### Security
