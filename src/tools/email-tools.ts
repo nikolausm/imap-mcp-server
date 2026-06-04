@@ -28,7 +28,7 @@ export function emailTools(
 
   // Search emails tool
   server.registerTool('imap_search_emails', {
-    description: 'Search for emails in a folder',
+    description: 'Search a mailbox folder for emails matching criteria (sender, recipient, subject, body text, date range, read/flagged status). Use this to FIND messages when you know something about them but not their UID — e.g. "emails from amazon last week", "unread invoices". Returns lightweight headers (uid, from, subject, date); call imap_get_email with a returned uid to read full content. For the newest messages without criteria, prefer imap_get_latest_emails.',
     inputSchema: {
       accountId: z.string().describe('Account ID'),
       folder: z.string().default('INBOX').describe('Folder name (default: INBOX)'),
@@ -71,7 +71,7 @@ export function emailTools(
 
   // Get email content tool
   server.registerTool('imap_get_email', {
-    description: 'Get the full content of an email, with optional text attachment previews',
+    description: 'Read the FULL content of a single email by its UID (plain text + HTML body, sender/recipients, date, attachment list, optional raw headers and text-attachment previews). Use after imap_search_emails or imap_get_latest_emails gives you a uid. Body text is truncated to maxContentLength to protect the context window — raise it for long messages. To fetch attachment bytes, use imap_download_attachment.',
     inputSchema: {
       accountId: z.string().describe('Account ID'),
       folder: z.string().default('INBOX').describe('Folder name'),
@@ -172,7 +172,7 @@ export function emailTools(
 
   // Download attachment tool
   server.registerTool('imap_download_attachment', {
-    description: 'Download an attachment from an email. Returns image content directly for image attachments, extracts text from PDFs, or saves to a shared downloads directory accessible from the host.',
+    description: 'Download a single attachment from an email (folder + uid + attachment filename/contentId, as listed by imap_get_email). Images are returned inline for viewing; PDFs are saved and their text is extracted inline (extractText); other files are saved to the shared downloads directory (or savePath). Use when the user wants the actual file contents, not just the message body.',
     inputSchema: {
       accountId: z.string().describe('Account ID'),
       folder: z.string().default('INBOX').describe('Folder name'),
@@ -306,7 +306,7 @@ export function emailTools(
 
   // Delete email tool
   server.registerTool('imap_delete_email', {
-    description: 'Delete an email (moves to trash or expunges)',
+    description: 'Delete ONE email by folder + uid (moves to Trash or expunges, server-dependent). Destructive and not easily undone — confirm the user means this specific message. To remove many at once use imap_bulk_delete (known uids) or imap_bulk_delete_by_search (by criteria, supports dryRun). To file an email away instead of deleting, use imap_move_email.',
     inputSchema: {
       accountId: z.string().describe('Account ID'),
       folder: z.string().default('INBOX').describe('Folder name'),
@@ -487,7 +487,7 @@ export function emailTools(
 
   // Get latest emails tool
   server.registerTool('imap_get_latest_emails', {
-    description: 'Get the latest emails from a folder',
+    description: 'Get the most recent emails from a folder, newest first. Use this for "what just came in?" / "show my latest inbox messages" when no search filter is needed. Returns lightweight headers (uid, from, subject, date); read a specific one with imap_get_email. To filter by sender/subject/date instead, use imap_search_emails.',
     inputSchema: {
       accountId: z.string().describe('Account ID'),
       folder: z.string().default('INBOX').describe('Folder name'),
@@ -508,7 +508,7 @@ export function emailTools(
 
   // Send email tool
   server.registerTool('imap_send_email', {
-    description: 'Send an email using SMTP',
+    description: 'Compose and send a NEW email via the account\'s SMTP server (a copy is saved to Sent unless disabled). Use for fresh outbound messages. To respond to an existing message use imap_reply_to_email (keeps threading); to pass a message on use imap_forward_email; to store without sending use imap_save_draft. Supports to/cc/bcc, text and/or HTML, and attachments by base64 content or by file path (see imap_upload_file for large files).',
     inputSchema: {
       accountId: z.string().describe('Account ID to send from'),
       to: z.union([z.string(), z.array(z.string())]).describe('Recipient email address(es)'),
@@ -644,7 +644,7 @@ export function emailTools(
 
   // Reply to email tool
   server.registerTool('imap_reply_to_email', {
-    description: 'Reply to an existing email',
+    description: 'Reply to an existing email identified by folder + uid. Automatically sets the recipient to the original sender, prefixes the subject with "Re:", and preserves threading (In-Reply-To/References). Set replyAll to also include the original recipients. Use this instead of imap_send_email whenever the user is responding to a message already in a mailbox.',
     inputSchema: {
       accountId: z.string().describe('Account ID'),
       folder: z.string().default('INBOX').describe('Folder containing the original email'),
@@ -716,7 +716,7 @@ export function emailTools(
 
   // Forward email tool
   server.registerTool('imap_forward_email', {
-    description: 'Forward an existing email',
+    description: 'Forward an existing email (folder + uid) to new recipients, quoting the original message and headers. Optionally include the original attachments. Use when the user wants to pass an existing message on to someone else; use imap_reply_to_email instead to respond to the sender.',
     inputSchema: {
       accountId: z.string().describe('Account ID'),
       folder: z.string().default('INBOX').describe('Folder containing the original email'),

@@ -10,7 +10,7 @@ export function folderTools(
 ): void {
   // List folders tool
   server.registerTool('imap_list_folders', {
-    description: 'List all folders/mailboxes in an IMAP account',
+    description: 'List all folders/mailboxes for an account (names, hierarchy delimiter, attributes). Use this first to discover exact folder names before searching, moving, or creating subfolders — folder naming varies by provider (e.g. "Archive" vs "[Gmail]/All Mail" vs "INBOX.Archive").',
     inputSchema: {
       accountId: z.string().describe('Account ID'),
     }
@@ -104,7 +104,7 @@ export function folderTools(
 
   // Get unread count tool
   server.registerTool('imap_get_unread_count', {
-    description: 'Get the count of unread emails in specified folders',
+    description: 'Count unread (unseen) emails per folder, plus a total. Use for "how many unread do I have?" overviews. Defaults to all folders; pass a folders list to limit scope and speed it up.',
     inputSchema: {
       accountId: z.string().describe('Account ID'),
       folders: z.array(z.string()).optional().describe('List of folders to check (default: all)'),
