@@ -1,0 +1,83 @@
+name: Release
+
+# Publishes to npm and the official MCP Registry whenever a version tag is pushed.
+#
+# Trigger:  git tag vX.Y.Z && git push origin vX.Y.Z
+#
+# Requirements (one-time setup):
+#   - Repository secret NPM_TOKEN: an npm "granular access token" with
+#     publish rights for imap-mcp-server AND "bypass 2FA" enabled
+#     (npmjs.com -> Access Tokens -> Generate -> Granular). Needed because the
+#     package enforces 2FA on publish, which CI cannot satisfy interactively.
+#   - No secret is needed for the MCP Registry: authentication uses GitHub
+#     OIDC (`mcp-publisher login github-oidc`), which works because the
+#     registry namespace `io.github.nikolausm/*` matches this repo owner.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write   # required for mcp-publisher's GitHub OIDC login
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          registry-url: 'https://registry.npmjs.org'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify version consistency
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          SRV_VERSION=$(node -p "require('./server.json').version")
+          SRV_PKG_VERSION=$(node -p "require('./server.json').packages[0].version")
+          MCP_NAME=$(node -p "require('./package.json').mcpName")
+          SRV_NAME=$(node -p "require('./server.json').name")
+          echo "tag=$TAG_VERSION package.json=$PKG_VERSION server.json=$SRV_VERSION server.packages[0]=$SRV_PKG_VERSION"
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ] || [ "$PKG_VERSION" != "$SRV_VERSION" ] || [ "$SRV_VERSION" != "$SRV_PKG_VERSION" ]; then
+            echo "::error::Version mismatch between tag, package.json and server.json"
+            exit 1
+          fi
+          if [ "$MCP_NAME" != "$SRV_NAME" ]; then
+            echo "::error::package.json mcpName ($MCP_NAME) != server.json name ($SRV_NAME)"
+            exit 1
+          fi
+          echo "Versions and names are consistent."
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+      - name: Publish to npm
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Install mcp-publisher
+        run: |
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" \
+            | tar -xz mcp-publisher
+          ./mcp-publisher --help >/dev/null
+
+      - name: Authenticate with MCP Registry (GitHub OIDC)
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish to MCP Registry
+        run: ./mcp-publisher publish
