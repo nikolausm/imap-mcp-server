@@ -7,6 +7,13 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { randomBytes } from 'crypto';
 
+// Reusable, backward-compatible account selector. accountId stays accepted as
+// before; accountName and the single-account default are additive conveniences.
+const accountSelector = {
+  accountId: z.string().optional().describe('Account ID (from imap_list_accounts). Optional if accountName is given or only one account is configured.'),
+  accountName: z.string().optional().describe('Account name instead of accountId. Optional if accountId is given or only one account is configured.'),
+};
+
 const DOWNLOAD_DIR = process.env.IMAP_DOWNLOAD_DIR || join(homedir(), 'Downloads', 'imap-attachments');
 const MAX_UPLOAD_SIZE = parseInt(process.env.IMAP_MAX_UPLOAD_SIZE ?? '', 10) || 25 * 1024 * 1024;
 const UPLOAD_TTL_MS = parseInt(process.env.IMAP_UPLOAD_TTL_MS ?? '', 10) || 24 * 60 * 60 * 1000;
@@ -30,7 +37,7 @@ export function emailTools(
   server.registerTool('imap_search_emails', {
     description: 'Search a mailbox folder for emails matching criteria (sender, recipient, subject, body text, date range, read/flagged status). Use this to FIND messages when you know something about them but not their UID — e.g. "emails from amazon last week", "unread invoices". Returns lightweight headers (uid, from, subject, date); call imap_get_email with a returned uid to read full content. For the newest messages without criteria, prefer imap_get_latest_emails.',
     inputSchema: {
-      accountId: z.string().describe('Account ID'),
+      ...accountSelector,
       folder: z.string().default('INBOX').describe('Folder name (default: INBOX)'),
       from: z.string().optional().describe('Search by sender'),
       to: z.string().optional().describe('Search by recipient'),
@@ -42,7 +49,8 @@ export function emailTools(
       flagged: z.boolean().optional().describe('Filter by flagged status'),
       limit: z.coerce.number().optional().default(50).describe('Maximum number of results'),
     }
-  }, async ({ accountId, folder, limit, ...searchCriteria }) => {
+  }, async ({ accountId: rawAccountId, accountName, folder, limit, ...searchCriteria }) => {
+    const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
     const criteria: any = {};
     
     if (searchCriteria.from) criteria.from = searchCriteria.from;
@@ -73,7 +81,7 @@ export function emailTools(
   server.registerTool('imap_get_email', {
     description: 'Read the FULL content of a single email by its UID (plain text + HTML body, sender/recipients, date, attachment list, optional raw headers and text-attachment previews). Use after imap_search_emails or imap_get_latest_emails gives you a uid. Body text is truncated to maxContentLength to protect the context window — raise it for long messages. To fetch attachment bytes, use imap_download_attachment.',
     inputSchema: {
-      accountId: z.string().describe('Account ID'),
+      ...accountSelector,
       folder: z.string().default('INBOX').describe('Folder name'),
       uid: z.coerce.number().describe('Email UID'),
       maxContentLength: z.coerce.number().default(10000).describe('Maximum characters to return for text and HTML body content'),
@@ -81,7 +89,8 @@ export function emailTools(
       maxAttachmentTextChars: z.coerce.number().default(100000).describe('Maximum characters to return per text attachment'),
       includeHeaders: z.boolean().default(false).describe('Include raw email headers (e.g. List-Unsubscribe, List-Unsubscribe-Post)'),
     }
-  }, async ({ accountId, folder, uid, maxContentLength, includeAttachmentText, maxAttachmentTextChars, includeHeaders }) => {
+  }, async ({ accountId: rawAccountId, accountName, folder, uid, maxContentLength, includeAttachmentText, maxAttachmentTextChars, includeHeaders }) => {
+    const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
     const email = await imapService.getEmailContent(accountId, folder, uid, {
       includeAttachmentText,
       maxAttachmentTextChars,
@@ -174,14 +183,15 @@ export function emailTools(
   server.registerTool('imap_download_attachment', {
     description: 'Download a single attachment from an email (folder + uid + attachment filename/contentId, as listed by imap_get_email). Images are returned inline for viewing; PDFs are saved and their text is extracted inline (extractText); other files are saved to the shared downloads directory (or savePath). Use when the user wants the actual file contents, not just the message body.',
     inputSchema: {
-      accountId: z.string().describe('Account ID'),
+      ...accountSelector,
       folder: z.string().default('INBOX').describe('Folder name'),
       uid: z.coerce.number().describe('Email UID'),
       filename: z.string().describe('Attachment filename or contentId'),
       savePath: z.string().optional().describe('Optional file path to save the attachment to. If not provided, files are saved to the shared downloads directory.'),
       extractText: z.boolean().default(true).describe('For PDFs, extract and return text content inline'),
     }
-  }, async ({ accountId, folder, uid, filename, savePath, extractText }) => {
+  }, async ({ accountId: rawAccountId, accountName, folder, uid, filename, savePath, extractText }) => {
+    const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
     const { content, contentType, filename: resolvedFilename } = await imapService.getAttachmentContent(accountId, folder, uid, filename);
 
     const isImage = contentType.startsWith('image/');
@@ -264,11 +274,12 @@ export function emailTools(
   server.registerTool('imap_mark_as_read', {
     description: 'Mark an email as read',
     inputSchema: {
-      accountId: z.string().describe('Account ID'),
+      ...accountSelector,
       folder: z.string().default('INBOX').describe('Folder name'),
       uid: z.coerce.number().describe('Email UID'),
     }
-  }, async ({ accountId, folder, uid }) => {
+  }, async ({ accountId: rawAccountId, accountName, folder, uid }) => {
+    const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
     await imapService.markAsRead(accountId, folder, uid);
     
     return {
@@ -286,11 +297,12 @@ export function emailTools(
   server.registerTool('imap_mark_as_unread', {
     description: 'Mark an email as unread',
     inputSchema: {
-      accountId: z.string().describe('Account ID'),
+      ...accountSelector,
       folder: z.string().default('INBOX').describe('Folder name'),
       uid: z.coerce.number().describe('Email UID'),
     }
-  }, async ({ accountId, folder, uid }) => {
+  }, async ({ accountId: rawAccountId, accountName, folder, uid }) => {
+    const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
     await imapService.markAsUnread(accountId, folder, uid);
     
     return {
@@ -308,11 +320,12 @@ export function emailTools(
   server.registerTool('imap_delete_email', {
     description: 'Delete ONE email by folder + uid (moves to Trash or expunges, server-dependent). Destructive and not easily undone — confirm the user means this specific message. To remove many at once use imap_bulk_delete (known uids) or imap_bulk_delete_by_search (by criteria, supports dryRun). To file an email away instead of deleting, use imap_move_email.',
     inputSchema: {
-      accountId: z.string().describe('Account ID'),
+      ...accountSelector,
       folder: z.string().default('INBOX').describe('Folder name'),
       uid: z.coerce.number().describe('Email UID'),
     }
-  }, async ({ accountId, folder, uid }) => {
+  }, async ({ accountId: rawAccountId, accountName, folder, uid }) => {
+    const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
     await imapService.deleteEmail(accountId, folder, uid);
 
     return {
@@ -330,13 +343,14 @@ export function emailTools(
   server.registerTool('imap_move_email', {
     description: 'Move an email from one folder to another (e.g., INBOX to Taxes, or INBOX to Archive). Optionally creates the destination folder if it does not exist.',
     inputSchema: {
-      accountId: z.string().describe('Account ID'),
+      ...accountSelector,
       folder: z.string().default('INBOX').describe('Source folder name'),
       uid: z.coerce.number().describe('Email UID'),
       targetFolder: z.string().describe('Destination folder name'),
       createDestinationIfMissing: z.boolean().optional().describe('If true, create the destination folder before moving when it does not exist (default: false)'),
     }
-  }, async ({ accountId, folder, uid, targetFolder, createDestinationIfMissing }) => {
+  }, async ({ accountId: rawAccountId, accountName, folder, uid, targetFolder, createDestinationIfMissing }) => {
+    const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
     try {
       const result = await imapService.moveEmail(accountId, folder, uid, targetFolder, {
         createDestinationIfMissing,
@@ -379,12 +393,13 @@ export function emailTools(
   server.registerTool('imap_bulk_delete', {
     description: 'Delete multiple emails at once with chunking and auto-reconnection. Processes deletions in batches to prevent connection timeouts.',
     inputSchema: {
-      accountId: z.string().describe('Account ID'),
+      ...accountSelector,
       folder: z.string().default('INBOX').describe('Folder name'),
       uids: z.array(z.coerce.number()).describe('Array of email UIDs to delete'),
       chunkSize: z.coerce.number().default(50).describe('Number of emails to delete per batch (default: 50)'),
     }
-  }, async ({ accountId, folder, uids, chunkSize }) => {
+  }, async ({ accountId: rawAccountId, accountName, folder, uids, chunkSize }) => {
+    const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
     const result = await imapService.bulkDelete(accountId, folder, uids, chunkSize);
 
     return {
@@ -408,7 +423,7 @@ export function emailTools(
   server.registerTool('imap_bulk_delete_by_search', {
     description: 'Search for emails matching criteria and delete them all. Useful for cleaning up spam or unwanted emails.',
     inputSchema: {
-      accountId: z.string().describe('Account ID'),
+      ...accountSelector,
       folder: z.string().default('INBOX').describe('Folder name'),
       from: z.string().optional().describe('Delete emails from this sender'),
       to: z.string().optional().describe('Delete emails to this recipient'),
@@ -418,7 +433,8 @@ export function emailTools(
       chunkSize: z.coerce.number().default(50).describe('Number of emails to delete per batch'),
       dryRun: z.boolean().default(false).describe('If true, only return what would be deleted without actually deleting'),
     }
-  }, async ({ accountId, folder, from, to, subject, before, since, chunkSize, dryRun }) => {
+  }, async ({ accountId: rawAccountId, accountName, folder, from, to, subject, before, since, chunkSize, dryRun }) => {
+    const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
     const criteria: any = {};
     if (from) criteria.from = from;
     if (to) criteria.to = to;
@@ -489,11 +505,12 @@ export function emailTools(
   server.registerTool('imap_get_latest_emails', {
     description: 'Get the most recent emails from a folder, newest first. Use this for "what just came in?" / "show my latest inbox messages" when no search filter is needed. Returns lightweight headers (uid, from, subject, date); read a specific one with imap_get_email. To filter by sender/subject/date instead, use imap_search_emails.',
     inputSchema: {
-      accountId: z.string().describe('Account ID'),
+      ...accountSelector,
       folder: z.string().default('INBOX').describe('Folder name'),
       count: z.coerce.number().default(10).describe('Number of emails to retrieve'),
     }
-  }, async ({ accountId, folder, count }) => {
+  }, async ({ accountId: rawAccountId, accountName, folder, count }) => {
+    const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
     const sortedMessages = await imapService.getLatestEmails(accountId, folder, count);
     
     return {
@@ -510,7 +527,7 @@ export function emailTools(
   server.registerTool('imap_send_email', {
     description: 'Compose and send a NEW email via the account\'s SMTP server (a copy is saved to Sent unless disabled). Use for fresh outbound messages. To respond to an existing message use imap_reply_to_email (keeps threading); to pass a message on use imap_forward_email; to store without sending use imap_save_draft. Supports to/cc/bcc, text and/or HTML, and attachments by base64 content or by file path (see imap_upload_file for large files).',
     inputSchema: {
-      accountId: z.string().describe('Account ID to send from'),
+      ...accountSelector,
       to: z.union([z.string(), z.array(z.string())]).describe('Recipient email address(es)'),
       subject: z.string().describe('Email subject'),
       text: z.string().optional().describe('Plain text content'),
@@ -525,7 +542,8 @@ export function emailTools(
         contentType: z.string().optional().describe('MIME type'),
       })).optional().describe('Email attachments'),
     }
-  }, async ({ accountId, to, subject, text, html, cc, bcc, replyTo, attachments }) => {
+  }, async ({ accountId: rawAccountId, accountName, to, subject, text, html, cc, bcc, replyTo, attachments }) => {
+    const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
     const account = await accountManager.getAccount(accountId);
     if (!account) {
       throw new Error(`Account ${accountId} not found`);
@@ -575,7 +593,7 @@ export function emailTools(
   server.registerTool('imap_save_draft', {
     description: 'Save an email as a draft in the Drafts folder (no send). Takes the same fields as imap_send_email.',
     inputSchema: {
-      accountId: z.string().describe('Account ID to save the draft under'),
+      ...accountSelector,
       to: z.union([z.string(), z.array(z.string())]).optional().describe('Recipient email address(es)'),
       subject: z.string().optional().describe('Email subject'),
       text: z.string().optional().describe('Plain text content'),
@@ -593,7 +611,8 @@ export function emailTools(
       })).optional().describe('Email attachments'),
       folder: z.string().optional().describe('Override the Drafts folder name (defaults to auto-detected Drafts folder)'),
     }
-  }, async ({ accountId, to, subject, text, html, cc, bcc, replyTo, inReplyTo, references, attachments, folder }) => {
+  }, async ({ accountId: rawAccountId, accountName, to, subject, text, html, cc, bcc, replyTo, inReplyTo, references, attachments, folder }) => {
+    const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
     const account = await accountManager.getAccount(accountId);
     if (!account) {
       throw new Error(`Account ${accountId} not found`);
@@ -646,7 +665,7 @@ export function emailTools(
   server.registerTool('imap_reply_to_email', {
     description: 'Reply to an existing email identified by folder + uid. Automatically sets the recipient to the original sender, prefixes the subject with "Re:", and preserves threading (In-Reply-To/References). Set replyAll to also include the original recipients. Use this instead of imap_send_email whenever the user is responding to a message already in a mailbox.',
     inputSchema: {
-      accountId: z.string().describe('Account ID'),
+      ...accountSelector,
       folder: z.string().default('INBOX').describe('Folder containing the original email'),
       uid: z.coerce.number().describe('UID of the email to reply to'),
       text: z.string().optional().describe('Plain text reply content'),
@@ -659,7 +678,8 @@ export function emailTools(
         contentType: z.string().optional().describe('MIME type'),
       })).optional().describe('Email attachments'),
     }
-  }, async ({ accountId, folder, uid, text, html, replyAll, attachments }) => {
+  }, async ({ accountId: rawAccountId, accountName, folder, uid, text, html, replyAll, attachments }) => {
+    const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
     const account = await accountManager.getAccount(accountId);
     if (!account) {
       throw new Error(`Account ${accountId} not found`);
@@ -718,14 +738,15 @@ export function emailTools(
   server.registerTool('imap_forward_email', {
     description: 'Forward an existing email (folder + uid) to new recipients, quoting the original message and headers. Optionally include the original attachments. Use when the user wants to pass an existing message on to someone else; use imap_reply_to_email instead to respond to the sender.',
     inputSchema: {
-      accountId: z.string().describe('Account ID'),
+      ...accountSelector,
       folder: z.string().default('INBOX').describe('Folder containing the original email'),
       uid: z.coerce.number().describe('UID of the email to forward'),
       to: z.union([z.string(), z.array(z.string())]).describe('Forward to email address(es)'),
       text: z.string().optional().describe('Additional text to include'),
       includeAttachments: z.boolean().default(true).describe('Include original attachments'),
     }
-  }, async ({ accountId, folder, uid, to, text, includeAttachments }) => {
+  }, async ({ accountId: rawAccountId, accountName, folder, uid, to, text, includeAttachments }) => {
+    const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
     const account = await accountManager.getAccount(accountId);
     if (!account) {
       throw new Error(`Account ${accountId} not found`);
@@ -775,12 +796,13 @@ export function emailTools(
       'Find messages in `searchFolder` that belong to the same conversation threads as messages already in `sourceFolder`. ' +
       'Useful for catching replies that arrived after a thread was sorted. Works on any IMAP server (uses RFC 3501 HEADER search on In-Reply-To and References).',
     inputSchema: {
-      accountId: z.string().describe('Account ID'),
+      ...accountSelector,
       sourceFolder: z.string().describe('Folder containing the already-sorted thread messages (e.g. "Review.Articles")'),
       searchFolder: z.string().default('INBOX').describe('Folder to search for related thread messages (default: INBOX)'),
       searchReferences: z.boolean().optional().describe('Also search the References header for multi-level threads (default: true)'),
     }
-  }, async ({ accountId, sourceFolder, searchFolder, searchReferences }) => {
+  }, async ({ accountId: rawAccountId, accountName, sourceFolder, searchFolder, searchReferences }) => {
+    const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
     try {
       const result = await imapService.findThreadMessages(accountId, sourceFolder, searchFolder, {
         searchReferences,

@@ -132,6 +132,43 @@ export class AccountManager {
     });
   }
 
+  /**
+   * Resolve which account a tool call refers to, in a backward-compatible way:
+   *   1. explicit `accountId`        → must exist
+   *   2. explicit `accountName`      → matched by name
+   *   3. neither, and exactly ONE account configured → that account (default)
+   * Throws a helpful, actionable error otherwise. Returns the account id.
+   */
+  resolveAccountId(accountId?: string, accountName?: string): string {
+    this.loadAccountsSync();
+
+    if (accountId) {
+      if (!this.accounts.has(accountId)) {
+        throw new Error(`Account ${accountId} not found. Use imap_list_accounts to see available accounts.`);
+      }
+      return accountId;
+    }
+
+    if (accountName) {
+      const match = Array.from(this.accounts.values()).find(acc => acc.name === accountName);
+      if (!match) {
+        throw new Error(`No account named "${accountName}". Use imap_list_accounts to see available accounts.`);
+      }
+      return match.id;
+    }
+
+    const all = Array.from(this.accounts.values());
+    if (all.length === 1) {
+      return all[0].id;
+    }
+    if (all.length === 0) {
+      throw new Error('No accounts configured. Add one with imap_add_account (or run the setup wizard).');
+    }
+    throw new Error(
+      `Multiple accounts are configured (${all.length}). Specify accountId or accountName. Use imap_list_accounts to see them.`
+    );
+  }
+
   getAccountByName(name: string): ImapAccount | undefined {
     const account = Array.from(this.accounts.values()).find(acc => acc.name === name);
     if (!account) return undefined;

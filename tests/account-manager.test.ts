@@ -225,6 +225,54 @@ describe('AccountManager', () => {
     });
   });
 
+  describe('resolveAccountId', () => {
+    const addOne = (manager: AccountManager, name: string) => manager.addAccount({
+      name, host: 'imap.test.com', port: 993, user: `${name}@test.com`, password: 'pw', tls: true,
+    });
+
+    it('returns the id when an explicit accountId exists', async () => {
+      const manager = new AccountManager();
+      const created = await addOne(manager, 'A');
+      expect(manager.resolveAccountId(created.id)).toBe(created.id);
+    });
+
+    it('throws for an unknown accountId', async () => {
+      const manager = new AccountManager();
+      await addOne(manager, 'A');
+      expect(() => manager.resolveAccountId('nope')).toThrow(/not found/i);
+    });
+
+    it('resolves by accountName', async () => {
+      const manager = new AccountManager();
+      const created = await addOne(manager, 'Work');
+      expect(manager.resolveAccountId(undefined, 'Work')).toBe(created.id);
+    });
+
+    it('throws for an unknown accountName', async () => {
+      const manager = new AccountManager();
+      await addOne(manager, 'Work');
+      expect(() => manager.resolveAccountId(undefined, 'Home')).toThrow(/no account named/i);
+    });
+
+    it('defaults to the only account when none is specified', async () => {
+      const manager = new AccountManager();
+      const created = await addOne(manager, 'Solo');
+      expect(manager.resolveAccountId()).toBe(created.id);
+    });
+
+    it('throws when no accounts are configured', () => {
+      const manager = new AccountManager();
+      expect(() => manager.resolveAccountId()).toThrow(/no accounts configured/i);
+    });
+
+    it('throws when multiple accounts exist and none is specified', async () => {
+      const manager = new AccountManager();
+      await addOne(manager, 'A');
+      await addOne(manager, 'B');
+      expect(() => manager.resolveAccountId()).toThrow(/multiple accounts/i);
+    });
+  });
+
   describe('removeAccount', () => {
     it('should remove existing account', async () => {
       const manager = new AccountManager();
