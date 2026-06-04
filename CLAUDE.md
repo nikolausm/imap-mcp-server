@@ -1,45 +1,21 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code (claude.ai/code) when working in this repository.
 
-## Project Overview
+The full, agent-agnostic project guide — architecture, build/test commands,
+security rules, and conventions — lives in **@AGENTS.md**. Read it first.
 
-This is an IMAP MCP (Model Context Protocol) server built with TypeScript that provides comprehensive IMAP email integration with secure account management and connection pooling.
+## Claude-specific notes
 
-## Common Development Commands
-
-- Build the project: `npm run build`
-- Run in development mode: `npm run dev`
-- Start the compiled server: `npm start`
-- Install dependencies: `npm install`
-
-## Architecture
-
-### Core Components
-
-1. **MCP Server (`src/index.ts`)**: The main entry point that sets up the MCP server using the McpServer class from the MCP SDK.
-
-2. **Services**:
-   - `ImapService`: Manages IMAP connections, email operations, and folder management with connection pooling
-   - `AccountManager`: Handles secure account storage with AES-256 encryption
-
-3. **Tools**: MCP tools are organized into three categories:
-   - `account-tools.ts`: Account management (add, remove, list, connect, disconnect)
-   - `email-tools.ts`: Email operations (search, read, download attachments, mark, delete, move, bulk delete, send, reply, forward)
-   - `folder-tools.ts`: Folder operations (list, status, unread counts)
-
-### Key Design Decisions
-
-- Uses `node-imap` for IMAP protocol implementation
-- Implements connection pooling to efficiently manage multiple IMAP connections
-- Stores encrypted credentials in `~/.imap-mcp/accounts.json`
-- All MCP tools return JSON-formatted text responses
-- TypeScript for type safety with comprehensive type definitions in `src/types/`
-
-## Adding New Features
-
-When adding new IMAP operations:
-1. Add the operation to the appropriate service (`ImapService`)
-2. Create or update the corresponding tool in the tools directory
-3. Ensure proper error handling and connection management
-4. Update types if needed in `src/types/index.ts`
+- This is an IMAP/SMTP **MCP server** (TypeScript, ESM). It uses **`imapflow`**
+  for IMAP and **`nodemailer`** for SMTP. (It does **not** use `node-imap`.)
+- Credentials are stored AES-256 encrypted under `~/.imap-mcp/`; all tools
+  return JSON-formatted text.
+- When adding an IMAP/SMTP operation:
+  1. Implement it in the relevant service (`ImapService` / `SmtpService`).
+  2. Expose it via the matching tool file in `src/tools/`.
+  3. Keep tool names (`imap_*`) stable; write LLM-oriented `.describe()` text.
+  4. Update types in `src/types/index.ts`, plus `README.md` and tests.
+- Before committing `src/` changes: `npm run build && npm test` (keep it green).
+- Follow the security rules in @AGENTS.md — no secret logging, no telemetry,
+  no destructive mail ops without explicit guard logic.
