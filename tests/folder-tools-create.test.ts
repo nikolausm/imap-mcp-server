@@ -18,7 +18,7 @@ const mockImapService = {
 describe('imap_create_folder Tool Handler', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    folderTools(mockServer as any, mockImapService as any, {} as any);
+    folderTools(mockServer as any, mockImapService as any, { resolveAccountId: (id: string) => id } as any);
   });
 
   it('should be registered', () => {

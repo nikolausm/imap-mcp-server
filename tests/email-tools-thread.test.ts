@@ -18,7 +18,7 @@ const mockImapService = {
 describe('imap_find_thread_messages Tool Handler', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    emailTools(mockServer as any, mockImapService as any, {} as any, {} as any);
+    emailTools(mockServer as any, mockImapService as any, { resolveAccountId: (id: string) => id } as any, {} as any);
   });
 
   it('should be registered', () => {

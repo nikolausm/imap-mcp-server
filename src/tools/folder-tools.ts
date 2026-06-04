@@ -3,6 +3,13 @@ import { ImapService } from '../services/imap-service.js';
 import { AccountManager } from '../services/account-manager.js';
 import { z } from 'zod';
 
+// Backward-compatible account selector (accountId stays accepted; accountName
+// and the single-account default are additive conveniences).
+const accountSelector = {
+  accountId: z.string().optional().describe('Account ID (from imap_list_accounts). Optional if accountName is given or only one account is configured.'),
+  accountName: z.string().optional().describe('Account name instead of accountId. Optional if accountId is given or only one account is configured.'),
+};
+
 export function folderTools(
   server: McpServer,
   imapService: ImapService,
@@ -10,11 +17,12 @@ export function folderTools(
 ): void {
   // List folders tool
   server.registerTool('imap_list_folders', {
-    description: 'List all folders/mailboxes in an IMAP account',
+    description: 'List all folders/mailboxes for an account (names, hierarchy delimiter, attributes). Use this first to discover exact folder names before searching, moving, or creating subfolders — folder naming varies by provider (e.g. "Archive" vs "[Gmail]/All Mail" vs "INBOX.Archive").',
     inputSchema: {
-      accountId: z.string().describe('Account ID'),
+      ...accountSelector,
     }
-  }, async ({ accountId }) => {
+  }, async ({ accountId: rawAccountId, accountName }) => {
+    const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
     const folders = await imapService.listFolders(accountId);
     
     return {
@@ -36,10 +44,11 @@ export function folderTools(
   server.registerTool('imap_folder_status', {
     description: 'Get status information about a folder',
     inputSchema: {
-      accountId: z.string().describe('Account ID'),
+      ...accountSelector,
       folder: z.string().describe('Folder name'),
     }
-  }, async ({ accountId, folder }) => {
+  }, async ({ accountId: rawAccountId, accountName, folder }) => {
+    const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
     const box = await imapService.selectFolder(accountId, folder);
     
     return {
@@ -68,10 +77,11 @@ export function folderTools(
       '(e.g. creating "Archives/2026/2026-05" auto-creates "Archives" and "Archives/2026"). ' +
       'Returns success even if the folder already exists.',
     inputSchema: {
-      accountId: z.string().describe('Account ID'),
+      ...accountSelector,
       folder: z.string().describe('Full folder path to create (e.g. "Archives/2026/2026-05" or "INBOX.Archive")'),
     }
-  }, async ({ accountId, folder }) => {
+  }, async ({ accountId: rawAccountId, accountName, folder }) => {
+    const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
     try {
       const result = await imapService.createFolder(accountId, folder);
       return {
@@ -104,12 +114,13 @@ export function folderTools(
 
   // Get unread count tool
   server.registerTool('imap_get_unread_count', {
-    description: 'Get the count of unread emails in specified folders',
+    description: 'Count unread (unseen) emails per folder, plus a total. Use for "how many unread do I have?" overviews. Defaults to all folders; pass a folders list to limit scope and speed it up.',
     inputSchema: {
-      accountId: z.string().describe('Account ID'),
+      ...accountSelector,
       folders: z.array(z.string()).optional().describe('List of folders to check (default: all)'),
     }
-  }, async ({ accountId, folders }) => {
+  }, async ({ accountId: rawAccountId, accountName, folders }) => {
+    const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
     const allFolders = await imapService.listFolders(accountId);
     const foldersToCheck = folders || allFolders.map(f => f.name);
     

@@ -209,6 +209,12 @@ Add the IMAP MCP server to your Claude Desktop configuration file:
 
 Once configured, the IMAP MCP server provides the following tools in Claude:
 
+> **Choosing an account.** For the email and folder tools, `accountId` is
+> **optional** and backward-compatible. You may instead pass `accountName`, and
+> if you only have a **single** account configured you can omit both — that
+> account is used by default. With multiple accounts and no selector, the tool
+> returns a clear error listing your options (`imap_list_accounts`).
+
 ### Account Management
 
 - **imap_add_account**: Add a new IMAP account

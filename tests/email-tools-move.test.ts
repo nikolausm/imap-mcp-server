@@ -16,7 +16,7 @@ const mockImapService = {
   moveEmail: vi.fn(),
 };
 
-const mockAccountManager = {};
+const mockAccountManager = { resolveAccountId: (id: string) => id };
 const mockSmtpService = {};
 
 describe('imap_move_email Tool Handler', () => {
