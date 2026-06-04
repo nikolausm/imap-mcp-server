@@ -36,3 +36,6 @@ temp/
 
 # User configuration (contains sensitive data)
 .imap-mcp/
+# MCP Registry publisher OAuth tokens
+.mcpregistry_github_token
+.mcpregistry_registry_token

@@ -516,7 +516,7 @@ The server automatically configures SMTP settings based on your IMAP provider. I
 
 ## License
 
-ISC
+MIT
 
 ## Contributing
 
