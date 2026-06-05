@@ -769,10 +769,25 @@ export class ImapService {
   }
 
   async appendToSentFolder(accountId: string, rawMessage: Buffer | string): Promise<boolean> {
-    const sentFolderNames = ['Sent Messages', 'Sent', 'INBOX.Sent', 'Sent Items', 'Sent Mail', '[Gmail]/Sent Mail'];
-    const folder = await this.findFolderByNames(accountId, sentFolderNames);
+    const sentFolderNames = [
+      // English / standard
+      'Sent Messages', 'Sent', 'INBOX.Sent', 'Sent Items', 'Sent Mail', '[Gmail]/Sent Mail',
+      // French (Outlook / Exchange / Sherweb)
+      'Éléments envoyés', 'Eléments envoyés', 'Messages envoyés',
+      // German
+      'Gesendet', 'Gesendete Elemente', 'Gesendete Objekte',
+      // Spanish
+      'Enviados', 'Elementos enviados',
+      // Portuguese
+      'Enviados', 'Itens Enviados',
+      // Italian
+      'Inviati', 'Posta inviata',
+      // Dutch
+      'Verzonden', 'Verzonden items',
+    ];
+    const folder = await this.findSpecialUseFolder(accountId, '\\Sent', sentFolderNames);
     if (!folder) {
-      console.warn(`[IMAP] No sent folder found for account ${accountId}. Tried: ${sentFolderNames.join(', ')}`);
+      console.warn(`[IMAP] No sent folder found for account ${accountId}. Tried SPECIAL-USE flag \\Sent + names: ${sentFolderNames.join(', ')}`);
       return false;
     }
     return this.appendMessage(accountId, folder, rawMessage, ['\\Seen']);
@@ -783,8 +798,57 @@ export class ImapService {
     return folders.find(f => candidates.includes(f.name))?.name;
   }
 
+  /**
+   * Find a folder by IMAP SPECIAL-USE flag (RFC 6154) first, with fallback
+   * to a list of localized folder names.
+   *
+   * SPECIAL-USE flags (\Sent, \Drafts, \Trash, \Junk, \Archive) are language-
+   * independent and work with any IMAP server that advertises them. This
+   * resolves localized folder names (e.g. "Éléments envoyés" on Sherweb /
+   * Outlook FR) without needing to hardcode every language.
+   *
+   * Fallback to name list keeps backward compatibility with older servers
+   * that don't advertise SPECIAL-USE flags.
+   */
+  async findSpecialUseFolder(
+    accountId: string,
+    specialUseFlag: string,
+    fallbackNames: string[],
+  ): Promise<string | undefined> {
+    const folders = await this.listFolders(accountId);
+
+    // Priority 1: SPECIAL-USE flag match (RFC 6154 — language-independent)
+    const flagMatch = folders.find(f =>
+      Array.isArray(f.attributes) && f.attributes.some(a =>
+        typeof a === 'string' && a.toLowerCase() === specialUseFlag.toLowerCase()
+      )
+    );
+    if (flagMatch) {
+      return flagMatch.name;
+    }
+
+    // Priority 2: name match (fallback for older servers)
+    return folders.find(f => fallbackNames.includes(f.name))?.name;
+  }
+
   async findDraftsFolder(accountId: string): Promise<string | undefined> {
-    return this.findFolderByNames(accountId, ['Drafts', 'Draft', 'INBOX.Drafts', 'INBOX.Draft', '[Gmail]/Drafts']);
+    const draftsFolderNames = [
+      // English
+      'Drafts', 'Draft', 'INBOX.Drafts', 'INBOX.Draft', '[Gmail]/Drafts',
+      // French
+      'Brouillons',
+      // German
+      'Entwürfe',
+      // Spanish
+      'Borradores',
+      // Portuguese
+      'Rascunhos',
+      // Italian
+      'Bozze',
+      // Dutch
+      'Concepten',
+    ];
+    return this.findSpecialUseFolder(accountId, '\\Drafts', draftsFolderNames);
   }
 
   async appendMessage(accountId: string, folder: string, rawMessage: Buffer | string, flags?: string[]): Promise<boolean> {
