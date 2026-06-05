@@ -215,7 +215,7 @@ export class ImapService {
         delimiter: folder.delimiter,
         attributes: Array.from(folder.flags || []),
         specialUse: folder.specialUse,
-        children: folder.folders ? this.convertFolderList(folder.folders) : undefined,
+        children: (folder as any).folders ? this.convertFolderList((folder as any).folders) : undefined,
       });
     }
 
@@ -271,7 +271,7 @@ export class ImapService {
       const searchQuery = this.buildSearchQuery(criteria);
       const uids = await client.search(searchQuery, { uid: true });
 
-      if (uids.length === 0) {
+      if (!uids || uids.length === 0) {
         return [];
       }
 
@@ -285,7 +285,7 @@ export class ImapService {
       }, { uid: true })) {
         messages.push({
           uid: msg.uid,
-          date: msg.internalDate || msg.envelope?.date || new Date(),
+          date: new Date(msg.internalDate || msg.envelope?.date || Date.now()),
           from: msg.envelope?.from?.[0] ? this.formatAddress(msg.envelope.from[0]) : '',
           to: msg.envelope?.to?.map((addr: any) => this.formatAddress(addr)) || [],
           subject: msg.envelope?.subject || '',
@@ -311,7 +311,7 @@ export class ImapService {
       lock = await client.getMailboxLock(folderName);
 
       const uids = await client.search({ all: true }, { uid: true });
-      if (uids.length === 0) {
+      if (!uids || uids.length === 0) {
         return [];
       }
 
@@ -326,7 +326,7 @@ export class ImapService {
       }, { uid: true })) {
         messages.push({
           uid: msg.uid,
-          date: msg.internalDate || msg.envelope?.date || new Date(),
+          date: new Date(msg.internalDate || msg.envelope?.date || Date.now()),
           from: msg.envelope?.from?.[0] ? this.formatAddress(msg.envelope.from[0]) : '',
           to: msg.envelope?.to?.map((addr: any) => this.formatAddress(addr)) || [],
           subject: msg.envelope?.subject || '',
@@ -722,7 +722,7 @@ export class ImapService {
     let lock = await client.getMailboxLock(sourceFolder);
     try {
       const allUids = await client.search({ all: true }, { uid: true });
-      if (allUids.length > 0) {
+      if (allUids && allUids.length > 0) {
         for await (const msg of client.fetch(allUids, { uid: true, envelope: true }, { uid: true })) {
           if (msg.envelope?.messageId) {
             messageIds.push(msg.envelope.messageId);
@@ -747,14 +747,14 @@ export class ImapService {
             { header: { 'in-reply-to': msgId } as any },
             { uid: true },
           );
-          for (const uid of inReplyMatches) foundUids.add(uid);
+          for (const uid of inReplyMatches || []) foundUids.add(uid);
 
           if (includeReferences) {
             const refMatches = await client.search(
               { header: { 'references': msgId } as any },
               { uid: true },
             );
-            for (const uid of refMatches) foundUids.add(uid);
+            for (const uid of refMatches || []) foundUids.add(uid);
           }
         } catch {
           // Skip per-message errors so one bad search doesn't kill the whole sweep

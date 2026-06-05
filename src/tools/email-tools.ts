@@ -14,6 +14,18 @@ const accountSelector = {
   accountName: z.string().optional().describe('Account name instead of accountId. Optional if accountId is given or only one account is configured.'),
 };
 
+// Attachment payload as accepted by the send/draft/reply/forward tool schemas.
+// Typed explicitly because the MCP SDK's deep tool-schema inference (the TS2589
+// suppressions below) widens the handler's `attachments` arg to an untyped shape.
+type AttachmentInput = { filename: string; content?: string; path?: string; contentType?: string };
+const buildAttachments = (atts?: AttachmentInput[]) =>
+  atts?.map(att => ({
+    filename: att.filename,
+    content: att.content ? Buffer.from(att.content, 'base64') : undefined,
+    path: att.path,
+    contentType: att.contentType,
+  }));
+
 const DOWNLOAD_DIR = process.env.IMAP_DOWNLOAD_DIR || join(homedir(), 'Downloads', 'imap-attachments');
 const MAX_UPLOAD_SIZE = parseInt(process.env.IMAP_MAX_UPLOAD_SIZE ?? '', 10) || 25 * 1024 * 1024;
 const UPLOAD_TTL_MS = parseInt(process.env.IMAP_UPLOAD_TTL_MS ?? '', 10) || 24 * 60 * 60 * 1000;
@@ -390,6 +402,7 @@ export function emailTools(
   });
 
   // Bulk delete emails tool
+  // @ts-expect-error TS2589: MCP SDK registerTool + zod v3 exceed TS's type instantiation depth. Runtime schema validation is unaffected.
   server.registerTool('imap_bulk_delete', {
     description: 'Delete multiple emails at once with chunking and auto-reconnection. Processes deletions in batches to prevent connection timeouts.',
     inputSchema: {
@@ -524,6 +537,7 @@ export function emailTools(
   });
 
   // Send email tool
+  // @ts-expect-error TS2589: MCP SDK registerTool + zod v3 exceed TS's type instantiation depth. Runtime schema validation is unaffected.
   server.registerTool('imap_send_email', {
     description: 'Compose and send a NEW email via the account\'s SMTP server (a copy is saved to Sent unless disabled). Use for fresh outbound messages. To respond to an existing message use imap_reply_to_email (keeps threading); to pass a message on use imap_forward_email; to store without sending use imap_save_draft. Supports to/cc/bcc, text and/or HTML, and attachments by base64 content or by file path (see imap_upload_file for large files).',
     inputSchema: {
@@ -558,12 +572,7 @@ export function emailTools(
       cc,
       bcc,
       replyTo,
-      attachments: attachments?.map(att => ({
-        filename: att.filename,
-        content: att.content ? Buffer.from(att.content, 'base64') : undefined,
-        path: att.path,
-        contentType: att.contentType,
-      })),
+      attachments: buildAttachments(attachments as AttachmentInput[] | undefined),
     };
 
     const { messageId, rawMessage } = await smtpService.sendEmail(accountId, account, emailComposer);
@@ -590,6 +599,7 @@ export function emailTools(
   });
 
   // Save draft tool — composes a message and appends it to the Drafts folder with the \Draft flag
+  // @ts-expect-error TS2589: MCP SDK registerTool + zod v3 exceed TS's type instantiation depth. Runtime schema validation is unaffected.
   server.registerTool('imap_save_draft', {
     description: 'Save an email as a draft in the Drafts folder (no send). Takes the same fields as imap_send_email.',
     inputSchema: {
@@ -629,12 +639,7 @@ export function emailTools(
       replyTo,
       inReplyTo,
       references,
-      attachments: attachments?.map(att => ({
-        filename: att.filename,
-        content: att.content ? Buffer.from(att.content, 'base64') : undefined,
-        path: att.path,
-        contentType: att.contentType,
-      })),
+      attachments: buildAttachments(attachments as AttachmentInput[] | undefined),
     };
 
     const rawMessage = await smtpService.composeRaw(account, emailComposer);
@@ -662,6 +667,7 @@ export function emailTools(
   });
 
   // Reply to email tool
+  // @ts-expect-error TS2589: MCP SDK registerTool + zod v3 exceed TS's type instantiation depth. Runtime schema validation is unaffected.
   server.registerTool('imap_reply_to_email', {
     description: 'Reply to an existing email identified by folder + uid. Automatically sets the recipient to the original sender, prefixes the subject with "Re:", and preserves threading (In-Reply-To/References). Set replyAll to also include the original recipients. Use this instead of imap_send_email whenever the user is responding to a message already in a mailbox.',
     inputSchema: {
@@ -721,12 +727,7 @@ export function emailTools(
       html,
       inReplyTo: originalEmail.messageId,
       references: originalEmail.messageId,
-      attachments: attachments?.map(att => ({
-        filename: att.filename,
-        content: att.content ? Buffer.from(att.content, 'base64') : undefined,
-        path: att.path,
-        contentType: att.contentType,
-      })),
+      attachments: buildAttachments(attachments as AttachmentInput[] | undefined),
     };
 
     const { messageId, rawMessage } = await smtpService.sendEmail(accountId, account, emailComposer);

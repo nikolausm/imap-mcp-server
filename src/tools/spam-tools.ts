@@ -57,6 +57,7 @@ export function spamTools(
   });
 
   // Delete spam emails
+  // @ts-expect-error TS2589: MCP SDK registerTool + zod v3 exceed TS's type instantiation depth. Runtime schema validation is unaffected.
   server.registerTool('imap_delete_spam', {
     description: 'Find and delete emails from known spam/disposable email domains.',
     inputSchema: {

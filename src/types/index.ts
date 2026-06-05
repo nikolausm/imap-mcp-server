@@ -7,6 +7,7 @@ export interface ImapAccount {
   password: string;
   tls: boolean;
   email?: string;
+  loginMethod?: string;
   authTimeout?: number;
   connTimeout?: number;
   keepalive?: boolean;

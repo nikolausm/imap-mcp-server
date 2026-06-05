@@ -26,7 +26,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "lint": "tsc --noEmit --skipLibCheck"
+    "lint": "NODE_OPTIONS=--max-old-space-size=8192 tsc --noEmit --skipLibCheck"
   },
   "keywords": [
     "mcp",

@@ -11,6 +11,8 @@ export function accountTools(
   smtpService: SmtpService
 ): void {
   // Add account tool
+  // @ts-expect-error TS2589: MCP SDK registerTool + zod v3 exceed TS's type
+  // instantiation depth limit. Schema validation is unaffected at runtime.
   server.registerTool('imap_add_account', {
     description: 'Add a new IMAP account configuration',
     inputSchema: {
