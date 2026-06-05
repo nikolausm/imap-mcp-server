@@ -57,6 +57,8 @@ export interface Folder {
   name: string;
   delimiter: string;
   attributes: string[];
+  /** RFC 6154 special-use attribute as parsed by imapflow (e.g. "\\Sent", "\\Drafts"). */
+  specialUse?: string;
   children?: Folder[];
 }
 

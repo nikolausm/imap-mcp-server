@@ -213,7 +213,8 @@ export class ImapService {
       folders.push({
         name: folder.path,
         delimiter: folder.delimiter,
-        attributes: folder.flags || [],
+        attributes: Array.from(folder.flags || []),
+        specialUse: folder.specialUse,
         children: folder.folders ? this.convertFolderList(folder.folders) : undefined,
       });
     }
@@ -225,7 +226,8 @@ export class ImapService {
     return folders.map(f => ({
       name: f.path,
       delimiter: f.delimiter,
-      attributes: f.flags || [],
+      attributes: Array.from(f.flags || []),
+      specialUse: f.specialUse,
       children: f.folders ? this.convertFolderList(f.folders) : undefined,
     }));
   }
@@ -816,18 +818,27 @@ export class ImapService {
     fallbackNames: string[],
   ): Promise<string | undefined> {
     const folders = await this.listFolders(accountId);
+    const target = specialUseFlag.toLowerCase();
 
-    // Priority 1: SPECIAL-USE flag match (RFC 6154 — language-independent)
+    // Priority 1: imapflow's parsed specialUse field (RFC 6154 — language-
+    // independent, most reliable). imapflow derives this from the LIST
+    // SPECIAL-USE response and exposes it per mailbox.
+    const specialUseMatch = folders.find(f => f.specialUse?.toLowerCase() === target);
+    if (specialUseMatch) {
+      return specialUseMatch.name;
+    }
+
+    // Priority 2: raw SPECIAL-USE flag in the mailbox attributes, for servers
+    // that advertise it as a LIST flag but where imapflow didn't map it.
     const flagMatch = folders.find(f =>
-      Array.isArray(f.attributes) && f.attributes.some(a =>
-        typeof a === 'string' && a.toLowerCase() === specialUseFlag.toLowerCase()
-      )
+      f.attributes.some(a => typeof a === 'string' && a.toLowerCase() === target)
     );
     if (flagMatch) {
       return flagMatch.name;
     }
 
-    // Priority 2: name match (fallback for older servers)
+    // Priority 3: localized name match (fallback for older servers that don't
+    // advertise SPECIAL-USE at all).
     return folders.find(f => fallbackNames.includes(f.name))?.name;
   }
 
