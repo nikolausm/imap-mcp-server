@@ -15,7 +15,7 @@ on:
 
 jobs:
   test:
-    runs-on: [self-hosted, Linux]
+    runs-on: ubuntu-latest
 
     strategy:
       matrix:
@@ -50,7 +50,7 @@ jobs:
           retention-days: 7
 
   build:
-    runs-on: [self-hosted, Linux]
+    runs-on: ubuntu-latest
     needs: test
 
     steps:
@@ -84,7 +84,7 @@ jobs:
           retention-days: 7
 
   security:
-    runs-on: [self-hosted, Linux]
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
