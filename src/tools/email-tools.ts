@@ -687,12 +687,30 @@ export function emailTools(
 
     // Get original email
     const originalEmail = await imapService.getEmailContent(accountId, folder, uid);
-    
-    // Prepare reply
+
+    // Extract the bare email address from a header value that may include a
+    // display name (e.g. 'Alice <alice@example.com>' → 'alice@example.com').
+    // Returns lowercase for case-insensitive comparison per RFC 5321 §2.4.
+    const extractEmail = (addr: string): string => {
+      const match = addr.match(/<([^>]+)>/);
+      return (match ? match[1] : addr).trim().toLowerCase();
+    };
+
+    // Prepare reply. replyAll: include original To recipients but EXCLUDE
+    // our own address (otherwise the SMTP server delivers a copy back to
+    // our INBOX). Use extracted lowercase address for comparison so it works
+    // when the To header includes display names like 'Us <us@example.com>'.
+    const accountEmail = extractEmail(account.email || account.user);
     const recipients = [originalEmail.from];
     if (replyAll) {
-      const accountEmail = account.email || account.user;
-      recipients.push(...originalEmail.to.filter(addr => addr !== accountEmail));
+      const seen = new Set<string>([accountEmail, ...recipients.map(extractEmail)]);
+      for (const addr of originalEmail.to) {
+        const normalized = extractEmail(addr);
+        if (!seen.has(normalized)) {
+          recipients.push(addr);
+          seen.add(normalized);
+        }
+      }
     }
 
     const emailComposer = {
