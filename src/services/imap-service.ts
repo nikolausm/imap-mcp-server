@@ -553,11 +553,67 @@ export class ImapService {
     }
   }
 
-  async deleteEmail(accountId: string, folderName: string, uid: number): Promise<void> {
+  /**
+   * Detect the trash folder for an IMAP account.
+   *
+   * Priority:
+   *   1. RFC 6154 SPECIAL-USE `\Trash` flag — the server tells us itself
+   *   2. Provider-specific hardcoded path (Gmail's `[Gmail]/Trash`)
+   *   3. Fallback list of common trash folder names across locales
+   *      (Sherweb FR Exchange uses "Éléments supprimés", not "Trash")
+   *
+   * Without this, a server like Sherweb would silently fail: messageMove
+   * to a non-existent `Trash` folder, deleted counter incremented, but
+   * messages never actually leave the source folder.
+   */
+  private async resolveTrashFolder(accountId: string): Promise<string | null> {
     const client = await this.ensureConnected(accountId);
     const connState = this.connections.get(accountId);
     const isGmail = connState?.account?.host?.includes('gmail') || connState?.account?.host?.includes('google');
-    const trashFolder = isGmail ? '[Gmail]/Trash' : 'Trash';
+
+    // 1. SPECIAL-USE flag (RFC 6154) — most reliable
+    try {
+      const folders = await client.list();
+      const trash = folders.find((f: any) => f.specialUse === '\\Trash');
+      if (trash) return trash.path;
+
+      // 2. Gmail path fallback (special-use may be absent)
+      if (isGmail && folders.some((f: any) => f.path === '[Gmail]/Trash')) {
+        return '[Gmail]/Trash';
+      }
+
+      // 3. Common trash folder names across providers/locales
+      const candidates = [
+        'Trash',
+        'Deleted Items',           // Exchange EN
+        'Deleted Messages',         // Apple Mail
+        'Éléments supprimés',      // Exchange FR (Sherweb)
+        'Eléments supprimés',      // Exchange FR no accent on É
+        'Elementos eliminados',     // Exchange ES
+        'Gelöschte Elemente',       // Exchange DE
+        'Elementi eliminati',       // Exchange IT
+        'Papierkorb',               // DE classic
+        'Papelera',                 // ES classic
+        'Corbeille',                // FR classic
+        'INBOX.Trash',              // Courier-IMAP
+      ];
+      for (const name of candidates) {
+        if (folders.some((f: any) => f.path === name)) return name;
+      }
+    } catch {
+      // LIST failed — fall through to legacy default
+    }
+
+    // 4. Legacy fallback (preserves old behavior, may still fail loudly now)
+    return isGmail ? '[Gmail]/Trash' : 'Trash';
+  }
+
+  async deleteEmail(accountId: string, folderName: string, uid: number): Promise<void> {
+    const client = await this.ensureConnected(accountId);
+    const trashFolder = await this.resolveTrashFolder(accountId);
+    if (!trashFolder) {
+      throw new Error('Cannot delete: no trash folder detected on this account');
+    }
 
     let lock;
     try {
@@ -584,9 +640,14 @@ export class ImapService {
     onProgress?: (deleted: number, total: number) => void
   ): Promise<{ deleted: number; failed: number; errors: string[] }> {
     const client = await this.ensureConnected(accountId);
-    const connState = this.connections.get(accountId);
-    const isGmail = connState?.account?.host?.includes('gmail') || connState?.account?.host?.includes('google');
-    const trashFolder = isGmail ? '[Gmail]/Trash' : 'Trash';
+    const trashFolder = await this.resolveTrashFolder(accountId);
+    if (!trashFolder) {
+      return {
+        deleted: 0,
+        failed: uids.length,
+        errors: ['No trash folder detected on this account'],
+      };
+    }
     const isAlreadyInTrash = folderName === trashFolder;
 
     let deleted = 0;
