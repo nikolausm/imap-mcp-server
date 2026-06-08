@@ -546,6 +546,7 @@ export function emailTools(
       subject: z.string().describe('Email subject'),
       text: z.string().optional().describe('Plain text content'),
       html: z.string().optional().describe('HTML content'),
+      body: z.string().optional().describe("Alias for 'text' (backward-compat with clients that pass 'body')"),
       cc: z.union([z.string(), z.array(z.string())]).optional().describe('CC recipients'),
       bcc: z.union([z.string(), z.array(z.string())]).optional().describe('BCC recipients'),
       replyTo: z.string().optional().describe('Reply-to address'),
@@ -556,7 +557,7 @@ export function emailTools(
         contentType: z.string().optional().describe('MIME type'),
       })).optional().describe('Email attachments'),
     }
-  }, async ({ accountId: rawAccountId, accountName, to, subject, text, html, cc, bcc, replyTo, attachments }) => {
+  }, async ({ accountId: rawAccountId, accountName, to, subject, text, html, body, cc, bcc, replyTo, attachments }) => {
     const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
     const account = await accountManager.getAccount(accountId);
     if (!account) {
@@ -567,7 +568,7 @@ export function emailTools(
       from: account.email || account.user,
       to,
       subject,
-      text,
+      text: text ?? body,
       html,
       cc,
       bcc,
@@ -608,6 +609,7 @@ export function emailTools(
       subject: z.string().optional().describe('Email subject'),
       text: z.string().optional().describe('Plain text content'),
       html: z.string().optional().describe('HTML content'),
+      body: z.string().optional().describe("Alias for 'text' (backward-compat)"),
       cc: z.union([z.string(), z.array(z.string())]).optional().describe('CC recipients'),
       bcc: z.union([z.string(), z.array(z.string())]).optional().describe('BCC recipients'),
       replyTo: z.string().optional().describe('Reply-to address'),
@@ -621,7 +623,7 @@ export function emailTools(
       })).optional().describe('Email attachments'),
       folder: z.string().optional().describe('Override the Drafts folder name (defaults to auto-detected Drafts folder)'),
     }
-  }, async ({ accountId: rawAccountId, accountName, to, subject, text, html, cc, bcc, replyTo, inReplyTo, references, attachments, folder }) => {
+  }, async ({ accountId: rawAccountId, accountName, to, subject, text, html, body, cc, bcc, replyTo, inReplyTo, references, attachments, folder }) => {
     const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
     const account = await accountManager.getAccount(accountId);
     if (!account) {
@@ -632,7 +634,7 @@ export function emailTools(
       from: account.email || account.user,
       to: to ?? '',
       subject: subject ?? '',
-      text,
+      text: text ?? body,
       html,
       cc,
       bcc,
@@ -676,6 +678,7 @@ export function emailTools(
       uid: z.coerce.number().describe('UID of the email to reply to'),
       text: z.string().optional().describe('Plain text reply content'),
       html: z.string().optional().describe('HTML reply content'),
+      body: z.string().optional().describe("Alias for 'text' (backward-compat)"),
       replyAll: z.boolean().default(false).describe('Reply to all recipients'),
       attachments: z.array(z.object({
         filename: z.string().describe('Attachment filename'),
@@ -684,7 +687,7 @@ export function emailTools(
         contentType: z.string().optional().describe('MIME type'),
       })).optional().describe('Email attachments'),
     }
-  }, async ({ accountId: rawAccountId, accountName, folder, uid, text, html, replyAll, attachments }) => {
+  }, async ({ accountId: rawAccountId, accountName, folder, uid, text, html, body, replyAll, attachments }) => {
     const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
     const account = await accountManager.getAccount(accountId);
     if (!account) {
@@ -723,7 +726,7 @@ export function emailTools(
       from: account.email || account.user,
       to: recipients,
       subject: originalEmail.subject.startsWith('Re: ') ? originalEmail.subject : `Re: ${originalEmail.subject}`,
-      text,
+      text: text ?? body,
       html,
       inReplyTo: originalEmail.messageId,
       references: originalEmail.messageId,
@@ -762,9 +765,10 @@ export function emailTools(
       uid: z.coerce.number().describe('UID of the email to forward'),
       to: z.union([z.string(), z.array(z.string())]).describe('Forward to email address(es)'),
       text: z.string().optional().describe('Additional text to include'),
+      body: z.string().optional().describe("Alias for 'text' (backward-compat)"),
       includeAttachments: z.boolean().default(true).describe('Include original attachments'),
     }
-  }, async ({ accountId: rawAccountId, accountName, folder, uid, to, text, includeAttachments }) => {
+  }, async ({ accountId: rawAccountId, accountName, folder, uid, to, text, body, includeAttachments }) => {
     const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
     const account = await accountManager.getAccount(accountId);
     if (!account) {
@@ -781,7 +785,7 @@ export function emailTools(
       from: account.email || account.user,
       to,
       subject: originalEmail.subject.startsWith('Fwd: ') ? originalEmail.subject : `Fwd: ${originalEmail.subject}`,
-      text: (text || '') + forwardHeader + (originalEmail.textContent || ''),
+      text: (text ?? body ?? '') + forwardHeader + (originalEmail.textContent || ''),
       html: originalEmail.htmlContent,
       references: originalEmail.messageId,
     };
