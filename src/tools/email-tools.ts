@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { ImapService } from '../services/imap-service.js';
 import { AccountManager } from '../services/account-manager.js';
 import { SmtpService } from '../services/smtp-service.js';
+import { shouldSaveToSent } from '../utils/sent-folder.js';
 import { z } from 'zod';
 import { join } from 'path';
 import { homedir } from 'os';
@@ -528,7 +529,7 @@ export function emailTools(
 
     // Save copy to Sent folder
     let savedToSent = false;
-    if (rawMessage && account.saveToSent !== false) {
+    if (rawMessage && shouldSaveToSent(account)) {
       try {
         savedToSent = await imapService.appendToSentFolder(accountId, rawMessage);
       } catch { /* non-critical */ }
@@ -671,7 +672,7 @@ export function emailTools(
 
     // Save copy to Sent folder
     let savedToSent = false;
-    if (rawMessage && account.saveToSent !== false) {
+    if (rawMessage && shouldSaveToSent(account)) {
       try {
         savedToSent = await imapService.appendToSentFolder(accountId, rawMessage);
       } catch { /* non-critical */ }
@@ -726,7 +727,7 @@ export function emailTools(
 
     // Save copy to Sent folder
     let savedToSent = false;
-    if (rawMessage && account.saveToSent !== false) {
+    if (rawMessage && shouldSaveToSent(account)) {
       try {
         savedToSent = await imapService.appendToSentFolder(accountId, rawMessage);
       } catch { /* non-critical */ }

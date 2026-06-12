@@ -525,6 +525,21 @@ export class ImapService {
     }
   }
 
+  async uidExists(accountId: string, folderName: string, uid: number): Promise<boolean> {
+    const client = await this.ensureConnected(accountId);
+
+    let lock;
+    try {
+      lock = await client.getMailboxLock(folderName);
+      const msg = await client.fetchOne(String(uid), { uid: true }, { uid: true });
+      return !!msg && (msg as any).uid === uid;
+    } finally {
+      if (lock) {
+        lock.release();
+      }
+    }
+  }
+
   async markAsRead(accountId: string, folderName: string, uid: number): Promise<void> {
     const client = await this.ensureConnected(accountId);
 

@@ -133,7 +133,16 @@ export class AccountManager {
   }
 
   getAccountByName(name: string): ImapAccount | undefined {
-    const account = Array.from(this.accounts.values()).find(acc => acc.name === name);
+    const normalize = (s: string) => s.toLowerCase().replace(/[\s_-]+/g, '');
+    const target = normalize(name);
+    const all = Array.from(this.accounts.values());
+    let account = all.find(acc => acc.name === name);
+    if (!account) account = all.find(acc => acc.name.toLowerCase() === name.toLowerCase());
+    if (!account) account = all.find(acc => normalize(acc.name) === target);
+    if (!account) {
+      const prefixHits = all.filter(acc => normalize(acc.name).startsWith(target));
+      if (prefixHits.length === 1) account = prefixHits[0];
+    }
     if (!account) return undefined;
 
     const decrypted: ImapAccount = {

@@ -9,6 +9,7 @@ import { AccountManager } from './services/account-manager.js';
 import { SmtpService } from './services/smtp-service.js';
 import { SpamService } from './services/spam-service.js';
 import { ImapAccount, EmailAttachment, EmailComposer, SearchCriteria } from './types/index.js';
+import { shouldSaveToSent } from './utils/sent-folder.js';
 
 dotenv.config({ quiet: true });
 
@@ -139,6 +140,55 @@ program
     await imapService.disconnect(account.id);
     await accountManager.removeAccount(account.id);
     emit({ success: true, accountId: account.id });
+  });
+
+program
+  .command('update-account <accountId>')
+  .description('Update an existing account. Pass --pass / --smtp-* options to fix credentials or SMTP config.')
+  .option('--name <name>', 'New friendly name')
+  .option('--host <host>', 'IMAP host')
+  .option('--port <port>', 'IMAP port')
+  .option('--user <user>', 'IMAP username')
+  .option('--pass <password>', 'New password (or set IMAP_ADD_PASSWORD env var)')
+  .option('--no-tls', 'Disable TLS')
+  .option('--email <email>', 'From: header address')
+  .option('--save-to-sent <bool>', 'Override saveToSent (true/false)')
+  .option('--smtp-host <host>', 'SMTP host')
+  .option('--smtp-port <port>', 'SMTP port')
+  .option('--smtp-secure <bool>', 'SMTP implicit TLS (true/false)')
+  .option('--smtp-user <user>', 'SMTP username')
+  .option('--smtp-pass <password>', 'SMTP password')
+  .action(async (accountId, opts) => {
+    const account = resolveAccount(accountId);
+    const updates: any = {};
+    if (opts.name !== undefined) updates.name = opts.name;
+    if (opts.host !== undefined) updates.host = opts.host;
+    if (opts.port !== undefined) updates.port = Number(opts.port);
+    if (opts.user !== undefined) updates.user = opts.user;
+    const newPass = opts.pass || process.env.IMAP_ADD_PASSWORD;
+    if (newPass) updates.password = newPass;
+    if (opts.tls === false) updates.tls = false;
+    if (opts.email !== undefined) updates.email = opts.email;
+    if (opts.saveToSent !== undefined) updates.saveToSent = opts.saveToSent === 'true';
+    const smtpTouched = [opts.smtpHost, opts.smtpPort, opts.smtpSecure, opts.smtpUser, opts.smtpPass].some(v => v !== undefined);
+    if (smtpTouched) {
+      const current = account.smtp;
+      updates.smtp = {
+        host: opts.smtpHost ?? current?.host ?? account.host,
+        port: opts.smtpPort !== undefined ? Number(opts.smtpPort) : (current?.port ?? 587),
+        secure: opts.smtpSecure !== undefined ? opts.smtpSecure === 'true' : (current?.secure ?? false),
+        ...(opts.smtpUser !== undefined ? { user: opts.smtpUser } : current?.user ? { user: current.user } : {}),
+        ...(opts.smtpPass !== undefined ? { password: opts.smtpPass } : {}),
+      };
+      smtpService.disconnect(account.id);
+    }
+    const updated = await accountManager.updateAccount(account.id, updates);
+    emit({
+      success: true,
+      accountId: updated.id,
+      name: updated.name,
+      smtp: updated.smtp ? { host: updated.smtp.host, port: updated.smtp.port, secure: updated.smtp.secure } : undefined,
+    });
   });
 
 program
@@ -337,7 +387,7 @@ program
       };
       const { messageId, rawMessage } = await smtpService.sendEmail(account.id, account, composer);
       let savedToSent = false;
-      if (rawMessage && account.saveToSent !== false) {
+      if (rawMessage && shouldSaveToSent(account)) {
         try { savedToSent = await imapService.appendToSentFolder(account.id, rawMessage); } catch {}
       }
       emit({ success: true, messageId, savedToSent });
@@ -373,7 +423,7 @@ program
       };
       const { messageId, rawMessage } = await smtpService.sendEmail(account.id, account, composer);
       let savedToSent = false;
-      if (rawMessage && account.saveToSent !== false) {
+      if (rawMessage && shouldSaveToSent(account)) {
         try { savedToSent = await imapService.appendToSentFolder(account.id, rawMessage); } catch {}
       }
       emit({ success: true, messageId, savedToSent });
@@ -404,7 +454,7 @@ program
       };
       const { messageId, rawMessage } = await smtpService.sendEmail(account.id, account, composer);
       let savedToSent = false;
-      if (rawMessage && account.saveToSent !== false) {
+      if (rawMessage && shouldSaveToSent(account)) {
         try { savedToSent = await imapService.appendToSentFolder(account.id, rawMessage); } catch {}
       }
       emit({ success: true, messageId, savedToSent });
@@ -497,13 +547,23 @@ program
 
 // ---------- FLAGS / STATE CHANGES ----------
 
+async function ensureUidExists(accountId: string, folder: string, uid: number): Promise<void> {
+  const exists = await imapService.uidExists(accountId, folder, uid);
+  if (!exists) {
+    await imapService.disconnect(accountId).catch(() => {});
+    fail(4, `UID ${uid} not found in folder "${folder}"`);
+  }
+}
+
 program
   .command('mark-read <accountId>')
   .requiredOption('--uid <n>', 'Email UID')
   .option('--folder <folder>', 'Folder name', 'INBOX')
   .action(async (accountId, opts) => {
     const account = resolveAccount(accountId);
-    await imapService.markAsRead(account.id, opts.folder, Number(opts.uid));
+    const uid = Number(opts.uid);
+    await ensureUidExists(account.id, opts.folder, uid);
+    await imapService.markAsRead(account.id, opts.folder, uid);
     emit({ success: true });
     await imapService.disconnect(account.id).catch(() => {});
   });
@@ -514,7 +574,9 @@ program
   .option('--folder <folder>', 'Folder name', 'INBOX')
   .action(async (accountId, opts) => {
     const account = resolveAccount(accountId);
-    await imapService.markAsUnread(account.id, opts.folder, Number(opts.uid));
+    const uid = Number(opts.uid);
+    await ensureUidExists(account.id, opts.folder, uid);
+    await imapService.markAsUnread(account.id, opts.folder, uid);
     emit({ success: true });
     await imapService.disconnect(account.id).catch(() => {});
   });
@@ -526,7 +588,9 @@ program
   .option('--folder <folder>', 'Folder name', 'INBOX')
   .action(async (accountId, opts) => {
     const account = resolveAccount(accountId);
-    await imapService.deleteEmail(account.id, opts.folder, Number(opts.uid));
+    const uid = Number(opts.uid);
+    await ensureUidExists(account.id, opts.folder, uid);
+    await imapService.deleteEmail(account.id, opts.folder, uid);
     emit({ success: true });
     await imapService.disconnect(account.id).catch(() => {});
   });
@@ -540,7 +604,9 @@ program
   .option('--create-destination', 'Create destination folder if missing')
   .action(async (accountId, opts) => {
     const account = resolveAccount(accountId);
-    const result = await imapService.moveEmail(account.id, opts.folder, Number(opts.uid), opts.toFolder, {
+    const uid = Number(opts.uid);
+    await ensureUidExists(account.id, opts.folder, uid);
+    const result = await imapService.moveEmail(account.id, opts.folder, uid, opts.toFolder, {
       createDestinationIfMissing: !!opts.createDestination,
     });
     const uidMap: Record<string, number> = {};
@@ -583,11 +649,6 @@ program
     if (opts.since) criteria.since = parseDateOnly(opts.since);
     if (opts.before) criteria.before = parseDateOnly(opts.before);
     const messages = await imapService.searchEmails(account.id, opts.folder, criteria);
-    if (messages.length === 0) {
-      emit({ success: true, found: 0, deleted: 0 });
-      await imapService.disconnect(account.id).catch(() => {});
-      return;
-    }
     if (!opts.commit) {
       emit({
         success: true,
@@ -595,6 +656,11 @@ program
         found: messages.length,
         samples: messages.slice(0, 10).map(m => ({ uid: m.uid, from: m.from, subject: m.subject, date: m.date })),
       });
+      await imapService.disconnect(account.id).catch(() => {});
+      return;
+    }
+    if (messages.length === 0) {
+      emit({ success: true, found: 0, deleted: 0 });
       await imapService.disconnect(account.id).catch(() => {});
       return;
     }
@@ -690,15 +756,15 @@ program
     const levels = ['high', 'medium', 'low'];
     const minIdx = levels.indexOf(opts.minConfidence);
     const toDelete = result.spam.filter(s => levels.indexOf(s.confidence) <= minIdx);
-    if (toDelete.length === 0) {
-      emit({ success: true, found: 0, deleted: 0 });
-    } else if (!opts.commit) {
+    if (!opts.commit) {
       emit({
         success: true,
         dryRun: true,
         found: toDelete.length,
         samples: toDelete.slice(0, 20).map((s: any) => ({ uid: s.uid, from: s.email, subject: s.subject, domain: s.domain, confidence: s.confidence })),
       });
+    } else if (toDelete.length === 0) {
+      emit({ success: true, found: 0, deleted: 0 });
     } else {
       const uids = toDelete.map((s: any) => s.uid as number);
       const r = await imapService.bulkDelete(account.id, opts.folder, uids);
@@ -715,9 +781,7 @@ program
   .action(async (accountId, domain, opts) => {
     const account = resolveAccount(accountId);
     const messages = await imapService.searchEmails(account.id, opts.folder, { from: `@${domain}` });
-    if (messages.length === 0) {
-      emit({ success: true, found: 0, deleted: 0, domain });
-    } else if (!opts.commit) {
+    if (!opts.commit) {
       emit({
         success: true,
         dryRun: true,
@@ -725,6 +789,8 @@ program
         found: messages.length,
         samples: messages.slice(0, 10).map(m => ({ uid: m.uid, from: m.from, subject: m.subject, date: m.date })),
       });
+    } else if (messages.length === 0) {
+      emit({ success: true, found: 0, deleted: 0, domain });
     } else {
       const uids = messages.map(m => m.uid);
       const r = await imapService.bulkDelete(account.id, opts.folder, uids);
