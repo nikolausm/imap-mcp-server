@@ -5,7 +5,8 @@
   "main": "dist/index.js",
   "bin": {
     "imap-mcp": "./dist/index.js",
-    "imap-setup": "./dist/setup.js"
+    "imap-setup": "./dist/setup.js",
+    "imap": "./dist/cli.js"
   },
   "scripts": {
     "build": "node build.mjs",

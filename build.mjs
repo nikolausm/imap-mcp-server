@@ -39,4 +39,15 @@ await esbuild.build({
   external,
 });
 
+// Build CLI entry point — host-installable `imap` binary
+// (shebang lives in src/cli.ts and is preserved by esbuild)
+await esbuild.build({
+  entryPoints: ['src/cli.ts'],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  outfile: 'dist/cli.js',
+  external,
+});
+
 console.log('Build complete!');
