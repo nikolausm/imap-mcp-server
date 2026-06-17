@@ -182,7 +182,11 @@ export class ImapService {
     }
 
     if (!state.isConnected || !state.client.usable) {
-      // Try to reconnect
+      // Try to reconnect. ImapFlow instances are single-use: once a client has
+      // connected and then closed (e.g. an idle-timeout between two tool calls),
+      // calling .connect() on the SAME object throws "Can not re-use ImapFlow
+      // instance". So tear the dead client down and build a fresh one via
+      // connect(), instead of reusing state.client.
       const attempts = this.reconnectAttempts.get(accountId) || 0;
       if (attempts >= this.maxReconnectAttempts) {
         throw new Error(`Failed to reconnect to account ${accountId} after ${this.maxReconnectAttempts} attempts`);
@@ -191,13 +195,26 @@ export class ImapService {
       this.reconnectAttempts.set(accountId, attempts + 1);
       console.log(`Reconnecting to account ${accountId} (attempt ${attempts + 1})`);
 
+      const account = state.account;
       try {
-        await state.client.connect();
-        state.isConnected = true;
-        this.reconnectAttempts.set(accountId, 0);
+        // Dispose the unusable instance; the connection is already gone, so
+        // ignore any teardown error.
+        try {
+          await state.client.logout();
+        } catch {
+          // ignore
+        }
+        this.connections.delete(accountId);
+
+        // Build a brand-new ImapFlow client + connection state. connect() resets
+        // the reconnect-attempt counter to 0 on success.
+        await this.connect(account);
+        state = this.connections.get(accountId);
+        if (!state) {
+          throw new Error('connection state missing after reconnect');
+        }
       } catch (err) {
-        state.isConnected = false;
-        throw new Error(`Failed to reconnect: ${enrichConnectionError(err, state.account.host)}`);
+        throw new Error(`Failed to reconnect: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
 
