@@ -59,6 +59,7 @@ export function emailTools(
       before: z.string().optional().describe('Search emails before date (YYYY-MM-DD)'),
       seen: z.boolean().optional().describe('Filter by read/unread status'),
       flagged: z.boolean().optional().describe('Filter by flagged status'),
+      messageId: z.string().optional().describe('Search by RFC822 Message-ID header (substring match)'),
       limit: z.coerce.number().optional().default(50).describe('Maximum number of results'),
     }
   }, async ({ accountId: rawAccountId, accountName, folder, limit, ...searchCriteria }) => {
@@ -73,7 +74,8 @@ export function emailTools(
     if (searchCriteria.before) criteria.before = parseDateOnly(searchCriteria.before);
     if (searchCriteria.seen !== undefined) criteria.seen = searchCriteria.seen;
     if (searchCriteria.flagged !== undefined) criteria.flagged = searchCriteria.flagged;
-    
+    if (searchCriteria.messageId) criteria.messageId = searchCriteria.messageId;
+
     const messages = await imapService.searchEmails(accountId, folder, criteria);
     const limitedMessages = messages.slice(0, limit);
     
@@ -856,5 +858,27 @@ export function emailTools(
         }]
       };
     }
+  });
+
+  // @ts-expect-error TS2589: MCP SDK registerTool + zod v3 exceed TS's type instantiation depth. Runtime schema validation is unaffected.
+  server.registerTool('imap_find_email_by_message_id', {
+    description:
+      'Locate an email by its RFC822 Message-ID across folders and return its current { folder, uid } plus basic envelope. ' +
+      'Robust to the message having been moved or archived (IMAP UIDs are folder-relative). ' +
+      'Pass the returned folder + uid to imap_reply_to_email or imap_get_email. ' +
+      'Without `folders`, searches Gmail \\All Mail when present, else INBOX → Archive → Sent → remaining folders.',
+    inputSchema: {
+      accountId: z.string().describe('Account ID'),
+      messageId: z.string().describe('RFC822 Message-ID, with or without angle brackets'),
+      folders: z.array(z.string()).optional().describe('Explicit folders to search, in order (overrides the default order)'),
+    }
+  }, async ({ accountId, messageId, folders }) => {
+    const result = await imapService.findEmailByMessageId(accountId, messageId, folders);
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify(result, null, 2)
+      }]
+    };
   });
 }
