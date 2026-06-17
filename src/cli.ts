@@ -288,8 +288,13 @@ program
 
 program
   .command('search <accountId>')
-  .description('Search emails by header/flag/date criteria. JSON output.')
-  .option('--folder <folder>', 'Folder name', 'INBOX')
+  .description('Search emails by header/flag/date criteria. JSON output. Scans all non-Trash/Spam/Drafts folders by default; pass --folder to restrict, --only-inbox for INBOX-only, or --include-trash / --include-spam to add those back in.')
+  .option('--folder <folder>', 'Restrict to a single folder (e.g. INBOX, Sent, Archive)')
+  .option('--all-folders', 'Search across all non-Trash/Spam/Drafts/Junk folders (this is the default when --folder is omitted)')
+  .option('--only-inbox', 'Search only INBOX (pre-2026-06-17 default behaviour)')
+  .option('--include-trash', 'Also include Trash/Bin/Deleted folders (off by default — they are noisy)')
+  .option('--include-spam', 'Also include Spam/Junk folders (off by default — they are noisy)')
+  .option('--include-drafts', 'Also include Drafts folder (off by default)')
   .option('--from <addr>', 'From: address substring')
   .option('--to <addr>', 'To: address substring')
   .option('--subject <text>', 'Subject substring')
@@ -313,8 +318,56 @@ program
     if (opts.unseen) criteria.seen = false;
     if (opts.flagged) criteria.flagged = true;
     const limit = Number(opts.limit);
-    const messages = await imapService.searchEmails(account.id, opts.folder, criteria);
-    emit({ totalFound: messages.length, returned: Math.min(messages.length, limit), messages: messages.slice(0, limit) });
+
+    const TRASH_NAMES = ['Trash', 'Bin', 'Deleted Items', 'Deleted Messages', '[Gmail]/Trash'];
+    const SPAM_NAMES = ['Spam', 'Junk', '[Gmail]/Spam'];
+    const DRAFTS_NAMES = ['Drafts', 'Draft', 'INBOX.Drafts', '[Gmail]/Drafts'];
+    const BLOCKED_NAMES = ['Blocked'];
+
+    let targets: string[];
+    if (opts.folder) {
+      targets = [opts.folder];
+    } else if (opts.onlyInbox) {
+      targets = ['INBOX'];
+    } else {
+      const folders = await imapService.listFolders(account.id);
+      const skip = new Set<string>(BLOCKED_NAMES);
+      if (!opts.includeTrash) TRASH_NAMES.forEach(n => skip.add(n));
+      if (!opts.includeSpam) SPAM_NAMES.forEach(n => skip.add(n));
+      if (!opts.includeDrafts) DRAFTS_NAMES.forEach(n => skip.add(n));
+      targets = folders
+        .map(f => f.name)
+        .filter(name => {
+          const leaf = name.split('/').pop()!;
+          return !skip.has(name) && !skip.has(leaf);
+        });
+    }
+
+    const collected: any[] = [];
+    const foldersHit: string[] = [];
+    const foldersErrored: { folder: string; error: string }[] = [];
+    for (const folderName of targets) {
+      if (collected.length >= limit) break;
+      try {
+        const part = await imapService.searchEmails(account.id, folderName, criteria);
+        foldersHit.push(folderName);
+        for (const m of part) {
+          collected.push({ ...m, folder: folderName });
+          if (collected.length >= limit) break;
+        }
+      } catch (e: any) {
+        foldersErrored.push({ folder: folderName, error: String(e?.message || e).slice(0, 200) });
+      }
+    }
+
+    const payload: Record<string, any> = {
+      totalFound: collected.length,
+      returned: Math.min(collected.length, limit),
+      foldersSearched: foldersHit,
+      messages: collected.slice(0, limit),
+    };
+    if (foldersErrored.length) payload.foldersErrored = foldersErrored;
+    emit(payload);
     await imapService.disconnect(account.id).catch(() => {});
   });
 
