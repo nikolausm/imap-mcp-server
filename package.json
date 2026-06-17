@@ -60,7 +60,7 @@
     "@types/node": "^24.0.14",
     "@types/pdf-parse": "^1.1.5",
     "@vitest/coverage-v8": "^4.1.8",
-    "esbuild": "^0.27.2",
+    "esbuild": "^0.28.1",
     "nodemon": "^3.1.10",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3",
