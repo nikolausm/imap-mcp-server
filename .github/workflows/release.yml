@@ -74,14 +74,7 @@ jobs:
         run: npm test
 
       - name: Publish to npm (Trusted Publishing via OIDC)
-        run: |
-          echo "node:        $(node -v)"
-          echo "npm:         $(npm -v)"
-          echo "which npm:   $(which npm)"
-          echo "registry:    $(npm config get registry)"
-          echo "OIDC token:  ${ACTIONS_ID_TOKEN_REQUEST_URL:+available}${ACTIONS_ID_TOKEN_REQUEST_URL:-MISSING}"
-          echo "userconfig:  ${NPM_CONFIG_USERCONFIG:-none}"
-          npm publish   # no token: OIDC authenticates, provenance is automatic
+        run: npm publish   # no token: OIDC authenticates, provenance is automatic
 
       - name: Install mcp-publisher
         run: |
