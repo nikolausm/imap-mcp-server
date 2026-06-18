@@ -5,12 +5,14 @@ name: Release
 # Trigger:  git tag vX.Y.Z && git push origin vX.Y.Z
 #
 # Requirements (one-time setup):
-#   - Repository secret NPM_TOKEN: an npm "granular access token" with
-#     publish rights for imap-mcp-server AND "bypass 2FA" enabled
-#     (npmjs.com -> Access Tokens -> Generate -> Granular). Needed because the
-#     package enforces 2FA on publish, which CI cannot satisfy interactively.
-#   - No secret is needed for the MCP Registry: authentication uses GitHub
-#     OIDC (`mcp-publisher login github-oidc`), which works because the
+#   - npm Trusted Publisher: on npmjs.com -> package "imap-mcp-server" ->
+#     Settings -> Trusted Publishers -> add GitHub Actions with
+#     Organization/user = nikolausm, Repository = imap-mcp-server,
+#     Workflow filename = release.yml (Environment left empty). This lets CI
+#     publish via OIDC with NO npm token and bypasses the 2FA publish policy.
+#     Provenance attestations are generated automatically.
+#   - No secret is needed for the MCP Registry either: authentication uses
+#     GitHub OIDC (`mcp-publisher login github-oidc`), which works because the
 #     registry namespace `io.github.nikolausm/*` matches this repo owner.
 
 on:
@@ -21,7 +23,7 @@ on:
 
 permissions:
   contents: read
-  id-token: write   # required for mcp-publisher's GitHub OIDC login
+  id-token: write   # required for npm Trusted Publishing AND mcp-publisher's GitHub OIDC login
 
 jobs:
   release:
@@ -31,11 +33,14 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: '22.x'
+          node-version: '22.x'   # >= 22.14.0, required for npm Trusted Publishing
           registry-url: 'https://registry.npmjs.org'
-          cache: 'npm'
+          package-manager-cache: false   # no caching in release builds
+
+      - name: Upgrade npm for Trusted Publishing
+        run: npm install -g npm@latest   # Trusted Publishing needs npm >= 11.5.1
 
       - name: Install dependencies
         run: npm ci
@@ -65,10 +70,8 @@ jobs:
       - name: Test
         run: npm test
 
-      - name: Publish to npm
-        run: npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish to npm (Trusted Publishing via OIDC)
+        run: npm publish   # no token: OIDC authenticates, provenance is automatic
 
       - name: Install mcp-publisher
         run: |
