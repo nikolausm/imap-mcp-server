@@ -38,11 +38,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build
-        run: npm run build
-
+      # Replicate the full CI gates (test + lint + build + audit) so this job
+      # never merges a PR that the regular CI workflow would fail.
       - name: Test
         run: npm test
+
+      - name: Type-check (tsc --noEmit)
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
 
       - name: Security audit
         run: npm audit --audit-level=high
