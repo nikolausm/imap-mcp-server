@@ -80,7 +80,7 @@
     "mailparser": "^3.9.11",
     "nodemailer": "^9.0.1",
     "open": "^10.2.0",
-    "ora": "^8.2.0",
+    "ora": "^9.4.1",
     "pdf-parse": "^1.1.1",
     "turndown": "^7.2.4",
     "turndown-plugin-gfm": "^1.0.2",
