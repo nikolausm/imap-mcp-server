@@ -1,0 +1,64 @@
+name: Dependabot auto-merge
+
+# Fully automatic maintenance: for Dependabot PRs, run the same gates as CI
+# (build + test + audit) and, if they pass, auto-merge patch & minor (incl.
+# grouped) updates. Major version bumps are never auto-merged — they get a
+# comment and stay open for manual review, because majors are too often breaking.
+#
+# Self-contained on purpose: the gates run inside this job, so no branch
+# protection or "Allow auto-merge" repo setting is required.
+
+on: pull_request
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    # Only act on Dependabot's own PRs.
+    if: ${{ github.actor == 'dependabot[bot]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22.x'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+      - name: Security audit
+        run: npm audit --audit-level=high
+
+      - name: Auto-merge patch & minor updates
+        if: ${{ steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.meta.outputs.update-type == 'version-update:semver-minor' }}
+        run: gh pr merge --squash --delete-branch "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Flag major updates for manual review
+        if: ${{ steps.meta.outputs.update-type == 'version-update:semver-major' }}
+        run: |
+          gh pr comment "$PR_URL" --body \
+            "🔍 **Major version update** (\`${{ steps.meta.outputs.dependency-names }}\`) — auto-merge skipped. CI gates passed, but please review breaking changes before merging."
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

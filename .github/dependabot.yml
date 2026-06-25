@@ -1,0 +1,45 @@
+# Dependabot keeps dependencies current and patches security advisories.
+# Security updates are always raised regardless of the schedule below.
+#
+# Pairing: minor/patch updates are grouped into a single PR and auto-merged by
+# .github/workflows/dependabot-auto-merge.yml once CI passes. MAJOR updates are
+# raised as individual PRs and left open for manual review (too often breaking).
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Berlin"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+    groups:
+      # One bundled PR for all non-breaking updates (prod + dev) → auto-mergeable.
+      npm-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    # Major bumps are intentionally NOT grouped → separate PRs, manual review.
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Berlin"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "ci(deps)"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
