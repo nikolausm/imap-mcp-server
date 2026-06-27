@@ -46,6 +46,7 @@ export function emailTools(
   };
 
   // Search emails tool
+  // @ts-expect-error TS2589: MCP SDK registerTool + zod v3 exceed TS's type instantiation depth. Runtime schema validation is unaffected.
   server.registerTool('imap_search_emails', {
     description: 'Search a mailbox folder for emails matching criteria (sender, recipient, subject, body text, date range, read/flagged status). Use this to FIND messages when you know something about them but not their UID — e.g. "emails from amazon last week", "unread invoices". Returns lightweight headers (uid, from, subject, date); call imap_get_email with a returned uid to read full content. For the newest messages without criteria, prefer imap_get_latest_emails.',
     inputSchema: {
