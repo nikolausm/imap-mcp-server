@@ -94,11 +94,9 @@ export function resolveEnabledTools(
  * caller can warn about configured names that don't match any real tool.
  *
  * Note: the Proxy is built over `any` and only cast to `McpServer` at the
- * boundary. McpServer's `registerTool` generic is extremely deep (hence the
- * `@ts-expect-error TS2589` suppressions in the tool files); typing the Proxy
- * against it would bump TS's program-wide instantiation counter and push an
- * unrelated tool registration over the limit. Keeping the wrapper untyped avoids
- * that without changing runtime behavior.
+ * boundary. McpServer's `registerTool` generic is very deep, so typing the
+ * Proxy against it adds avoidable type-instantiation cost; keeping the wrapper
+ * untyped sidesteps that without changing runtime behavior.
  */
 function createFilteredServer(
   server: McpServer,

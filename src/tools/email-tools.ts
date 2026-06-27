@@ -48,7 +48,6 @@ export function emailTools(
   };
 
   // Search emails tool
-  // @ts-expect-error TS2589: MCP SDK registerTool + zod v3 exceed TS's type instantiation depth. Runtime schema validation is unaffected.
   server.registerTool('imap_search_emails', {
     description: 'Search for emails matching criteria (sender, recipient, subject, body text, date range, read/flagged status). Use this to FIND messages when you know something about them but not their UID — e.g. "emails from amazon last week", "unread invoices". By default searches a single folder (INBOX). Set searchAllFolders=true to scan every mailbox at once — this catches messages filed away by rules (e.g. a receipt routed to a custom folder); Trash/Spam/Drafts are skipped unless you opt in. Returns lightweight headers (uid, from, subject, date, and folder when searching across folders); call imap_get_email with a returned uid + folder to read full content. For the newest messages without criteria, prefer imap_get_latest_emails.',
     inputSchema: {
@@ -143,7 +142,6 @@ export function emailTools(
   });
 
   // Get email content tool
-  // @ts-expect-error TS2589: MCP SDK registerTool + zod v3 exceed TS's type instantiation depth. Runtime schema validation is unaffected.
   server.registerTool('imap_get_email', {
     description: 'Read the FULL content of a single email by its UID (body, sender/recipients, date, attachment list, optional raw headers and text-attachment previews). By default the body is returned as clean Markdown in markdownContent and raw HTML is omitted so it never crosses the boundary; set bodyFormat to "html" for the legacy raw htmlContent, or "text" for plain text only. Use after imap_search_emails or imap_get_latest_emails gives you a uid. Body text is truncated to maxContentLength to protect the context window — raise it for long messages. To fetch attachment bytes, use imap_download_attachment.',
     inputSchema: {
@@ -461,7 +459,6 @@ export function emailTools(
   });
 
   // Bulk delete emails tool
-  // @ts-expect-error TS2589: MCP SDK registerTool + zod v3 exceed TS's type instantiation depth. Runtime schema validation is unaffected.
   server.registerTool('imap_bulk_delete', {
     description: 'Delete multiple emails at once with chunking and auto-reconnection. Processes deletions in batches to prevent connection timeouts.',
     inputSchema: {
@@ -596,7 +593,6 @@ export function emailTools(
   });
 
   // Send email tool
-  // @ts-expect-error TS2589: MCP SDK registerTool + zod v3 exceed TS's type instantiation depth. Runtime schema validation is unaffected.
   server.registerTool('imap_send_email', {
     description: 'Compose and send a NEW email via the account\'s SMTP server (a copy is saved to Sent unless disabled). Use for fresh outbound messages. To respond to an existing message use imap_reply_to_email (keeps threading); to pass a message on use imap_forward_email; to store without sending use imap_save_draft. Supports to/cc/bcc, text and/or HTML, and attachments by base64 content or by file path (see imap_upload_file for large files).',
     inputSchema: {
@@ -659,7 +655,6 @@ export function emailTools(
   });
 
   // Save draft tool — composes a message and appends it to the Drafts folder with the \Draft flag
-  // @ts-expect-error TS2589: MCP SDK registerTool + zod v3 exceed TS's type instantiation depth. Runtime schema validation is unaffected.
   server.registerTool('imap_save_draft', {
     description: 'Save an email as a draft in the Drafts folder (no send). Takes the same fields as imap_send_email.',
     inputSchema: {
@@ -728,7 +723,6 @@ export function emailTools(
   });
 
   // Reply to email tool
-  // @ts-expect-error TS2589: MCP SDK registerTool + zod v3 exceed TS's type instantiation depth. Runtime schema validation is unaffected.
   server.registerTool('imap_reply_to_email', {
     description: 'Reply to an existing email identified by folder + uid. Automatically sets the recipient to the original sender, prefixes the subject with "Re:", and preserves threading (In-Reply-To/References). Set replyAll to also include the original recipients. Use this instead of imap_send_email whenever the user is responding to a message already in a mailbox.',
     inputSchema: {
@@ -917,7 +911,6 @@ export function emailTools(
     }
   });
 
-  // @ts-expect-error TS2589: MCP SDK registerTool + zod v3 exceed TS's type instantiation depth. Runtime schema validation is unaffected.
   server.registerTool('imap_find_email_by_message_id', {
     description:
       'Locate an email by its RFC822 Message-ID across folders and return its current { folder, uid } plus basic envelope. ' +

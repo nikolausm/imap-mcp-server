@@ -26,7 +26,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "lint": "NODE_OPTIONS=--max-old-space-size=14336 tsc --noEmit --skipLibCheck"
+    "lint": "tsc --noEmit --skipLibCheck"
   },
   "keywords": [
     "mcp",
@@ -84,7 +84,7 @@
     "pdf-parse": "^1.1.1",
     "turndown": "^7.2.4",
     "turndown-plugin-gfm": "^1.0.2",
-    "zod": "^3.25.76"
+    "zod": "^4.0.0"
   },
   "overrides": {
     "qs": "^6.15.2",
