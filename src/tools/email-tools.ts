@@ -2,6 +2,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { ImapService } from '../services/imap-service.js';
 import { AccountManager } from '../services/account-manager.js';
 import { SmtpService } from '../services/smtp-service.js';
+import { selectSearchFolders } from '../utils/search-folders.js';
+import type { EmailMessage } from '../types/index.js';
 import { z } from 'zod';
 import { join } from 'path';
 import { homedir } from 'os';
@@ -48,10 +50,14 @@ export function emailTools(
   // Search emails tool
   // @ts-expect-error TS2589: MCP SDK registerTool + zod v3 exceed TS's type instantiation depth. Runtime schema validation is unaffected.
   server.registerTool('imap_search_emails', {
-    description: 'Search a mailbox folder for emails matching criteria (sender, recipient, subject, body text, date range, read/flagged status). Use this to FIND messages when you know something about them but not their UID — e.g. "emails from amazon last week", "unread invoices". Returns lightweight headers (uid, from, subject, date); call imap_get_email with a returned uid to read full content. For the newest messages without criteria, prefer imap_get_latest_emails.',
+    description: 'Search for emails matching criteria (sender, recipient, subject, body text, date range, read/flagged status). Use this to FIND messages when you know something about them but not their UID — e.g. "emails from amazon last week", "unread invoices". By default searches a single folder (INBOX). Set searchAllFolders=true to scan every mailbox at once — this catches messages filed away by rules (e.g. a receipt routed to a custom folder); Trash/Spam/Drafts are skipped unless you opt in. Returns lightweight headers (uid, from, subject, date, and folder when searching across folders); call imap_get_email with a returned uid + folder to read full content. For the newest messages without criteria, prefer imap_get_latest_emails.',
     inputSchema: {
       ...accountSelector,
-      folder: z.string().default('INBOX').describe('Folder name (default: INBOX)'),
+      folder: z.string().default('INBOX').describe('Folder name to search (default: INBOX). Ignored when searchAllFolders is true.'),
+      searchAllFolders: z.boolean().default(false).describe('Search across ALL folders instead of just `folder`. Skips Trash/Spam/Drafts and non-selectable folders by default. Use when a message might have been filed/archived/moved and you do not know which folder it is in.'),
+      includeTrash: z.boolean().default(false).describe('When searchAllFolders is true, also search Trash/Bin/Deleted folders (off by default — noisy).'),
+      includeSpam: z.boolean().default(false).describe('When searchAllFolders is true, also search Spam/Junk folders (off by default — noisy).'),
+      includeDrafts: z.boolean().default(false).describe('When searchAllFolders is true, also search the Drafts folder (off by default).'),
       from: z.string().optional().describe('Search by sender'),
       to: z.string().optional().describe('Search by recipient'),
       subject: z.string().optional().describe('Search by subject'),
@@ -63,10 +69,10 @@ export function emailTools(
       messageId: z.string().optional().describe('Search by RFC822 Message-ID header (substring match)'),
       limit: z.coerce.number().optional().default(50).describe('Maximum number of results'),
     }
-  }, async ({ accountId: rawAccountId, accountName, folder, limit, ...searchCriteria }) => {
+  }, async ({ accountId: rawAccountId, accountName, folder, limit, searchAllFolders, includeTrash, includeSpam, includeDrafts, ...searchCriteria }) => {
     const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
     const criteria: any = {};
-    
+
     if (searchCriteria.from) criteria.from = searchCriteria.from;
     if (searchCriteria.to) criteria.to = searchCriteria.to;
     if (searchCriteria.subject) criteria.subject = searchCriteria.subject;
@@ -77,9 +83,53 @@ export function emailTools(
     if (searchCriteria.flagged !== undefined) criteria.flagged = searchCriteria.flagged;
     if (searchCriteria.messageId) criteria.messageId = searchCriteria.messageId;
 
+    // Cross-folder search: scan every selectable mailbox (minus the noisy ones,
+    // unless opted in). A folder that fails to open is surfaced in foldersErrored
+    // rather than silently swallowed, so a 0-result answer is never ambiguous.
+    if (searchAllFolders) {
+      const allFolders = await imapService.listFolders(accountId);
+      const targets = selectSearchFolders(allFolders, { includeTrash, includeSpam, includeDrafts });
+
+      const collected: Array<EmailMessage & { folder: string }> = [];
+      const foldersSearched: string[] = [];
+      const foldersErrored: Array<{ folder: string; error: string }> = [];
+
+      for (const folderName of targets) {
+        try {
+          const part = await imapService.searchEmails(accountId, folderName, criteria);
+          foldersSearched.push(folderName);
+          for (const message of part) {
+            collected.push({ ...message, folder: folderName });
+          }
+        } catch (err) {
+          foldersErrored.push({
+            folder: folderName,
+            error: (err instanceof Error ? err.message : String(err)).slice(0, 200),
+          });
+        }
+      }
+
+      // Newest first across all folders, then cap to limit.
+      collected.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      const limitedMessages = collected.slice(0, limit);
+
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            totalFound: collected.length,
+            returned: limitedMessages.length,
+            foldersSearched,
+            ...(foldersErrored.length > 0 ? { foldersErrored } : {}),
+            messages: limitedMessages,
+          }, null, 2)
+        }]
+      };
+    }
+
     const messages = await imapService.searchEmails(accountId, folder, criteria);
     const limitedMessages = messages.slice(0, limit);
-    
+
     return {
       content: [{
         type: 'text',

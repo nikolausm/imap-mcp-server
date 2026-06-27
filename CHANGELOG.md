@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `imap_search_emails` cross-folder search (based on #92 by @jrejaud). New optional `searchAllFolders` flag scans every selectable mailbox at once — catching messages filed away by rules into custom folders — instead of only `folder`. Trash/Spam/Drafts and non-selectable (`\Noselect`) folders are skipped by default and can be opted back in via `includeTrash`/`includeSpam`/`includeDrafts`. Noisy folders are detected via RFC 6154 SPECIAL-USE flags with a name-based fallback (leaf-aware, case-insensitive). Results gain a per-message `folder` field plus `foldersSearched`, and any folder that fails to open is reported in `foldersErrored` rather than silently swallowed (a 0-result answer is never ambiguous). Default single-folder behavior is unchanged. Helper extracted to `src/utils/search-folders.ts`; tests in `tests/search-folders.test.ts` and `tests/email-tools-search-all.test.ts`.
+
+### Fixed
+- CI `lint` job (`tsc --noEmit`) no longer OOM-kills: raised the Node heap to 14 GB and suppressed the known deep-instantiation `TS2589` on `imap_search_emails`, so the type-check completes and main's CI is green again (which also unblocks Dependabot auto-merge).
+
 ## [1.4.0] - 2026-06-27
 
 ### Added

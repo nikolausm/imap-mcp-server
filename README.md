@@ -301,12 +301,20 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
   ```
   Parameters:
   - accountId: Account ID
-  - folder: Folder name (default: INBOX)
+  - folder: Folder name (default: INBOX; ignored when searchAllFolders is true)
+  - searchAllFolders: Search across ALL folders at once (default: false).
+      Skips Trash/Spam/Drafts and non-selectable folders by default. Use when a
+      message may have been filed/moved/archived and you don't know its folder.
+  - includeTrash, includeSpam, includeDrafts: Opt those noisy folders back into
+      a searchAllFolders run (default: false each)
   - from, to, subject, body: Search criteria
   - since, before: Date filters
   - seen, flagged: Status filters
   - limit: Max results (default: 50)
   ```
+  > With `searchAllFolders`, results include a `folder` field per message plus
+  > `foldersSearched`, and any folder that failed to open is reported in
+  > `foldersErrored` (so a 0-result answer is never silently incomplete).
 
 - **imap_get_email**: Get full email content
   ```
