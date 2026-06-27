@@ -10,8 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `imap_search_emails` cross-folder search (based on #92 by @jrejaud). New optional `searchAllFolders` flag scans every selectable mailbox at once — catching messages filed away by rules into custom folders — instead of only `folder`. Trash/Spam/Drafts and non-selectable (`\Noselect`) folders are skipped by default and can be opted back in via `includeTrash`/`includeSpam`/`includeDrafts`. Noisy folders are detected via RFC 6154 SPECIAL-USE flags with a name-based fallback (leaf-aware, case-insensitive). Results gain a per-message `folder` field plus `foldersSearched`, and any folder that fails to open is reported in `foldersErrored` rather than silently swallowed (a 0-result answer is never ambiguous). Default single-folder behavior is unchanged. Helper extracted to `src/utils/search-folders.ts`; tests in `tests/search-folders.test.ts` and `tests/email-tools-search-all.test.ts`.
 
+### Changed
+- Dependency updates (applied directly; Dependabot couldn't rebase its PRs due to a resolver issue with vitest 4's wasm bindings): `zod` 3 → 4, `typescript` 5 → 6, `commander` 14 → 15, `open` 10 → 11, `ora` 8 → 9, `@types/node` 24 → 26. TypeScript 6 needed `ignoreDeprecations: "6.0"` for the `node` module-resolution mode. `pdf-parse` was intentionally **not** upgraded to 2.x (breaking ESM rewrite that removes the `pdf-parse/lib/pdf-parse.js` entry point this server uses).
+
 ### Fixed
-- CI `lint` job (`tsc --noEmit`) no longer OOM-kills: raised the Node heap to 14 GB and suppressed the known deep-instantiation `TS2589` on `imap_search_emails`, so the type-check completes and main's CI is green again (which also unblocks Dependabot auto-merge).
+- CI `lint` job (`tsc --noEmit`) no longer OOM-kills. The root cause was the deep `registerTool` + zod-3 generic instantiation (`TS2589`); upgrading to **zod 4** (flatter types) makes the type-check finish in <1s instead of OOM-ing. As a result the interim heap workaround and all 9 `@ts-expect-error TS2589` suppressions were removed, and main's CI is green again.
 
 ## [1.4.0] - 2026-06-27
 
