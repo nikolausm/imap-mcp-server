@@ -41,7 +41,12 @@ npm run setup        # launch the web setup wizard
 ```
 
 Always run `npm run build` **and** `npm test` before committing changes that
-touch `src/`. Keep the suite green (currently 119 tests).
+touch `src/`. Keep the suite green (currently 169 tests).
+
+> Note: `npm run lint` (`tsc --noEmit`) is memory-hungry on this project — the
+> MCP SDK's `registerTool` generics are deep enough to surface a pre-existing
+> `TS2589` and can OOM on low-RAM machines. Run it with a larger heap if needed
+> (`node --max-old-space-size=8192 ./node_modules/typescript/bin/tsc --noEmit`).
 
 ## Security rules (must follow)
 

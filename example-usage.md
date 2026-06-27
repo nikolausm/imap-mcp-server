@@ -17,6 +17,28 @@ Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/
 }
 ```
 
+### Read-only access (optional)
+
+To give the assistant read-only access — searching, reading, folders, unread
+counts, and spam analysis, but no sending, deleting, moving, or flag changes —
+set `IMAP_MCP_READ_ONLY` in the `env` block:
+
+```json
+{
+  "mcpServers": {
+    "imap": {
+      "command": "node",
+      "args": ["/Users/michaelnikolaus/RiderProjects/ImapClient/dist/index.js"],
+      "env": { "IMAP_MCP_READ_ONLY": "true" }
+    }
+  }
+}
+```
+
+For a precise, hand-picked allowlist instead, use `IMAP_MCP_ENABLED_TOOLS`
+(comma-separated tool names). See the README's *Restricting tool access*
+section for details.
+
 ## Example Prompts
 
 ### 1. Add an Email Account

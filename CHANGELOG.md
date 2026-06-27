@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-06-27
+
+### Added
+- Selective tool access via environment variables (Issue #87). `IMAP_MCP_READ_ONLY` (truthy: `1`/`true`/`yes`/`on`) registers only the safe, read-only subset — searching, reading, listing folders, unread counts, and spam analysis — and exposes no tool that sends mail, deletes/moves messages, changes flags, or edits accounts. `IMAP_MCP_ENABLED_TOOLS` is a comma-separated allowlist (case-insensitive, `imap_` prefix optional) that takes precedence over `IMAP_MCP_READ_ONLY`. With neither set, all tools are registered (unchanged default). Unknown tool names are ignored with a warning on stderr. Gating is applied in `src/tools/index.ts` via a server wrapper, so individual tool files are untouched. Tests: `tests/tool-access.test.ts`.
+
 ## [1.3.0] - 2026-06-17
 
 ### Added
