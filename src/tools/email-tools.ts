@@ -286,8 +286,17 @@ export function emailTools(
     // For PDFs, try to extract text inline
     if (isPdf && extractText) {
       try {
-        const pdfParse = (await import('pdf-parse/lib/pdf-parse.js')).default;
-        const pdfData = await pdfParse(content);
+        const { PDFParse } = await import('pdf-parse');
+        const pdfParser = new PDFParse({ data: content });
+        let pdfText: string;
+        let pdfPages: number;
+        try {
+          const pdfData = await pdfParser.getText({ pageJoiner: '' });
+          pdfText = pdfData.text;
+          pdfPages = pdfData.total;
+        } finally {
+          await pdfParser.destroy();
+        }
 
         // Also save the file for binary access
         const fs = await import('fs');
@@ -306,8 +315,8 @@ export function emailTools(
               filename: resolvedFilename,
               contentType,
               size: content.length,
-              pages: pdfData.numpages,
-              textContent: pdfData.text,
+              pages: pdfPages,
+              textContent: pdfText,
             }, null, 2)
           }]
         };

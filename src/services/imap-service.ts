@@ -498,10 +498,16 @@ export class ImapService {
 
           if (isPdf && att?.content) {
             try {
-              const pdfParse = (await import('pdf-parse/lib/pdf-parse.js')).default;
+              const { PDFParse } = await import('pdf-parse');
               const contentBuffer = Buffer.isBuffer(att.content) ? att.content : Buffer.from(att.content);
-              const pdfData = await pdfParse(contentBuffer);
-              const rawText = pdfData.text;
+              const pdfParser = new PDFParse({ data: contentBuffer });
+              let rawText: string;
+              try {
+                const pdfData = await pdfParser.getText({ pageJoiner: '' });
+                rawText = pdfData.text;
+              } finally {
+                await pdfParser.destroy();
+              }
               const textTruncated = rawText.length > maxAttachmentTextChars;
               const textContent = textTruncated ? rawText.slice(0, maxAttachmentTextChars) : rawText;
 

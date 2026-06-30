@@ -81,7 +81,7 @@
     "nodemailer": "^9.0.1",
     "open": "^11.0.0",
     "ora": "^9.0.0",
-    "pdf-parse": "^1.1.1",
+    "pdf-parse": "^2.4.5",
     "turndown": "^7.2.4",
     "turndown-plugin-gfm": "^1.0.2",
     "zod": "^4.0.0"
