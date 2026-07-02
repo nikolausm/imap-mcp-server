@@ -40,6 +40,13 @@ describe('AccountManager', () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+
+    // Remove any env-var overrides set by individual tests
+    for (const key of Object.keys(process.env)) {
+      if (key.startsWith('IMAP_MCP_ACCOUNT_')) {
+        delete process.env[key];
+      }
+    }
   });
 
   describe('constructor', () => {
@@ -270,6 +277,286 @@ describe('AccountManager', () => {
       await addOne(manager, 'A');
       await addOne(manager, 'B');
       expect(() => manager.resolveAccountId()).toThrow(/multiple accounts/i);
+    });
+  });
+
+  describe('environment variable credential overrides', () => {
+    const addWork = (manager: AccountManager, name = 'Work Gmail') => manager.addAccount({
+      name,
+      host: 'imap.test.com',
+      port: 993,
+      user: 'stored-user@test.com',
+      password: 'stored-pass',
+      tls: true,
+    });
+
+    it('overrides IMAP user and password from env vars in getAccount', async () => {
+      process.env.IMAP_MCP_ACCOUNT_WORK_GMAIL_IMAP_USERNAME = 'env-user@test.com';
+      process.env.IMAP_MCP_ACCOUNT_WORK_GMAIL_IMAP_PASSWORD = 'env-pass';
+
+      const manager = new AccountManager();
+      const created = await addWork(manager);
+
+      const account = manager.getAccount(created.id);
+      expect(account?.user).toBe('env-user@test.com');
+      expect(account?.password).toBe('env-pass');
+    });
+
+    it('normalizes the account name to build the env var prefix', async () => {
+      process.env.IMAP_MCP_ACCOUNT_MY_WORK_ACCOUNT__IMAP_USERNAME = 'env@test.com';
+
+      const manager = new AccountManager();
+      const created = await manager.addAccount({
+        name: 'My Work-Account!',
+        host: 'imap.test.com',
+        port: 993,
+        user: 'stored@test.com',
+        password: 'stored',
+        tls: true,
+      });
+
+      const account = manager.getAccount(created.id);
+      expect(account?.user).toBe('env@test.com');
+    });
+
+    it('applies overrides in getAllAccounts and getAccountByName too', async () => {
+      process.env.IMAP_MCP_ACCOUNT_WORK_GMAIL_IMAP_PASSWORD = 'env-pass';
+
+      const manager = new AccountManager();
+      await addWork(manager);
+
+      expect(manager.getAllAccounts()[0].password).toBe('env-pass');
+      expect(manager.getAccountByName('Work Gmail')?.password).toBe('env-pass');
+    });
+
+    it('leaves fields untouched when no matching env var is set', async () => {
+      const manager = new AccountManager();
+      const created = await addWork(manager);
+
+      const account = manager.getAccount(created.id);
+      expect(account?.user).toBe('stored-user@test.com');
+      expect(account?.password).toBe('stored-pass');
+    });
+
+    it('overrides SMTP credentials separately when an smtp config exists', async () => {
+      process.env.IMAP_MCP_ACCOUNT_WORK_GMAIL_IMAP_USERNAME = 'env-imap@test.com';
+      process.env.IMAP_MCP_ACCOUNT_WORK_GMAIL_SMTP_USERNAME = 'env-smtp@test.com';
+      process.env.IMAP_MCP_ACCOUNT_WORK_GMAIL_SMTP_PASSWORD = 'env-smtp-pass';
+
+      const manager = new AccountManager();
+      const created = await manager.addAccount({
+        name: 'Work Gmail',
+        host: 'imap.test.com',
+        port: 993,
+        user: 'stored-user@test.com',
+        password: 'stored-pass',
+        tls: true,
+        smtp: {
+          host: 'smtp.test.com',
+          port: 587,
+          secure: false,
+          user: 'stored-smtp@test.com',
+          password: 'stored-smtp-pass',
+        },
+      });
+
+      const account = manager.getAccount(created.id);
+      expect(account?.user).toBe('env-imap@test.com');
+      expect(account?.smtp?.user).toBe('env-smtp@test.com');
+      expect(account?.smtp?.password).toBe('env-smtp-pass');
+    });
+
+    it('ignores SMTP env vars when the account has no smtp config', async () => {
+      process.env.IMAP_MCP_ACCOUNT_WORK_GMAIL_SMTP_USERNAME = 'env-smtp@test.com';
+
+      const manager = new AccountManager();
+      const created = await addWork(manager);
+
+      const account = manager.getAccount(created.id);
+      expect(account?.smtp).toBeUndefined();
+    });
+
+    it('captures and removes the env vars from process.env in the constructor', async () => {
+      process.env.IMAP_MCP_ACCOUNT_WORK_GMAIL_IMAP_USERNAME = 'env-user@test.com';
+      process.env.IMAP_MCP_ACCOUNT_WORK_GMAIL_IMAP_PASSWORD = 'env-pass';
+
+      // Construction alone consumes them — no getter call needed
+      new AccountManager();
+
+      expect(process.env.IMAP_MCP_ACCOUNT_WORK_GMAIL_IMAP_USERNAME).toBeUndefined();
+      expect(process.env.IMAP_MCP_ACCOUNT_WORK_GMAIL_IMAP_PASSWORD).toBeUndefined();
+    });
+
+    it('keeps applying the override after the env var is consumed', async () => {
+      process.env.IMAP_MCP_ACCOUNT_WORK_GMAIL_IMAP_PASSWORD = 'env-pass';
+
+      const manager = new AccountManager();
+      const created = await addWork(manager);
+
+      // Env var already consumed at construction, override still applies on every read
+      expect(process.env.IMAP_MCP_ACCOUNT_WORK_GMAIL_IMAP_PASSWORD).toBeUndefined();
+      expect(manager.getAccount(created.id)?.password).toBe('env-pass');
+      expect(manager.getAccount(created.id)?.password).toBe('env-pass');
+    });
+
+    it('holds neither the cache key nor the value as plaintext', async () => {
+      process.env.IMAP_MCP_ACCOUNT_WORK_GMAIL_IMAP_PASSWORD = 'env-pass';
+
+      const manager = new AccountManager();
+
+      const cache = (manager as any).capturedEnvOverrides as Map<string, string>;
+      expect(cache.size).toBe(1);
+
+      // The plaintext variable name is not used as the key
+      expect(cache.has('IMAP_MCP_ACCOUNT_WORK_GMAIL_IMAP_PASSWORD')).toBe(false);
+
+      const [key, value] = [...cache.entries()][0];
+      expect(key).not.toContain('WORK_GMAIL'); // key does not leak the account name
+      expect(value).not.toBe('env-pass'); // value is encrypted
+      expect(value).toContain(':'); // iv:ciphertext form
+    });
+
+    it('does not persist env overrides to disk', async () => {
+      process.env.IMAP_MCP_ACCOUNT_WORK_GMAIL_IMAP_PASSWORD = 'env-pass';
+
+      const manager = new AccountManager();
+      const created = await addWork(manager);
+
+      manager.getAccount(created.id);
+
+      // No write happened just from reading
+      const writes = vi.mocked(fs.writeFile).mock.calls;
+      const lastWrite = writes[writes.length - 1];
+      const saved = JSON.parse(lastWrite[1] as string);
+      expect(saved[0].password).not.toBe('env-pass');
+    });
+
+    it('round-trips an empty password placeholder added via addAccount', async () => {
+      const manager = new AccountManager();
+
+      const created = await manager.addAccount({
+        name: 'Env Managed',
+        host: 'imap.test.com',
+        port: 993,
+        user: '',
+        password: '',
+        tls: true,
+      });
+
+      // No decrypt crash; empty placeholders come back as empty strings
+      const account = manager.getAccount(created.id);
+      expect(account?.user).toBe('');
+      expect(account?.password).toBe('');
+    });
+
+    it('lets env vars fill an empty placeholder stored for an account', async () => {
+      process.env.IMAP_MCP_ACCOUNT_ENV_MANAGED_IMAP_USERNAME = 'env-user@test.com';
+      process.env.IMAP_MCP_ACCOUNT_ENV_MANAGED_IMAP_PASSWORD = 'env-pass';
+
+      const manager = new AccountManager();
+      const created = await manager.addAccount({
+        name: 'Env Managed',
+        host: 'imap.test.com',
+        port: 993,
+        user: '',
+        password: '',
+        tls: true,
+      });
+
+      const account = manager.getAccount(created.id);
+      expect(account?.user).toBe('env-user@test.com');
+      expect(account?.password).toBe('env-pass');
+    });
+
+    it('round-trips an empty password placeholder set via updateAccount', async () => {
+      const manager = new AccountManager();
+
+      const created = await manager.addAccount({
+        name: 'Later Env Managed',
+        host: 'imap.test.com',
+        port: 993,
+        user: 'stored-user@test.com',
+        password: 'stored-pass',
+        tls: true,
+      });
+
+      // Marking the field env-managed on edit stores an empty placeholder
+      await manager.updateAccount(created.id, { password: '' });
+
+      // Must not crash on decrypt; comes back as an empty string
+      const account = manager.getAccount(created.id);
+      expect(account?.password).toBe('');
+    });
+  });
+
+  describe('malformed stored accounts', () => {
+    // A stored account whose credentials were never written (null user/password)
+    // must not crash listing — decrypt is called on the password unconditionally.
+    const loadAccounts = (accounts: unknown[]) => {
+      vi.mocked(readFileSync).mockImplementation(((p: any) => {
+        if (String(p).endsWith('.key')) return mockEncryptionKey;
+        return JSON.stringify(accounts);
+      }) as any);
+    };
+
+    it('lists an account with a null password without throwing', () => {
+      loadAccounts([
+        { id: 'bad', name: 'Private', user: null, password: null, host: 'imap.mail.me.com', port: 993, tls: true },
+      ]);
+
+      const manager = new AccountManager();
+
+      const accounts = manager.getAllAccounts();
+      expect(accounts).toHaveLength(1);
+      expect(accounts[0].name).toBe('Private');
+      expect(accounts[0].password).toBe('');
+    });
+
+    it('returns an empty password for a null/blank stored value via getAccount / getAccountByName', () => {
+      loadAccounts([
+        { id: 'bad', name: 'Private', user: null, password: null, host: 'imap.mail.me.com', port: 993, tls: true },
+      ]);
+
+      const manager = new AccountManager();
+
+      expect(manager.getAccount('bad')?.password).toBe('');
+      expect(manager.getAccountByName('Private')?.password).toBe('');
+    });
+
+    it('returns an empty password for an empty-string stored value', () => {
+      loadAccounts([
+        { id: 'empty', name: 'Private', user: '', password: '', host: 'imap.mail.me.com', port: 993, tls: true },
+      ]);
+
+      const manager = new AccountManager();
+
+      expect(manager.getAllAccounts()[0].password).toBe('');
+      expect(manager.getAccount('empty')?.password).toBe('');
+    });
+
+    it('throws on a non-empty but malformed (unencrypted) IMAP password', () => {
+      loadAccounts([
+        { id: 'corrupt', name: 'Private', user: 'me', password: 'not-encrypted', host: 'imap.mail.me.com', port: 993, tls: true },
+      ]);
+
+      const manager = new AccountManager();
+
+      expect(() => manager.getAllAccounts()).toThrow(/not a valid encrypted string/);
+      expect(() => manager.getAccount('corrupt')).toThrow(/not a valid encrypted string/);
+      expect(() => manager.getAccountByName('Private')).toThrow(/not a valid encrypted string/);
+    });
+
+    it('throws on a non-empty but malformed SMTP password', () => {
+      loadAccounts([
+        {
+          id: 'corrupt-smtp', name: 'Private', user: 'me', password: '', host: 'imap.mail.me.com', port: 993, tls: true,
+          smtp: { host: 'smtp.mail.me.com', port: 587, user: 'me', password: 'not-encrypted' },
+        },
+      ]);
+
+      const manager = new AccountManager();
+
+      expect(() => manager.getAllAccounts()).toThrow(/not a valid encrypted string/);
     });
   });
 
