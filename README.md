@@ -216,6 +216,7 @@ to a mailbox, or expose only a hand-picked subset of tools.
 | --- | --- |
 | `IMAP_MCP_READ_ONLY` | When truthy (`1`, `true`, `yes`, `on`), only the safe, read-only tools are registered — searching, reading, listing folders, unread counts, spam analysis. No tool that sends mail, deletes/moves messages, changes flags, or edits accounts is exposed. |
 | `IMAP_MCP_ENABLED_TOOLS` | Comma-separated allowlist of tool names — only these are registered. Names are case-insensitive and the `imap_` prefix is optional (`search_emails` ≡ `imap_search_emails`). When set, it takes precedence over `IMAP_MCP_READ_ONLY`. |
+| `YDC_API_KEY` | Enables the optional `imap_web_search` tool, which uses You.com Search for external lookups. |
 
 **Example — read-only access:**
 
@@ -250,7 +251,34 @@ The read-only subset is: `imap_list_accounts`, `imap_connect`, `imap_disconnect`
 `imap_get_latest_emails`, `imap_download_attachment`, `imap_find_thread_messages`,
 `imap_find_email_by_message_id`, `imap_list_folders`, `imap_folder_status`,
 `imap_get_unread_count`, `imap_check_spam`, `imap_domain_stats`,
-`imap_list_spam_domains`.
+`imap_list_spam_domains`, `imap_web_search`.
+
+### Optional web search tool
+
+If `YDC_API_KEY` is set, the server also exposes `imap_web_search`.
+
+Example:
+
+```json
+{
+  "mcpServers": {
+    "imap": {
+      "command": "npx",
+      "args": ["-y", "imap-mcp-server"],
+      "env": {
+        "IMAP_MCP_READ_ONLY": "true",
+        "YDC_API_KEY": "your-you-com-api-key"
+      }
+    }
+  }
+}
+```
+
+Use it for quick external checks while handling mail, for example:
+
+```text
+imap_web_search query="company name funding round" count=5
+```
 
 ## Usage
 

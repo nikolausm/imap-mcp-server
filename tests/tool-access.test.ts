@@ -116,6 +116,7 @@ describe('READ_ONLY_TOOLS subset', () => {
     expect(READ_ONLY_TOOLS).toContain('imap_search_emails');
     expect(READ_ONLY_TOOLS).toContain('imap_get_email');
     expect(READ_ONLY_TOOLS).toContain('imap_list_folders');
+    expect(READ_ONLY_TOOLS).toContain('imap_web_search');
   });
 
   it('excludes every destructive / mutating tool', () => {
