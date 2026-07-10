@@ -19,14 +19,38 @@ const accountSelector = {
 // Attachment payload as accepted by the send/draft/reply/forward tool schemas.
 // Typed explicitly because the MCP SDK's deep tool-schema inference (the TS2589
 // suppressions below) widens the handler's `attachments` arg to an untyped shape.
-type AttachmentInput = { filename: string; content?: string; path?: string; contentType?: string };
+type AttachmentInput = {
+  filename: string;
+  content?: string;
+  path?: string;
+  contentType?: string;
+  contentDisposition?: 'attachment' | 'inline';
+  cid?: string;
+};
 const buildAttachments = (atts?: AttachmentInput[]) =>
   atts?.map(att => ({
     filename: att.filename,
     content: att.content ? Buffer.from(att.content, 'base64') : undefined,
     path: att.path,
     contentType: att.contentType,
+    contentDisposition: att.contentDisposition,
+    cid: att.cid,
   }));
+
+// Shared Zod shape for the attachments arrays on send/save_draft/reply — keeps
+// the three tool schemas (and their .describe() text) in sync.
+const attachmentSchema = z.object({
+  filename: z.string().describe('Attachment filename'),
+  content: z.string().optional().describe('Base64 encoded content'),
+  path: z.string().optional().describe('File path to attach'),
+  contentType: z.string().optional().describe('MIME type'),
+  contentDisposition: z.enum(['attachment', 'inline']).optional().describe(
+    'How the attachment is presented. Use "inline" for images referenced from the HTML body via cid: (e.g. a signature/footer banner); omit or use "attachment" for regular downloadable files.'
+  ),
+  cid: z.string().optional().describe(
+    'Content-ID for inline attachments. Required when contentDisposition is "inline" and the HTML references the image as <img src="cid:THIS_VALUE">. Must match exactly (without the "cid:" prefix or angle brackets).'
+  ),
+});
 
 const DOWNLOAD_DIR = process.env.IMAP_DOWNLOAD_DIR || join(homedir(), 'Downloads', 'imap-attachments');
 const MAX_UPLOAD_SIZE = parseInt(process.env.IMAP_MAX_UPLOAD_SIZE ?? '', 10) || 25 * 1024 * 1024;
@@ -614,12 +638,7 @@ export function emailTools(
       cc: z.union([z.string(), z.array(z.string())]).optional().describe('CC recipients'),
       bcc: z.union([z.string(), z.array(z.string())]).optional().describe('BCC recipients'),
       replyTo: z.string().optional().describe('Reply-to address'),
-      attachments: z.array(z.object({
-        filename: z.string().describe('Attachment filename'),
-        content: z.string().optional().describe('Base64 encoded content'),
-        path: z.string().optional().describe('File path to attach'),
-        contentType: z.string().optional().describe('MIME type'),
-      })).optional().describe('Email attachments'),
+      attachments: z.array(attachmentSchema).optional().describe('Email attachments'),
     }
   }, async ({ accountId: rawAccountId, accountName, to, subject, text, html, body, cc, bcc, replyTo, attachments }) => {
     const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
@@ -678,12 +697,7 @@ export function emailTools(
       replyTo: z.string().optional().describe('Reply-to address'),
       inReplyTo: z.string().optional().describe('Message-Id being replied to'),
       references: z.union([z.string(), z.array(z.string())]).optional().describe('References header value(s)'),
-      attachments: z.array(z.object({
-        filename: z.string().describe('Attachment filename'),
-        content: z.string().optional().describe('Base64 encoded content'),
-        path: z.string().optional().describe('File path to attach'),
-        contentType: z.string().optional().describe('MIME type'),
-      })).optional().describe('Email attachments'),
+      attachments: z.array(attachmentSchema).optional().describe('Email attachments'),
       folder: z.string().optional().describe('Override the Drafts folder name (defaults to auto-detected Drafts folder)'),
     }
   }, async ({ accountId: rawAccountId, accountName, to, subject, text, html, body, cc, bcc, replyTo, inReplyTo, references, attachments, folder }) => {
@@ -742,12 +756,7 @@ export function emailTools(
       html: z.string().optional().describe('HTML reply content'),
       body: z.string().optional().describe("Alias for 'text' (backward-compat)"),
       replyAll: z.boolean().default(false).describe('Reply to all recipients'),
-      attachments: z.array(z.object({
-        filename: z.string().describe('Attachment filename'),
-        content: z.string().optional().describe('Base64 encoded content'),
-        path: z.string().optional().describe('File path to attach'),
-        contentType: z.string().optional().describe('MIME type'),
-      })).optional().describe('Email attachments'),
+      attachments: z.array(attachmentSchema).optional().describe('Email attachments'),
     }
   }, async ({ accountId: rawAccountId, accountName, folder, uid, text, html, body, replyAll, attachments }) => {
     const accountId = accountManager.resolveAccountId(rawAccountId, accountName);

@@ -417,7 +417,11 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
     - content: Base64 encoded content
     - path: File path to attach
     - contentType: MIME type
+    - contentDisposition: "attachment" (default) or "inline" — use "inline" for images shown in the HTML body via cid:
+    - cid: Content-ID for inline attachments; must match the `cid:` value used in an `<img src="cid:...">` tag in `html`
   ```
+
+- **imap_save_draft**: Save an email as a draft (no send). Takes the same fields as `imap_send_email`, plus `inReplyTo`, `references`, and an optional `folder` override for the Drafts folder.
 
 - **imap_reply_to_email**: Reply to an existing email
   ```
@@ -428,7 +432,7 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
   - text: Plain text reply content (optional)
   - html: HTML reply content (optional)
   - replyAll: Reply to all recipients (default: false)
-  - attachments: Array of attachments (optional)
+  - attachments: Array of attachments (optional, same shape as imap_send_email, including contentDisposition/cid for inline images)
   ```
 
 - **imap_forward_email**: Forward an existing email
