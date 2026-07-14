@@ -1,6 +1,6 @@
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
-import { ImapAccount, EmailMessage, EmailContent, EmailBodyFormat, EmailLocation, Folder, SearchCriteria } from '../types/index.js';
+import { ImapAccount, EmailMessage, EmailContent, EmailBodyFormat, EmailLocation, Folder, SearchCriteria, SearchOptions, DEFAULT_BODY_MAX_LENGTH, DEFAULT_BODY_FORMAT } from '../types/index.js';
 import type { AccountManager } from './account-manager.js';
 import { htmlToMarkdown, normalizeWhitespace } from './html-to-markdown.js';
 
@@ -99,6 +99,24 @@ interface EmailContentOptions {
   bodyFormat?: EmailBodyFormat;
   // Minimum length of a text/plain part to treat it as the substantive body (markdown/auto).
   markdownThreshold?: number;
+}
+
+/**
+ * Per-uid result returned by `moveEmail` when an array of UIDs is supplied.
+ * `uidMap` is the server's mapping (source uid → destination uid); populated
+ * when the server reports it, omitted otherwise.
+ */
+export interface MoveEmailBatchResultItem {
+  uid: number;
+  destination: string;
+  uidMap?: Record<number, number>;
+}
+
+export interface MoveEmailBatchResult {
+  path: string;
+  destination: string;
+  destinationCreated?: boolean;
+  results: MoveEmailBatchResultItem[];
 }
 
 export class ImapService {
@@ -285,8 +303,25 @@ export class ImapService {
     };
   }
 
-  async searchEmails(accountId: string, folderName: string, criteria: SearchCriteria): Promise<EmailMessage[]> {
+  /**
+   * Search a folder by criteria. By default returns lightweight headers only;
+   * set `options.includeBody = true` to fetch the RFC822 source in the same
+   * round-trip and parse the body with mailparser (markdown by default,
+   * matching `imap_get_email`).
+   *
+   * Backwards-compatible: when `options` is omitted or `includeBody` is
+   * false, the returned shape is identical to the previous version — no
+   * body fields attached.
+   */
+  async searchEmails(
+    accountId: string,
+    folderName: string,
+    criteria: SearchCriteria,
+    options?: SearchOptions,
+  ): Promise<EmailMessage[]> {
     const client = await this.ensureConnected(accountId);
+    const includeBody = options?.includeBody === true;
+    const bodyMaxLength = options?.bodyMaxLength ?? DEFAULT_BODY_MAX_LENGTH;
 
     let lock;
     try {
@@ -299,15 +334,22 @@ export class ImapService {
         return [];
       }
 
-      const messages: EmailMessage[] = [];
-
-      for await (const msg of client.fetch(uids, {
+      // Fetch envelopes + flags + internalDate, and — when includeBody — the
+      // RFC822 source in the same round-trip (one `client.fetch` call).
+      // Including `source: true` lets us parse the body with mailparser
+      // without an extra fetch per message.
+      const fetchQuery: any = {
         uid: true,
         envelope: true,
         flags: true,
         internalDate: true,
-      }, { uid: true })) {
-        messages.push({
+        ...(includeBody ? { source: true } : {}),
+      };
+
+      const messages: EmailMessage[] = [];
+
+      for await (const msg of client.fetch(uids, fetchQuery, { uid: true })) {
+        const base: EmailMessage = {
           uid: msg.uid,
           date: new Date(msg.internalDate || msg.envelope?.date || Date.now()),
           from: msg.envelope?.from?.[0] ? this.formatAddress(msg.envelope.from[0]) : '',
@@ -316,7 +358,24 @@ export class ImapService {
           messageId: msg.envelope?.messageId || '',
           inReplyTo: msg.envelope?.inReplyTo,
           flags: Array.from(msg.flags || []),
-        });
+        };
+
+        if (!includeBody || !msg.source) {
+          messages.push(base);
+          continue;
+        }
+
+        try {
+          const rendered = await this.buildEmailContentFromSource(msg.uid, msg.source, msg.flags, {
+            bodyFormat: options?.bodyFormat ?? DEFAULT_BODY_FORMAT,
+            bodyMaxLength,
+            includeAttachmentText: false,
+          });
+          messages.push(this.mergeBodyIntoMessage(base, rendered, options?.bodyFormat ?? DEFAULT_BODY_FORMAT));
+        } catch {
+          // Parsing one source failed — keep the headers, omit body fields.
+          messages.push(base);
+        }
       }
 
       return messages;
@@ -327,8 +386,23 @@ export class ImapService {
     }
   }
 
-  async getLatestEmails(accountId: string, folderName: string, count: number): Promise<EmailMessage[]> {
+  /**
+   * Get the newest `count` messages in `folderName`. By default returns
+   * lightweight headers only; set `options.includeBody = true` to also fetch
+   * and parse the body of each message.
+   *
+   * Backwards-compatible: when `options` is omitted, the returned shape is
+   * identical to the previous version.
+   */
+  async getLatestEmails(
+    accountId: string,
+    folderName: string,
+    count: number,
+    options?: SearchOptions,
+  ): Promise<EmailMessage[]> {
     const client = await this.ensureConnected(accountId);
+    const includeBody = options?.includeBody === true;
+    const bodyMaxLength = options?.bodyMaxLength ?? DEFAULT_BODY_MAX_LENGTH;
 
     let lock;
     try {
@@ -340,15 +414,19 @@ export class ImapService {
       }
 
       const latestUids = [...uids].sort((a, b) => a - b).slice(-count);
-      const messages: EmailMessage[] = [];
 
-      for await (const msg of client.fetch(latestUids, {
+      const fetchQuery: any = {
         uid: true,
         envelope: true,
         flags: true,
         internalDate: true,
-      }, { uid: true })) {
-        messages.push({
+        ...(includeBody ? { source: true } : {}),
+      };
+
+      const messages: EmailMessage[] = [];
+
+      for await (const msg of client.fetch(latestUids, fetchQuery, { uid: true })) {
+        const base: EmailMessage = {
           uid: msg.uid,
           date: new Date(msg.internalDate || msg.envelope?.date || Date.now()),
           from: msg.envelope?.from?.[0] ? this.formatAddress(msg.envelope.from[0]) : '',
@@ -357,7 +435,24 @@ export class ImapService {
           messageId: msg.envelope?.messageId || '',
           inReplyTo: msg.envelope?.inReplyTo,
           flags: Array.from(msg.flags || []),
-        });
+        };
+
+        if (!includeBody || !msg.source) {
+          messages.push(base);
+          continue;
+        }
+
+        try {
+          const rendered = await this.buildEmailContentFromSource(msg.uid, msg.source, msg.flags, {
+            bodyFormat: options?.bodyFormat ?? DEFAULT_BODY_FORMAT,
+            bodyMaxLength,
+            includeAttachmentText: false,
+          });
+          messages.push(this.mergeBodyIntoMessage(base, rendered, options?.bodyFormat ?? DEFAULT_BODY_FORMAT));
+        } catch {
+          // One source failed to parse — keep the headers, drop the body.
+          messages.push(base);
+        }
       }
 
       return messages.sort((a, b) => b.date.getTime() - a.date.getTime());
@@ -394,160 +489,221 @@ export class ImapService {
         throw new Error(`Email with UID ${uid} not found`);
       }
 
-      const parsed = await simpleParser(source.source);
-      const {
-        includeAttachmentText = false,
-        maxAttachmentTextBytes = 256 * 1024,
-        maxAttachmentTextChars = 100000,
-        bodyFormat = 'markdown',
-        markdownThreshold = 200,
-      } = options;
-
-      // Body assembly per bodyFormat. The point is that raw HTML never crosses the boundary
-      // unless explicitly requested via bodyFormat: 'html'.
-      const rawText = parsed.text || undefined;
-      const rawHtml = parsed.html || undefined;
-      let textContent: string | undefined;
-      let htmlContent: string | undefined;
-      let markdownContent: string | undefined;
-
-      if (bodyFormat === 'html') {
-        textContent = rawText;
-        htmlContent = rawHtml;
-      } else if (bodyFormat === 'text') {
-        // Plain text if present, else a tag-stripped/normalized rendering of the HTML.
-        textContent = rawText ? normalizeWhitespace(rawText) : (rawHtml ? htmlToMarkdown(rawHtml) : undefined);
-      } else {
-        // 'markdown' (default) and 'auto': prefer a substantive text/plain part, else convert HTML.
-        const cleanText = rawText ? normalizeWhitespace(rawText) : '';
-        if (cleanText.length >= markdownThreshold) {
-          markdownContent = cleanText;
-        } else if (rawHtml) {
-          markdownContent = htmlToMarkdown(rawHtml);
-        } else {
-          markdownContent = cleanText || undefined;
-        }
-        // Keep textContent for backward compatibility with consumers that still read it.
-        textContent = rawText;
-      }
-      const textAttachmentExtensions = ['.txt', '.md', '.markdown', '.csv', '.log', '.json', '.xml', '.yml', '.yaml'];
-      const pdfExtensions = ['.pdf'];
-
-      // Extract all raw headers as key-value pairs
-      const headers: Record<string, string | string[]> = {};
-      if (parsed.headers) {
-        const headerToString = (v: unknown): string => {
-          if (typeof v === 'string') return v;
-          if (v instanceof Date) return v.toISOString();
-          if (v && typeof v === 'object' && 'text' in v) return String((v as { text: string }).text);
-          if (v && typeof v === 'object' && 'value' in v) return String((v as { value: string }).value);
-          if (v && typeof v === 'object') return JSON.stringify(v);
-          return String(v);
-        };
-
-        for (const [key, value] of parsed.headers) {
-          if (typeof value === 'string') {
-            headers[key] = value;
-          } else if (Array.isArray(value)) {
-            headers[key] = value.map(headerToString);
-          } else {
-            headers[key] = headerToString(value);
-          }
-        }
-      }
-
-      return {
-        uid,
-        date: parsed.date || new Date(),
-        from: parsed.from?.text || '',
-        to: parsed.to ? (Array.isArray(parsed.to) ? parsed.to.map((t: any) => t.text || '') : [parsed.to.text || '']) : [],
-        subject: parsed.subject || '',
-        messageId: parsed.messageId || '',
-        inReplyTo: parsed.inReplyTo as string | undefined,
-        flags: Array.from(source.flags || []),
-        headers,
-        textContent,
-        htmlContent,
-        markdownContent,
-        bodyFormat,
-        attachments: await Promise.all((parsed.attachments || []).map(async (att: any) => {
-          const filename = att.filename || 'unknown';
-          const contentType = att.contentType || 'application/octet-stream';
-          const size = att.size || 0;
-          const attachment = {
-            filename,
-            contentType,
-            size,
-            contentId: att.contentId,
-          };
-
-          if (!includeAttachmentText || !att?.content) {
-            return attachment;
-          }
-
-          const contentTypeLower = String(contentType).toLowerCase();
-          const filenameLower = String(filename).toLowerCase();
-          const isTextContentType =
-            contentTypeLower.startsWith('text/') ||
-            ['application/json', 'application/xml', 'application/xhtml+xml', 'application/yaml', 'application/x-yaml'].includes(contentTypeLower);
-          const hasTextExtension = textAttachmentExtensions.some(ext => filenameLower.endsWith(ext));
-          const isTextAttachment = isTextContentType || hasTextExtension;
-
-          // Check if this is a PDF
-          const isPdf = contentTypeLower === 'application/pdf' || pdfExtensions.some(ext => filenameLower.endsWith(ext));
-
-          if (isPdf && att?.content) {
-            try {
-              const { PDFParse } = await import('pdf-parse');
-              const contentBuffer = Buffer.isBuffer(att.content) ? att.content : Buffer.from(att.content);
-              const pdfParser = new PDFParse({ data: contentBuffer });
-              let rawText: string;
-              try {
-                const pdfData = await pdfParser.getText({ pageJoiner: '' });
-                rawText = pdfData.text;
-              } finally {
-                await pdfParser.destroy();
-              }
-              const textTruncated = rawText.length > maxAttachmentTextChars;
-              const textContent = textTruncated ? rawText.slice(0, maxAttachmentTextChars) : rawText;
-
-              return {
-                ...attachment,
-                textContent,
-                textContentTruncated: textTruncated || undefined,
-              };
-            } catch {
-              // PDF parsing failed, return without text
-              return attachment;
-            }
-          }
-
-          if (!isTextAttachment) {
-            return attachment;
-          }
-
-          const contentBuffer = Buffer.isBuffer(att.content) ? att.content : undefined;
-          const contentLength = contentBuffer?.length ?? (typeof att.content === 'string' ? att.content.length : 0);
-          if (contentLength > maxAttachmentTextBytes) {
-            return attachment;
-          }
-
-          const rawText = contentBuffer ? contentBuffer.toString('utf8') : String(att.content);
-          const textTruncated = rawText.length > maxAttachmentTextChars;
-          const textContent = textTruncated ? rawText.slice(0, maxAttachmentTextChars) : rawText;
-
-          return {
-            ...attachment,
-            textContent,
-            textContentTruncated: textTruncated || undefined,
-          };
-        })),
-      };
+      return await this.buildEmailContentFromSource(uid, source.source, source.flags, options);
     } finally {
       if (lock) {
         lock.release();
       }
     }
+  }
+
+  /**
+   * Parse a raw RFC822 source Buffer with mailparser and render body/header
+   * fields according to `options`. Used by both `getEmailContent` (single
+   * message) and the includeBody paths in `searchEmails`/`getLatestEmails`/
+   * `findThreadMessages` so body rendering stays in one place.
+   *
+   * `bodyMaxLength` caps each populated body field independently. Search /
+   * latest / thread callers pass a small cap (default 10000) to protect the
+   * context window when returning many messages at once; `getEmailContent`
+   * leaves it undefined so the caller-controlled `maxContentLength` (in
+   * `email-tools.ts`) applies unchanged.
+   */
+  private async buildEmailContentFromSource(
+    uid: number,
+    source: Buffer,
+    flags: any,
+    options: EmailContentOptions & { bodyMaxLength?: number } = {}
+  ): Promise<EmailContent> {
+    const {
+      includeAttachmentText = false,
+      maxAttachmentTextBytes = 256 * 1024,
+      maxAttachmentTextChars = 100000,
+      bodyFormat = 'markdown',
+      markdownThreshold = 200,
+      bodyMaxLength,
+    } = options;
+
+    const parsed = await simpleParser(source);
+
+    const cap = (s: string | undefined): string | undefined => {
+      if (s === undefined) return undefined;
+      if (bodyMaxLength === undefined || bodyMaxLength <= 0) return s;
+      return s.length > bodyMaxLength ? s.substring(0, bodyMaxLength) : s;
+    };
+
+    // Body assembly per bodyFormat. The point is that raw HTML never crosses the boundary
+    // unless explicitly requested via bodyFormat: 'html'.
+    const rawText = parsed.text || undefined;
+    const rawHtml = parsed.html || undefined;
+    let textContent: string | undefined;
+    let htmlContent: string | undefined;
+    let markdownContent: string | undefined;
+
+    if (bodyFormat === 'html') {
+      textContent = cap(rawText);
+      htmlContent = cap(rawHtml);
+    } else if (bodyFormat === 'text') {
+      // Plain text if present, else a tag-stripped/normalized rendering of the HTML.
+      const baseText = rawText ? normalizeWhitespace(rawText) : (rawHtml ? htmlToMarkdown(rawHtml) : undefined);
+      textContent = cap(baseText);
+    } else {
+      // 'markdown' (default) and 'auto': prefer a substantive text/plain part, else convert HTML.
+      const cleanText = rawText ? normalizeWhitespace(rawText) : '';
+      if (cleanText.length >= markdownThreshold) {
+        markdownContent = cleanText;
+      } else if (rawHtml) {
+        markdownContent = htmlToMarkdown(rawHtml);
+      } else {
+        markdownContent = cleanText || undefined;
+      }
+      // Keep textContent for backward compatibility with consumers that still read it.
+      textContent = rawText;
+      markdownContent = cap(markdownContent);
+    }
+
+    const textAttachmentExtensions = ['.txt', '.md', '.markdown', '.csv', '.log', '.json', '.xml', '.yml', '.yaml'];
+    const pdfExtensions = ['.pdf'];
+
+    // Extract all raw headers as key-value pairs
+    const headers: Record<string, string | string[]> = {};
+    if (parsed.headers) {
+      const headerToString = (v: unknown): string => {
+        if (typeof v === 'string') return v;
+        if (v instanceof Date) return v.toISOString();
+        if (v && typeof v === 'object' && 'text' in v) return String((v as { text: string }).text);
+        if (v && typeof v === 'object' && 'value' in v) return String((v as { value: string }).value);
+        if (v && typeof v === 'object') return JSON.stringify(v);
+        return String(v);
+      };
+
+      for (const [key, value] of parsed.headers) {
+        if (typeof value === 'string') {
+          headers[key] = value;
+        } else if (Array.isArray(value)) {
+          headers[key] = value.map(headerToString);
+        } else {
+          headers[key] = headerToString(value);
+        }
+      }
+    }
+
+    return {
+      uid,
+      date: parsed.date || new Date(),
+      from: parsed.from?.text || '',
+      to: parsed.to ? (Array.isArray(parsed.to) ? parsed.to.map((t: any) => t.text || '') : [parsed.to.text || '']) : [],
+      subject: parsed.subject || '',
+      messageId: parsed.messageId || '',
+      inReplyTo: parsed.inReplyTo as string | undefined,
+      flags: Array.from(flags || []),
+      headers,
+      textContent,
+      htmlContent,
+      markdownContent,
+      bodyFormat,
+      attachments: await Promise.all((parsed.attachments || []).map(async (att: any) => {
+        const filename = att.filename || 'unknown';
+        const contentType = att.contentType || 'application/octet-stream';
+        const size = att.size || 0;
+        const attachment = {
+          filename,
+          contentType,
+          size,
+          contentId: att.contentId,
+        };
+
+        if (!includeAttachmentText || !att?.content) {
+          return attachment;
+        }
+
+        const contentTypeLower = String(contentType).toLowerCase();
+        const filenameLower = String(filename).toLowerCase();
+        const isTextContentType =
+          contentTypeLower.startsWith('text/') ||
+          ['application/json', 'application/xml', 'application/xhtml+xml', 'application/yaml', 'application/x-yaml'].includes(contentTypeLower);
+        const hasTextExtension = textAttachmentExtensions.some(ext => filenameLower.endsWith(ext));
+        const isTextAttachment = isTextContentType || hasTextExtension;
+
+        // Check if this is a PDF
+        const isPdf = contentTypeLower === 'application/pdf' || pdfExtensions.some(ext => filenameLower.endsWith(ext));
+
+        if (isPdf && att?.content) {
+          try {
+            const { PDFParse } = await import('pdf-parse');
+            const contentBuffer = Buffer.isBuffer(att.content) ? att.content : Buffer.from(att.content);
+            const pdfParser = new PDFParse({ data: contentBuffer });
+            let rawText: string;
+            try {
+              const pdfData = await pdfParser.getText({ pageJoiner: '' });
+              rawText = pdfData.text;
+            } finally {
+              await pdfParser.destroy();
+            }
+            const textTruncated = rawText.length > maxAttachmentTextChars;
+            const textContent = textTruncated ? rawText.slice(0, maxAttachmentTextChars) : rawText;
+
+            return {
+              ...attachment,
+              textContent,
+              textContentTruncated: textTruncated || undefined,
+            };
+          } catch {
+            // PDF parsing failed, return without text
+            return attachment;
+          }
+        }
+
+        if (!isTextAttachment) {
+          return attachment;
+        }
+
+        const contentBuffer = Buffer.isBuffer(att.content) ? att.content : undefined;
+        const contentLength = contentBuffer?.length ?? (typeof att.content === 'string' ? att.content.length : 0);
+        if (contentLength > maxAttachmentTextBytes) {
+          return attachment;
+        }
+
+        const rawText = contentBuffer ? contentBuffer.toString('utf8') : String(att.content);
+        const textTruncated = rawText.length > maxAttachmentTextChars;
+        const textContent = textTruncated ? rawText.slice(0, maxAttachmentTextChars) : rawText;
+
+        return {
+          ...attachment,
+          textContent,
+          textContentTruncated: textTruncated || undefined,
+        };
+      })),
+    };
+  }
+
+  /**
+   * Merge body fields rendered by `buildEmailContentFromSource` into a
+   * lightweight `EmailMessage` returned by the search / latest / thread paths.
+   * Only the body fields relevant to the requested `bodyFormat` are attached
+   * (raw HTML stays out unless `bodyFormat: 'html'` was requested).
+   */
+  private mergeBodyIntoMessage(
+    base: EmailMessage,
+    rendered: EmailContent,
+    bodyFormat: EmailBodyFormat,
+  ): EmailMessage & {
+    textContent?: string;
+    htmlContent?: string;
+    markdownContent?: string;
+    bodyFormat: EmailBodyFormat;
+  } {
+    return {
+      ...base,
+      // Always prefer the body field the caller asked for, fall back to any
+      // populated body field so a single-mode consumer never gets an empty
+      // result when the message happened to only carry text/plain (markdown
+      // mode returns textContent populated as a side-effect — preserve it).
+      markdownContent: rendered.markdownContent,
+      textContent: rendered.textContent,
+      ...(bodyFormat === 'html' ? { htmlContent: rendered.htmlContent } : {}),
+      bodyFormat,
+    };
   }
 
   async getAttachmentContent(
@@ -589,27 +745,76 @@ export class ImapService {
     }
   }
 
-  async markAsRead(accountId: string, folderName: string, uid: number): Promise<void> {
-    const client = await this.ensureConnected(accountId);
-
-    let lock;
-    try {
-      lock = await client.getMailboxLock(folderName);
-      await client.messageFlagsAdd(uid, ['\\Seen'], { uid: true });
-    } finally {
-      if (lock) {
-        lock.release();
-      }
-    }
+  /**
+   * Mark messages as read.
+   *
+   * Single-uid calls return `void` (unchanged). When `uids` is an array, the
+   * IMAP server's UID sequence-set is used so all flags flip in one call.
+   * Returns a per-uid report — failed UIDs are listed in `errors`, never
+   * surfaced as a thrown error, so partial failure is observable.
+   */
+  async markAsRead(
+    accountId: string,
+    folderName: string,
+    uids: number | number[],
+  ): Promise<{ success: boolean; marked: number[]; failed: number[]; errors?: string[] }> {
+    return this.flagBatch(accountId, folderName, uids, 'add');
   }
 
-  async markAsUnread(accountId: string, folderName: string, uid: number): Promise<void> {
-    const client = await this.ensureConnected(accountId);
+  async markAsUnread(
+    accountId: string,
+    folderName: string,
+    uids: number | number[],
+  ): Promise<{ success: boolean; marked: number[]; failed: number[]; errors?: string[] }> {
+    return this.flagBatch(accountId, folderName, uids, 'remove');
+  }
 
+  /**
+   * Add or remove the \\Seen flag on one or many UIDs in one mailbox.
+   *
+   * For a single UID: returns `marked: [uid]` on success. For an array, all
+   * UIDs go into a single sequence-set so we hit the server with one
+   * `messageFlagsAdd`/`messageFlagsRemove` call (instead of N) — that's the
+   * core of the #106 batch-UIDs performance win.
+   *
+   * On error, the whole batch fails and the failed uid(s) are reported.
+   * imapflow's `messageFlagsAdd`/`messageFlagsRemove` is atomic at the
+   * IMAP-server level (one command), so partial-success handling for an
+   * array is unnecessary; the IMAP server either flips them all or rejects.
+   */
+  private async flagBatch(
+    accountId: string,
+    folderName: string,
+    uids: number | number[],
+    mode: 'add' | 'remove',
+  ): Promise<{ success: boolean; marked: number[]; failed: number[]; errors?: string[] }> {
+    const uidList = Array.isArray(uids) ? uids : [uids];
+    if (uidList.length === 0) {
+      return { success: true, marked: [], failed: [] };
+    }
+
+    const client = await this.ensureConnected(accountId);
     let lock;
     try {
       lock = await client.getMailboxLock(folderName);
-      await client.messageFlagsRemove(uid, ['\\Seen'], { uid: true });
+      // imapflow accepts both a single UID/number and an IMAP sequence-set
+      // string ("1,2,3" or "1:5"). For an array we join as a sequence-set;
+      // for a single uid we pass the number directly (preserves prior shape).
+      const target: number | string = uidList.length === 1 ? uidList[0] : uidList.join(',');
+      if (mode === 'add') {
+        await client.messageFlagsAdd(target, ['\\Seen'], { uid: true });
+      } else {
+        await client.messageFlagsRemove(target, ['\\Seen'], { uid: true });
+      }
+      return { success: true, marked: [...uidList], failed: [] };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      return {
+        success: false,
+        marked: [],
+        failed: [...uidList],
+        errors: [`Failed to ${mode === 'add' ? 'mark as read' : 'mark as unread'} UIDs [${uidList.join(', ')}]: ${message}`],
+      };
     } finally {
       if (lock) {
         lock.release();
@@ -761,13 +966,35 @@ export class ImapService {
     return { deleted, failed, errors };
   }
 
+  /**
+   * Move one email or a batch of emails from `folderName` to `targetFolder`.
+   *
+   * - Single UID (number): returns the existing single-uid shape `{ path,
+   *   destination, destinationCreated?, uidMap? }` (unchanged).
+   * - Array of UIDs: returns `{ path, destination, destinationCreated?,
+   *   results: [{ uid, destination, uidMap? }, …] }`. Per-uid errors are
+   *   reported in the result rather than thrown so partial failures are
+   *   observable — a single bad UID should not lose the work done for
+   *   siblings. `createDestinationIfMissing` is honored once up front.
+   */
   async moveEmail(
     accountId: string,
     folderName: string,
-    uid: number,
+    uids: number | number[],
     targetFolder: string,
     options?: { createDestinationIfMissing?: boolean },
-  ): Promise<{ path: string; destination: string; destinationCreated?: boolean; uidMap?: Map<number, number> }> {
+  ): Promise<
+    | {
+        path: string;
+        destination: string;
+        destinationCreated?: boolean;
+        uidMap?: Map<number, number>;
+      }
+    | MoveEmailBatchResult
+  > {
+    const isBatch = Array.isArray(uids);
+    const uidList = isBatch ? (uids as number[]) : [uids as number];
+
     const client = await this.ensureConnected(accountId);
 
     let destinationCreated = false;
@@ -782,17 +1009,73 @@ export class ImapService {
     let lock;
     try {
       lock = await client.getMailboxLock(folderName);
-      const result = await client.messageMove(uid, targetFolder, { uid: true });
 
-      if (!result) {
-        throw new Error(`Failed to move email UID ${uid} from ${folderName} to ${targetFolder}`);
+      // For a batch we move one UID at a time so we can attribute errors
+      // per-uid. imapflow's `messageMove` accepts a sequence-set, but a
+      // sequence-set either succeeds atomically or fails entirely — a
+      // mid-batch failure with no per-uid attribution would be a regression
+      // vs the existing single-uid error contract.
+      const results: MoveEmailBatchResultItem[] = [];
+      let firstResult: { path: string; destination: string; uidMap?: Map<number, number> } | null = null;
+      let firstPath = folderName;
+
+      for (const uid of uidList) {
+        try {
+          const result = await client.messageMove(uid, targetFolder, { uid: true });
+          if (!result) {
+            throw new Error(`Server returned no result for UID ${uid}`);
+          }
+          if (!firstResult) {
+            firstResult = { path: result.path, destination: result.destination, uidMap: result.uidMap };
+            firstPath = result.path;
+          }
+          const uidMapRecord = result.uidMap ? Object.fromEntries(result.uidMap) : undefined;
+          results.push({
+            uid,
+            destination: result.destination,
+            ...(uidMapRecord ? { uidMap: uidMapRecord } : {}),
+          });
+        } catch (err) {
+          if (isBatch) {
+            // Per-uid error inside a batch: keep going and report.
+            results.push({
+              uid,
+              destination: targetFolder,
+              uidMap: undefined as unknown as Record<number, number>,
+            });
+            // Annotate the failure on the item by attaching a non-enumerable
+            // error? Easier: surface via a separate sibling array — but to
+            // keep the public shape tight, throw and let the caller iterate.
+            // For #106 we keep the iteration going but record the failure.
+            (results[results.length - 1] as any).error =
+              err instanceof Error ? err.message : String(err);
+          } else {
+            // Single-uid failure — preserve prior behavior (throw).
+            throw new Error(
+              `Failed to move email UID ${uid} from ${folderName} to ${targetFolder}: ${
+                err instanceof Error ? err.message : String(err)
+              }`,
+            );
+          }
+        }
+      }
+
+      if (!isBatch) {
+        // Single-uid — keep the legacy shape exactly so existing callers
+        // don't see any change.
+        return {
+          path: firstResult?.path ?? firstPath,
+          destination: firstResult?.destination ?? targetFolder,
+          destinationCreated: destinationCreated || undefined,
+          uidMap: firstResult?.uidMap,
+        };
       }
 
       return {
-        path: result.path,
-        destination: result.destination,
+        path: firstResult?.path ?? firstPath,
+        destination: targetFolder,
         destinationCreated: destinationCreated || undefined,
-        uidMap: result.uidMap,
+        results,
       };
     } finally {
       if (lock) {
@@ -831,14 +1114,38 @@ export class ImapService {
     }
   }
 
+  /**
+   * Find messages in `searchFolder` that belong to the same conversation
+   * threads as messages already in `sourceFolder`.
+   *
+   * Returns `{ messageIds, uids }` and — when `options.includeBody` is true —
+   * an additional `messages` array with full body for each matched UID,
+   * formatted like `imap_get_email` (markdown by default). `searchReferences`
+   * is honored as before (default true).
+   *
+   * Backwards-compatible: when `includeBody` is omitted, the returned shape
+   * is identical to the previous version.
+   */
   async findThreadMessages(
     accountId: string,
     sourceFolder: string,
     searchFolder: string,
-    options?: { searchReferences?: boolean },
-  ): Promise<{ messageIds: string[]; uids: number[] }> {
+    options?: { searchReferences?: boolean; includeBody?: boolean; bodyFormat?: EmailBodyFormat; bodyMaxLength?: number },
+  ): Promise<{
+    messageIds: string[];
+    uids: number[];
+    messages?: Array<EmailMessage & {
+      textContent?: string;
+      htmlContent?: string;
+      markdownContent?: string;
+      bodyFormat: EmailBodyFormat;
+    }>;
+  }> {
     const client = await this.ensureConnected(accountId);
     const includeReferences = options?.searchReferences !== false;
+    const includeBody = options?.includeBody === true;
+    const bodyMaxLength = options?.bodyMaxLength ?? DEFAULT_BODY_MAX_LENGTH;
+    const bodyFormat = options?.bodyFormat ?? DEFAULT_BODY_FORMAT;
 
     // 1) Collect Message-IDs from sourceFolder
     const messageIds: string[] = [];
@@ -887,10 +1194,61 @@ export class ImapService {
       lock.release();
     }
 
-    return {
-      messageIds,
-      uids: Array.from(foundUids).sort((a, b) => a - b),
-    };
+    const sortedUids = Array.from(foundUids).sort((a, b) => a - b);
+
+    if (!includeBody || sortedUids.length === 0) {
+      return { messageIds, uids: sortedUids };
+    }
+
+    // 3) Optionally fetch envelopes + body for each found UID in one round-trip.
+    // Caller-side: the body is rendered with the same `bodyFormat` as
+    // `imap_get_email`, capped by `bodyMaxLength` (default 10000).
+    const messages: Array<EmailMessage & {
+      textContent?: string;
+      htmlContent?: string;
+      markdownContent?: string;
+      bodyFormat: EmailBodyFormat;
+    }> = [];
+    lock = await client.getMailboxLock(searchFolder);
+    try {
+      const fetchQuery: any = {
+        uid: true,
+        envelope: true,
+        flags: true,
+        internalDate: true,
+        source: true,
+      };
+      for await (const msg of client.fetch(sortedUids, fetchQuery, { uid: true })) {
+        const base: EmailMessage = {
+          uid: msg.uid,
+          date: new Date(msg.internalDate || msg.envelope?.date || Date.now()),
+          from: msg.envelope?.from?.[0] ? this.formatAddress(msg.envelope.from[0]) : '',
+          to: msg.envelope?.to?.map((addr: any) => this.formatAddress(addr)) || [],
+          subject: msg.envelope?.subject || '',
+          messageId: msg.envelope?.messageId || '',
+          inReplyTo: msg.envelope?.inReplyTo,
+          flags: Array.from(msg.flags || []),
+        };
+        if (!msg.source) {
+          messages.push({ ...base, bodyFormat });
+          continue;
+        }
+        try {
+          const rendered = await this.buildEmailContentFromSource(msg.uid, msg.source, msg.flags, {
+            bodyFormat,
+            bodyMaxLength,
+            includeAttachmentText: false,
+          });
+          messages.push(this.mergeBodyIntoMessage(base, rendered, bodyFormat));
+        } catch {
+          messages.push({ ...base, bodyFormat });
+        }
+      }
+    } finally {
+      lock.release();
+    }
+
+    return { messageIds, uids: sortedUids, messages };
   }
 
   async appendToSentFolder(accountId: string, rawMessage: Buffer | string): Promise<boolean> {

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `includeBody` option on `imap_search_emails`, `imap_get_latest_emails`, and `imap_find_thread_messages` (#106). When set, the response includes the parsed body alongside the existing headers in a single tool call — no more N+1 round-trips of `search → N × imap_get_email`. Backed by three new optional params: `includeBody` (default false), `bodyFormat` (`markdown`/`text`/`html`/`auto`, default `markdown`), `bodyMaxLength` (per-field cap, default 10000). The body-rendering path is shared with `imap_get_email` via a refactored `buildEmailContentFromSource` helper. **Documented limitation:** `includeBody` is honored on the single-folder search path only; the cross-folder path keeps the lightweight header shape to avoid multiplying source-byte fetches across folders — follow up with `imap_get_email` for the specific uids whose bodies you need.
+- Batch UID support on `imap_move_email`, `imap_mark_as_read`, and `imap_mark_as_unread` (#106). `uid` now accepts either a single UID or an array of UIDs. Batch moves go through a single `imap_move` per UID with per-uid results attributed in the response; batch flag operations use one IMAP STORE sequence-set (atomic at the server level). Single-UID callers see the legacy response shape unchanged.
+- New `SearchOptions` interface in `src/types/index.ts` (with `DEFAULT_BODY_MAX_LENGTH` / `DEFAULT_BODY_FORMAT` constants) so search-criteria and output-shaping options stay cleanly separated.
+
+### Tests
+- New `tests/email-tools-include-body-and-batch.test.ts` (14 cases) covering backwards compat + `includeBody` propagation + body-format options + batch UID happy path and partial failure. Existing `tests/email-tools-search-all.test.ts` and `tests/email-tools-thread.test.ts` updated to match the new option-arg shapes.
+
 ## [1.5.0] - 2026-06-27
 
 ### Added

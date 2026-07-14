@@ -61,7 +61,7 @@ describe('imap_find_thread_messages Tool Handler', () => {
       'acc1',
       'Review',
       'INBOX',
-      { searchReferences: false },
+      expect.objectContaining({ searchReferences: false }),
     );
   });
 
