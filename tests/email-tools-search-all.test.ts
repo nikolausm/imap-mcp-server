@@ -122,4 +122,37 @@ describe('imap_search_emails — searchAllFolders', () => {
     expect(parsed.messages.map((m: any) => m.uid)).toEqual([7]);
     expect(parsed.foldersSearched).toBeUndefined();
   });
+
+  // Regression for #107: single-folder search returned oldest matches when
+  // IMAP UID SEARCH sorted ascending and the tool naively sliced [0..limit).
+  it('single-folder search returns the newest matches when limit cuts the result (#107)', async () => {
+    // Service returns oldest-first (mirrors real IMAP behaviour).
+    mockImapService.searchEmails.mockResolvedValueOnce([
+      msg(101, '2024-01-01', 'oldest'),
+      msg(102, '2024-06-01', 'old'),
+      msg(103, '2025-01-01', 'mid'),
+      msg(104, '2025-06-01', 'new'),
+      msg(105, '2026-01-01', 'newest'),
+    ]);
+
+    const result = await searchHandler({ accountId: 'acc1', folder: 'INBOX', limit: 2 });
+    const parsed = JSON.parse(result.content[0].text);
+
+    expect(parsed.totalFound).toBe(5);
+    expect(parsed.returned).toBe(2);
+    expect(parsed.messages.map((m: any) => m.uid)).toEqual([105, 104]); // newest two
+  });
+
+  it('single-folder search stays sorted when limit exceeds result count (#107)', async () => {
+    mockImapService.searchEmails.mockResolvedValueOnce([
+      msg(1, '2024-01-01'),
+      msg(2, '2025-01-01'),
+      msg(3, '2026-01-01'),
+    ]);
+
+    const result = await searchHandler({ accountId: 'acc1', folder: 'INBOX', limit: 50 });
+    const parsed = JSON.parse(result.content[0].text);
+
+    expect(parsed.messages.map((m: any) => m.uid)).toEqual([3, 2, 1]); // newest first
+  });
 });
