@@ -311,10 +311,24 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
   - since, before: Date filters
   - seen, flagged: Status filters
   - limit: Max results (default: 50)
+  - includeBody: Include parsed message body in the response (default: false).
+      Fetches the RFC822 source once and parses it with mailparser, so you get
+      uid + body in a single tool call instead of paying the N+1 cost of one
+      `imap_get_email` per match. Body is rendered per `bodyFormat` and capped
+      at `bodyMaxLength` per field.
+  - bodyFormat: How to render the body when `includeBody` is true — `markdown`
+      (default, clean Markdown via Turndown), `text`, `html`, or `auto`.
+  - bodyMaxLength: Per-field cap when `includeBody` is true (default: 10000).
   ```
   > With `searchAllFolders`, results include a `folder` field per message plus
   > `foldersSearched`, and any folder that failed to open is reported in
   > `foldersErrored` (so a 0-result answer is never silently incomplete).
+  >
+  > `includeBody` is honored in the single-folder path only. For a
+  > cross-folder sweep the lightweight header shape is preserved by design —
+  > pulling RFC822 source for every match across many folders would multiply
+  > bandwidth and parse cost. Follow up with `imap_get_email` for the specific
+  > uids whose bodies you need.
 
 - **imap_get_email**: Get full email content
   ```
@@ -333,6 +347,11 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
   - accountId: Account ID
   - folder: Folder name (default: INBOX)
   - count: Number of emails (default: 10)
+  - includeBody: Include parsed message body (default: false). Same semantics
+      as the `includeBody` option on `imap_search_emails` — one round-trip
+      instead of N×`imap_get_email`.
+  - bodyFormat: `markdown` (default), `text`, `html`, or `auto`.
+  - bodyMaxLength: Per-field cap (default: 10000).
   ```
 
 - **imap_mark_as_read/unread**: Change email read status
@@ -340,7 +359,9 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
   Parameters:
   - accountId: Account ID
   - folder: Folder name
-  - uid: Email UID
+  - uid: Email UID, OR an array of UIDs to flag in one call. Batch uses a
+      single IMAP STORE so the operation is atomic at the server level — all
+      UIDs are flagged, or none. Useful when triaging many messages at once.
   ```
 
 - **imap_delete_email**: Delete an email
@@ -356,7 +377,9 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
   Parameters:
   - accountId: Account ID
   - folder: Source folder name (default: INBOX)
-  - uid: Email UID
+  - uid: Email UID, OR an array of UIDs to move in one call. Batch moves are
+      attributed per-uid in the response (`results[]` with per-uid `uidMap`
+      and any errors). Single-uid calls return the legacy response shape.
   - targetFolder: Destination folder name
   - createDestinationIfMissing: Create the destination folder if it does not exist (default: false)
   ```
@@ -368,6 +391,11 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
   - sourceFolder: Folder containing the already-sorted thread messages
   - searchFolder: Folder to search for related messages (default: INBOX)
   - searchReferences: Also match the References header for multi-level threads (default: true)
+  - includeBody: Include parsed message body for each found thread message
+      (default: false). Same semantics as the `includeBody` option on
+      `imap_search_emails` — one round-trip instead of N×`imap_get_email`.
+  - bodyFormat: `markdown` (default), `text`, `html`, or `auto`.
+  - bodyMaxLength: Per-field cap (default: 10000).
   ```
 
 - **imap_download_attachment**: Download an email attachment (returns images inline, extracts text from PDFs, or saves to downloads directory)

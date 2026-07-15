@@ -118,7 +118,8 @@ describe('imap_search_emails — searchAllFolders', () => {
     const parsed = JSON.parse(result.content[0].text);
 
     expect(mockImapService.listFolders).not.toHaveBeenCalled();
-    expect(mockImapService.searchEmails).toHaveBeenCalledWith('acc1', 'INBOX', expect.anything());
+    // #106: searchOptions is now passed as a 4th argument with includeBody/bodyFormat/bodyMaxLength defaults.
+    expect(mockImapService.searchEmails).toHaveBeenCalledWith('acc1', 'INBOX', expect.anything(), expect.objectContaining({ includeBody: false, bodyFormat: 'markdown', bodyMaxLength: 10000 }));
     expect(parsed.messages.map((m: any) => m.uid)).toEqual([7]);
     expect(parsed.foldersSearched).toBeUndefined();
   });
