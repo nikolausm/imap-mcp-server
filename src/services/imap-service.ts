@@ -178,6 +178,12 @@ export class ImapService {
       host: account.host,
       port: account.port,
       secure: account.tls,
+      // Validate the certificate against the host we actually dial. On a
+      // STARTTLS upgrade imapflow passes no host to Node's TLS layer, and for
+      // an IP host it also omits the SNI servername, so Node would otherwise
+      // check the cert against a default of "localhost" and reject a cert
+      // bound to e.g. 127.0.0.1 (local bridges like ProtonMail Bridge).
+      tls: { host: account.host },
       auth: {
         user: account.user,
         pass: account.password,
@@ -1514,6 +1520,8 @@ export class ImapService {
       host: account.host,
       port: account.port,
       secure: account.tls,
+      // Validate the certificate against the host we actually dial; see connect().
+      tls: { host: account.host },
       auth: {
         user: account.user,
         pass: account.password,
