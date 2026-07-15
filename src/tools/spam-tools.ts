@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { ImapService } from '../services/imap-service.js';
-import { SpamService } from '../services/spam-service.js';
+import { SpamService, HeaderRedFlag } from '../services/spam-service.js';
 import { z } from 'zod';
 
 export function spamTools(
@@ -10,15 +10,16 @@ export function spamTools(
 ): void {
   // Check emails for spam
   server.registerTool('imap_check_spam', {
-    description: 'Check emails in a folder for spam/disposable email domains. Returns spam analysis and domain statistics.',
+    description: 'Check emails in a folder for spam. Combines sender-domain checks (known spam/disposable domains, suspicious patterns) with deterministic raw-header analysis: bulk-mailer X-Mailer/User-Agent signatures, Precedence: bulk, DMARC/SPF/DKIM failures in Authentication-Results, and List-Unsubscribe / Reply-To domains that do not match the sender. Header checks catch scam mail from fresh, unlisted domains that pass the domain check. Returns domain-based spam, a separate list of header-flagged mails, and domain statistics.',
     inputSchema: {
       accountId: z.string().describe('Account ID'),
       folder: z.string().default('INBOX').describe('Folder name'),
       limit: z.coerce.number().default(100).describe('Maximum number of emails to check'),
       from: z.string().optional().describe('Filter by sender (optional)'),
       since: z.string().optional().describe('Check emails since date (YYYY-MM-DD)'),
+      includeHeaderChecks: z.boolean().default(true).describe('Also run deterministic raw-header checks (X-Mailer bulk tools, Precedence: bulk, DMARC/SPF/DKIM failures, List-Unsubscribe/Reply-To domain mismatches) on top of the sender-domain check. Fetches message headers in one extra batch round-trip. Set false to skip header analysis and only check sender domains.'),
     }
-  }, async ({ accountId, folder, limit, from, since }) => {
+  }, async ({ accountId, folder, limit, from, since, includeHeaderChecks }) => {
     const criteria: any = {};
     if (from) criteria.from = from;
     if (since) criteria.since = new Date(since);
@@ -34,6 +35,34 @@ export function spamTools(
 
     const result = spamService.checkEmails(emailData);
 
+    // Header-based indicators — analyzed for every checked message, so scam
+    // mail from a fresh/unlisted domain (which passes the domain check) is
+    // still surfaced. One extra batch fetch for the raw headers.
+    const headerFlagsByUid = new Map<number, HeaderRedFlag[]>();
+    if (includeHeaderChecks && limitedMessages.length > 0) {
+      const headersByUid = await imapService.fetchHeadersForUids(
+        accountId,
+        folder,
+        limitedMessages.map(m => m.uid),
+      );
+      for (const m of limitedMessages) {
+        const h = headersByUid.get(m.uid);
+        if (!h) continue;
+        const flags = spamService.checkHeaders(h, m.from);
+        if (flags.length > 0) headerFlagsByUid.set(m.uid, flags);
+      }
+    }
+
+    const domainSpamUids = new Set(result.spam.map(s => (s as any).uid));
+    const headerFlagged = limitedMessages
+      .filter(m => headerFlagsByUid.has(m.uid) && !domainSpamUids.has(m.uid))
+      .map(m => ({
+        uid: m.uid,
+        from: m.from,
+        subject: m.subject,
+        headerRedFlags: headerFlagsByUid.get(m.uid),
+      }));
+
     return {
       content: [{
         type: 'text',
@@ -41,6 +70,7 @@ export function spamTools(
           totalChecked: limitedMessages.length,
           spamCount: result.spam.length,
           cleanCount: result.clean.length,
+          headerFlaggedCount: headerFlagged.length,
           spamEmails: result.spam.map(s => ({
             uid: (s as any).uid,
             from: s.email,
@@ -48,9 +78,11 @@ export function spamTools(
             domain: s.domain,
             reason: s.reason,
             confidence: s.confidence,
+            headerRedFlags: headerFlagsByUid.get((s as any).uid),
           })),
+          headerFlagged,
           topDomains: result.domainStats.slice(0, 20),
-          message: `Found ${result.spam.length} potential spam emails out of ${limitedMessages.length} checked`,
+          message: `Found ${result.spam.length} domain-based spam${includeHeaderChecks ? ` and ${headerFlagged.length} more with header red flags` : ''} out of ${limitedMessages.length} checked`,
         }, null, 2)
       }]
     };

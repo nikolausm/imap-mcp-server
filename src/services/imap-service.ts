@@ -119,6 +119,45 @@ export interface MoveEmailBatchResult {
   results: MoveEmailBatchResultItem[];
 }
 
+/**
+ * Parse a raw RFC 822 header block into a map of lowercased header name → value.
+ * Handles header folding (continuation lines starting with whitespace) and
+ * joins repeated headers (e.g. multiple `Received`/`Authentication-Results`)
+ * with newlines. Intentionally lightweight — no MIME word decoding — because
+ * callers use it for plain string/regex matching (spam header analysis).
+ */
+export function parseRawHeaders(raw: Buffer | string): Record<string, string> {
+  const text = typeof raw === 'string' ? raw : raw.toString('utf8');
+  const headers: Record<string, string> = {};
+  let current: { key: string; value: string } | null = null;
+
+  const commit = () => {
+    if (!current) return;
+    const key = current.key.toLowerCase().trim();
+    const val = current.value.trim();
+    if (key) {
+      headers[key] = headers[key] !== undefined ? `${headers[key]}\n${val}` : val;
+    }
+    current = null;
+  };
+
+  for (const line of text.split(/\r?\n/)) {
+    if (line === '') continue;
+    if (/^[ \t]/.test(line)) {
+      // Folded continuation of the previous header.
+      if (current) current.value += ` ${line.trim()}`;
+      continue;
+    }
+    const idx = line.indexOf(':');
+    if (idx === -1) continue;
+    commit();
+    current = { key: line.slice(0, idx), value: line.slice(idx + 1) };
+  }
+  commit();
+
+  return headers;
+}
+
 export class ImapService {
   private connections: Map<string, ConnectionState> = new Map();
   private reconnectAttempts: Map<string, number> = new Map();
@@ -379,6 +418,38 @@ export class ImapService {
       }
 
       return messages;
+    } finally {
+      if (lock) {
+        lock.release();
+      }
+    }
+  }
+
+  /**
+   * Fetch the raw headers for a set of UIDs in a single round-trip and return a
+   * map of uid → parsed header record (lowercased header names). Does **not**
+   * fetch or parse message bodies — used for lightweight header analysis such
+   * as spam indicator checks. UIDs with no headers returned are omitted.
+   */
+  async fetchHeadersForUids(
+    accountId: string,
+    folderName: string,
+    uids: number[],
+  ): Promise<Map<number, Record<string, string>>> {
+    const result = new Map<number, Record<string, string>>();
+    if (!uids || uids.length === 0) {
+      return result;
+    }
+
+    const client = await this.ensureConnected(accountId);
+    let lock;
+    try {
+      lock = await client.getMailboxLock(folderName);
+      for await (const msg of client.fetch(uids, { uid: true, headers: true }, { uid: true })) {
+        if (!msg.headers) continue;
+        result.set(msg.uid, parseRawHeaders(msg.headers));
+      }
+      return result;
     } finally {
       if (lock) {
         lock.release();

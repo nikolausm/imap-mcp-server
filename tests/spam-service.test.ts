@@ -173,6 +173,124 @@ describe('SpamService', () => {
     });
   });
 
+  describe('checkHeaders', () => {
+    const FROM = 'Info <info@example.de>';
+
+    it('returns no flags for clean, authenticated headers', () => {
+      const flags = spamService.checkHeaders(
+        {
+          'authentication-results': 'mx.example.de; dmarc=pass; spf=pass; dkim=pass',
+          'x-mailer': 'Apple Mail (2.3696.120.41.1.1)',
+        },
+        FROM,
+      );
+      expect(flags).toEqual([]);
+    });
+
+    it('flags a known bulk mailer in X-Mailer', () => {
+      const flags = spamService.checkHeaders({ 'x-mailer': 'Sendy (https://sendy.co)' }, FROM);
+      expect(flags).toHaveLength(1);
+      expect(flags[0].header).toBe('X-Mailer');
+      expect(flags[0].reason).toContain('sendy');
+    });
+
+    it('flags PHPMailer in X-Mailer (case-insensitive)', () => {
+      const flags = spamService.checkHeaders({ 'x-mailer': 'PHPMailer 6.8.0' }, FROM);
+      expect(flags.some(f => f.header === 'X-Mailer')).toBe(true);
+    });
+
+    it('does not flag a legitimate mail client User-Agent', () => {
+      const flags = spamService.checkHeaders({ 'user-agent': 'Mozilla Thunderbird' }, FROM);
+      expect(flags).toEqual([]);
+    });
+
+    it('flags Precedence: bulk', () => {
+      const flags = spamService.checkHeaders({ precedence: 'bulk' }, FROM);
+      expect(flags).toHaveLength(1);
+      expect(flags[0].header).toBe('Precedence');
+    });
+
+    it('flags Precedence: list only when mailing-list headers are absent', () => {
+      expect(spamService.checkHeaders({ precedence: 'list' }, FROM)).toHaveLength(1);
+      expect(
+        spamService.checkHeaders(
+          { precedence: 'list', 'list-unsubscribe': '<https://example.de/unsub>' },
+          FROM,
+        ),
+      ).toEqual([]);
+    });
+
+    it('flags DMARC none as medium and DMARC fail as high', () => {
+      const none = spamService.checkHeaders({ 'authentication-results': 'x; dmarc=none' }, FROM);
+      expect(none[0]).toMatchObject({ value: 'dmarc=none', severity: 'medium' });
+
+      const fail = spamService.checkHeaders({ 'authentication-results': 'x; dmarc=fail' }, FROM);
+      expect(fail[0]).toMatchObject({ value: 'dmarc=fail', severity: 'high' });
+    });
+
+    it('flags SPF fail (high) and softfail (medium)', () => {
+      const fail = spamService.checkHeaders({ 'authentication-results': 'x; spf=fail' }, FROM);
+      expect(fail.some(f => f.value === 'spf=fail' && f.severity === 'high')).toBe(true);
+
+      const soft = spamService.checkHeaders({ 'authentication-results': 'x; spf=softfail' }, FROM);
+      expect(soft.some(f => f.value === 'spf=softfail' && f.severity === 'medium')).toBe(true);
+    });
+
+    it('flags a List-Unsubscribe host unrelated to the sender domain', () => {
+      const flags = spamService.checkHeaders(
+        { 'list-unsubscribe': '<https://track.spammer-cdn.com/u/abc>, <mailto:off@spammer-cdn.com>' },
+        FROM,
+      );
+      expect(flags.some(f => f.header === 'List-Unsubscribe')).toBe(true);
+    });
+
+    it('does not flag a List-Unsubscribe host on a sender subdomain', () => {
+      const flags = spamService.checkHeaders(
+        { 'list-unsubscribe': '<https://mail.example.de/unsubscribe?id=1>' },
+        FROM,
+      );
+      expect(flags).toEqual([]);
+    });
+
+    it('flags a Reply-To domain that differs from the From domain', () => {
+      const flags = spamService.checkHeaders({ 'reply-to': 'noreply@totally-different.ru' }, FROM);
+      expect(flags).toHaveLength(1);
+      expect(flags[0].header).toBe('Reply-To');
+    });
+
+    it('does not flag a Reply-To on the same or a subdomain of the sender', () => {
+      expect(spamService.checkHeaders({ 'reply-to': 'support@example.de' }, FROM)).toEqual([]);
+      expect(spamService.checkHeaders({ 'reply-to': 'support@help.example.de' }, FROM)).toEqual([]);
+    });
+
+    it('surfaces multiple red flags for a scam mail that passes the domain check (issue #115)', () => {
+      // Fresh, unlisted sender domain — checkEmail would return isSpam=false.
+      expect(spamService.checkEmail('info@fresh-unlisted-domain.de').isSpam).toBe(false);
+
+      const flags = spamService.checkHeaders(
+        {
+          'x-mailer': 'Sendy',
+          precedence: 'Bulk',
+          'authentication-results': 'mx.provider.de; dmarc=none; spf=softfail',
+          'list-unsubscribe': '<https://unsub.thirdparty-tracker.com/x>',
+        },
+        'Info <info@fresh-unlisted-domain.de>',
+      );
+
+      const headers = flags.map(f => f.header);
+      expect(headers).toContain('X-Mailer');
+      expect(headers).toContain('Precedence');
+      expect(headers).toContain('Authentication-Results');
+      expect(headers).toContain('List-Unsubscribe');
+      expect(flags.length).toBeGreaterThanOrEqual(4);
+    });
+
+    it('ignores mismatch checks when the From address has no extractable domain', () => {
+      const flags = spamService.checkHeaders({ 'reply-to': 'x@other.com' }, 'not-an-email');
+      expect(flags).toEqual([]);
+    });
+  });
+
   describe('getKnownSpamDomains', () => {
     it('should return known spam domains', () => {
       const domains = spamService.getKnownSpamDomains();
