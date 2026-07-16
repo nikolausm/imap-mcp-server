@@ -207,10 +207,42 @@ export class AccountManager {
 
   private async saveAccounts(): Promise<void> {
     const dir = path.dirname(this.configPath);
-    await fs.mkdir(dir, { recursive: true });
+    await fs.mkdir(dir, { recursive: true, mode: 0o700 });
 
     const accounts = Array.from(this.accounts.values());
-    await fs.writeFile(this.configPath, JSON.stringify(accounts, null, 2));
+    await fs.writeFile(this.configPath, JSON.stringify(accounts, null, 2), { mode: 0o600 });
+
+    await this.enforceStorePermissions();
+  }
+
+  /**
+   * Defence in depth for the credential store. `~/.imap-mcp/` holds the raw
+   * AES-256 key and the (encrypted) accounts, so anyone able to read the key
+   * plus the store can recover every password. The `mode` options above only
+   * apply when a file is *created*; a store written before this hardening — or
+   * under a permissive umask — could still be world-readable. Re-assert
+   * owner-only permissions on the directory, the accounts file, and the key.
+   * Best effort: silently ignored on platforms without POSIX modes (Windows)
+   * or when a path does not exist yet.
+   */
+  private async enforceStorePermissions(): Promise<void> {
+    if (process.platform === 'win32') return;
+
+    const dir = path.dirname(this.configPath);
+    const keyPath = path.join(dir, '.key');
+    const targets: Array<[string, number]> = [
+      [dir, 0o700],
+      [this.configPath, 0o600],
+      [keyPath, 0o600],
+    ];
+
+    for (const [target, mode] of targets) {
+      try {
+        await fs.chmod(target, mode);
+      } catch {
+        // best effort — path may not exist yet, or fs is stubbed in tests
+      }
+    }
   }
 
   private getOrCreateEncryptionKey(): string {
@@ -220,8 +252,10 @@ export class AccountManager {
       return readFileSync(keyPath, 'utf-8');
     } catch {
       const key = crypto.randomBytes(32).toString('hex');
-      mkdirSync(path.dirname(keyPath), { recursive: true });
-      writeFileSync(keyPath, key);
+      // Owner-only from the moment of creation: the key alone can decrypt every
+      // stored credential (see enforceStorePermissions).
+      mkdirSync(path.dirname(keyPath), { recursive: true, mode: 0o700 });
+      writeFileSync(keyPath, key, { mode: 0o600 });
       return key;
     }
   }

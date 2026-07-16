@@ -346,7 +346,10 @@ export function emailTools(
         const path = await import('path');
         const downloadDir = savePath ? path.dirname(savePath) : DOWNLOAD_DIR;
         fs.mkdirSync(downloadDir, { recursive: true });
-        const targetPath = savePath || path.join(DOWNLOAD_DIR, resolvedFilename);
+        // resolvedFilename comes from the (sender-controlled) MIME headers, so it
+        // may contain path-traversal segments like "../../". Confine the default
+        // save to DOWNLOAD_DIR via basename; an explicit savePath is caller-chosen.
+        const targetPath = savePath || path.join(DOWNLOAD_DIR, path.basename(resolvedFilename));
         fs.writeFileSync(targetPath, content);
 
         return {
@@ -374,7 +377,9 @@ export function emailTools(
     const path = await import('path');
     const downloadDir = savePath ? path.dirname(savePath) : DOWNLOAD_DIR;
     fs.mkdirSync(downloadDir, { recursive: true });
-    const targetPath = savePath || path.join(DOWNLOAD_DIR, resolvedFilename);
+    // Confine the default save to DOWNLOAD_DIR: resolvedFilename is sender-
+    // controlled and may contain "../" traversal (savePath is caller-chosen).
+    const targetPath = savePath || path.join(DOWNLOAD_DIR, path.basename(resolvedFilename));
     fs.writeFileSync(targetPath, content);
 
     return {
@@ -693,7 +698,7 @@ export function emailTools(
 
   // Bulk delete by search criteria tool
   server.registerTool('imap_bulk_delete_by_search', {
-    description: 'Search for emails matching criteria and delete them all. Useful for cleaning up spam or unwanted emails.',
+    description: 'Search for emails matching criteria and delete them all. Useful for cleaning up spam or unwanted emails. At least one concrete criterion (from, to, subject, before, or since) is REQUIRED — a call with no criteria is refused so it can never wipe an entire folder. Supports dryRun to preview matches first.',
     inputSchema: {
       ...accountSelector,
       folder: z.string().default('INBOX').describe('Folder name'),
@@ -713,6 +718,24 @@ export function emailTools(
     if (subject) criteria.subject = subject;
     if (before) criteria.before = parseDateOnly(before);
     if (since) criteria.since = parseDateOnly(since);
+
+    // Guard: never run with an empty criteria set. imapflow compiles an empty
+    // search to IMAP "SEARCH ALL", which would match — and then delete — every
+    // message in the folder. Require at least one concrete criterion (this also
+    // covers dryRun, so a preview can never imply a whole-folder wipe).
+    if (Object.keys(criteria).length === 0) {
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            success: false,
+            found: 0,
+            deleted: 0,
+            error: 'Refusing to bulk-delete without criteria. Specify at least one of from, to, subject, before, or since — an empty criteria set would match and delete the entire folder.',
+          }, null, 2)
+        }]
+      };
+    }
 
     // First search for matching emails
     const messages = await imapService.searchEmails(accountId, folder, criteria);

@@ -13,20 +13,42 @@ import { ImapAccount } from '../types/index.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Strip credentials before an account crosses the wizard's HTTP boundary. The
+// API is unauthenticated and CORS-open, so any local page could otherwise read
+// plaintext IMAP/SMTP passwords out of a response. Returns a shallow copy with
+// `password` and `smtp.password` removed.
+function stripAccountSecrets<T extends Record<string, any>>(account: T): Omit<T, 'password'> {
+  const { password: _password, ...rest } = account;
+  const safe: Record<string, any> = { ...rest };
+  if (safe.smtp && typeof safe.smtp === 'object' && 'password' in safe.smtp) {
+    safe.smtp = { ...safe.smtp };
+    delete safe.smtp.password;
+  }
+  return safe as Omit<T, 'password'>;
+}
+
 export class WebUIServer {
   private app: express.Application;
   private accountManager: AccountManager;
   private imapService: ImapService;
   private port: number;
 
-  constructor(port: number = 3000) {
+  constructor(
+    port: number = 3000,
+    deps: { accountManager?: AccountManager; imapService?: ImapService } = {},
+  ) {
     this.app = express();
     this.port = port;
-    this.accountManager = new AccountManager();
-    this.imapService = new ImapService();
-    
+    this.accountManager = deps.accountManager ?? new AccountManager();
+    this.imapService = deps.imapService ?? new ImapService();
+
     this.setupMiddleware();
     this.setupRoutes();
+  }
+
+  /** The configured Express application. Exposed for tests. */
+  getApp(): express.Application {
+    return this.app;
   }
 
   private setupMiddleware(): void {
@@ -58,7 +80,8 @@ export class WebUIServer {
     this.app.get('/api/accounts', (req, res) => {
       try {
         const accounts = this.accountManager.getAllAccounts();
-        res.json(accounts);
+        // Never send credentials to the client — see stripAccountSecrets.
+        res.json(accounts.map(stripAccountSecrets));
       } catch (error) {
         res.status(500).json({ error: 'Failed to fetch accounts' });
       }
@@ -191,17 +214,8 @@ export class WebUIServer {
         if (!account) {
           res.status(404).json({ success: false, error: 'Account not found' });
         } else {
-          // Don't send passwords to client
-          const { password, ...accountWithoutPassword } = account;
-          const safeAccount = { ...accountWithoutPassword };
-          
-          // Remove SMTP password if present
-          if (safeAccount.smtp?.password) {
-            safeAccount.smtp = { ...safeAccount.smtp };
-            delete safeAccount.smtp.password;
-          }
-          
-          res.json({ success: true, account: safeAccount });
+          // Don't send passwords to client — see stripAccountSecrets.
+          res.json({ success: true, account: stripAccountSecrets(account) });
         }
       } catch (error) {
         res.status(400).json({ 

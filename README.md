@@ -456,6 +456,9 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
   - chunkSize: Emails to delete per batch (default: 50)
   - dryRun: Preview what would be deleted without deleting (default: false)
   ```
+  At least one concrete criterion (`from`, `to`, `subject`, `before`, or `since`)
+  is required — a call with no criteria is refused, so it can never match and
+  delete an entire folder.
 
 - **imap_send_email**: Send a new email
   ```
@@ -536,6 +539,11 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
 - Credentials are encrypted using AES-256-CBC encryption
 - Encryption keys are stored separately in `~/.imap-mcp/.key`
 - Account configurations are stored in `~/.imap-mcp/accounts.json`
+- The store directory, `.key`, and `accounts.json` are written owner-only
+  (`0700`/`0600`) so other local users cannot read the key or the credentials
+- The web setup wizard's HTTP API never returns stored passwords to the browser
+- Downloaded attachments are confined to the downloads directory; sender-supplied
+  filenames cannot write outside it
 - Never commit or share your encryption key or account configurations
 
 ## Development
