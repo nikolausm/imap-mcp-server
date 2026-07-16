@@ -1,6 +1,6 @@
 {
   "name": "imap-mcp-server",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "A powerful Model Context Protocol (MCP) server for IMAP email integration with Claude",
   "mcpName": "io.github.nikolausm/imap-mcp-server",
   "main": "dist/index.js",
