@@ -45,8 +45,11 @@ public issue with exploit details.
   (Security → Advisories) to open a private advisory. Private vulnerability
   reporting is enabled on this repository, so this form works and routes the
   report only to the maintainer.
-- **If that form is unavailable to you:** open a regular GitHub issue that says
-  only that you have a security report and asks for a private contact channel —
+- **By email:** write to **security.imap-mcp-server@minicon.eu**. Please do not
+  include exploit details in an unencrypted first email if you can avoid it —
+  a heads-up plus a request for a secure channel is enough to get started.
+- **If neither is available to you:** open a regular GitHub issue that says only
+  that you have a security report and asks for a private contact channel —
   **without** any details, reproduction steps, or exploit information. The
   maintainer will follow up privately.
 
