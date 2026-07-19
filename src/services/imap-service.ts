@@ -1,6 +1,6 @@
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
-import { ImapAccount, EmailMessage, EmailContent, EmailBodyFormat, EmailLocation, Folder, SearchCriteria, SearchOptions, DEFAULT_BODY_MAX_LENGTH, DEFAULT_BODY_FORMAT, isSystemFlag } from '../types/index.js';
+import { ImapAccount, EmailMessage, EmailContent, EmailBodyFormat, EmailLocation, Folder, SearchCriteria, SearchOptions, SentSaveResult, DEFAULT_BODY_MAX_LENGTH, DEFAULT_BODY_FORMAT, isSystemFlag } from '../types/index.js';
 import type { AccountManager } from './account-manager.js';
 import { htmlToMarkdown, normalizeWhitespace } from './html-to-markdown.js';
 
@@ -1412,14 +1412,22 @@ export class ImapService {
     return { messageIds, uids: sortedUids, messages };
   }
 
-  async appendToSentFolder(accountId: string, rawMessage: Buffer | string): Promise<boolean> {
+  /**
+   * Append a sent message to the account's Sent folder.
+   *
+   * Resolution order: explicit `sentFolderOverride` (the account's configured
+   * `sentFolder`) → SPECIAL-USE `\Sent` flag → localized-name fallback list.
+   * Returns a structured result so callers can report *why* a save failed
+   * instead of a bare `false` (issue #125).
+   */
+  async appendToSentFolder(accountId: string, rawMessage: Buffer | string, sentFolderOverride?: string): Promise<SentSaveResult> {
     const sentFolderNames = [
       // English / standard
       'Sent Messages', 'Sent', 'INBOX.Sent', 'Sent Items', 'Sent Mail', '[Gmail]/Sent Mail',
       // French (Outlook / Exchange / Sherweb)
       'Éléments envoyés', 'Eléments envoyés', 'Messages envoyés',
       // German
-      'Gesendet', 'Gesendete Elemente', 'Gesendete Objekte',
+      'Gesendet', 'Gesendete Elemente', 'Gesendete Objekte', '[Gmail]/Gesendet',
       // Spanish
       'Enviados', 'Elementos enviados',
       // Portuguese
@@ -1429,12 +1437,30 @@ export class ImapService {
       // Dutch
       'Verzonden', 'Verzonden items',
     ];
-    const folder = await this.findSpecialUseFolder(accountId, '\\Sent', sentFolderNames);
+
+    let folder = sentFolderOverride;
     if (!folder) {
-      console.warn(`[IMAP] No sent folder found for account ${accountId}. Tried SPECIAL-USE flag \\Sent + names: ${sentFolderNames.join(', ')}`);
-      return false;
+      folder = await this.findSpecialUseFolder(accountId, '\\Sent', sentFolderNames);
     }
-    return this.appendMessage(accountId, folder, rawMessage, ['\\Seen']);
+    if (!folder) {
+      const error = 'No Sent folder found: the server advertises no \\Sent SPECIAL-USE folder and no folder matched the known localized names. '
+        + 'Use imap_list_folders to find the right folder and set it as the account\'s sentFolder (imap_update_account).';
+      console.warn(`[IMAP] ${error} (account ${accountId}; names tried: ${sentFolderNames.join(', ')})`);
+      return { saved: false, error };
+    }
+
+    try {
+      const client = await this.ensureConnected(accountId);
+      await client.append(folder, rawMessage, ['\\Seen']);
+      return { saved: true, folder };
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      console.error(`[IMAP] Failed to append sent copy to "${folder}": ${reason}`);
+      const hint = sentFolderOverride
+        ? ' The account\'s configured sentFolder may not exist on the server — check it with imap_list_folders.'
+        : '';
+      return { saved: false, folder, error: `Failed to append to "${folder}": ${reason}.${hint}` };
+    }
   }
 
   async findFolderByNames(accountId: string, candidates: string[]): Promise<string | undefined> {

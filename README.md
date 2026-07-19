@@ -273,6 +273,20 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
   - user: Username
   - password: Password
   - tls: Use TLS/SSL (default: true)
+  - sentFolder: Explicit Sent-folder name for sent-mail copies, e.g. "Gesendet"
+      (optional — only needed when the server has no \Sent SPECIAL-USE folder
+      and auto-detection fails)
+  ```
+
+- **imap_update_account**: Update an existing account (fix SMTP settings, rename, etc.)
+  ```
+  Parameters:
+  - accountId: ID of the account to update
+  - name, host, port, user, password, tls, email: IMAP fields (all optional)
+  - smtpHost, smtpPort, smtpSecure, smtpUser, smtpPassword: SMTP fields (optional)
+  - saveToSent: Save sent emails to the Sent folder (optional)
+  - sentFolder: Explicit Sent-folder override (optional). Pass an empty string
+      to clear the override and re-enable auto-detection
   ```
 
 - **imap_list_accounts**: List all configured accounts
@@ -479,6 +493,14 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
     - contentDisposition: "attachment" (default) or "inline" — use "inline" for images shown in the HTML body via cid:
     - cid: Content-ID for inline attachments; must match the `cid:` value used in an `<img src="cid:...">` tag in `html`
   ```
+  After sending, a copy is saved to the account's Sent folder (unless
+  `saveToSent` is disabled on the account). The folder is resolved via the
+  account's `sentFolder` override → the server's `\Sent` SPECIAL-USE flag →
+  a list of known localized names ("Sent", "Gesendet", "Éléments envoyés", …).
+  The response reports the outcome: `savedToSent` (boolean), `sentFolder`
+  (the folder used), and — when the save fails — `sentSaveError` explaining
+  why, instead of failing silently. The same applies to `imap_reply_to_email`
+  and `imap_forward_email`.
 
 - **imap_save_draft**: Save an email as a draft (no send). Takes the same fields as `imap_send_email`, plus `inReplyTo`, `references`, and an optional `folder` override for the Drafts folder.
 
@@ -512,6 +534,10 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
   Parameters:
   - accountId: Account ID
   ```
+  Each folder includes its `attributes` (raw IMAP LIST flags) and, when the
+  server advertises it, `specialUse` — the RFC 6154 role (`\Sent`, `\Drafts`,
+  `\Trash`, `\Junk`, `\Archive`) that identifies a folder independent of its
+  localized display name (e.g. "Gesendet" carries `specialUse: "\Sent"`).
 
 - **imap_folder_status**: Get folder information
   ```

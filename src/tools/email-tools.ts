@@ -3,7 +3,7 @@ import { ImapService } from '../services/imap-service.js';
 import { AccountManager } from '../services/account-manager.js';
 import { SmtpService } from '../services/smtp-service.js';
 import { selectSearchFolders } from '../utils/search-folders.js';
-import type { EmailMessage } from '../types/index.js';
+import type { EmailMessage, ImapAccount, SentSaveResult } from '../types/index.js';
 import { z } from 'zod';
 import { join } from 'path';
 import { homedir } from 'os';
@@ -51,6 +51,41 @@ const attachmentSchema = z.object({
     'Content-ID for inline attachments. Required when contentDisposition is "inline" and the HTML references the image as <img src="cid:THIS_VALUE">. Must match exactly (without the "cid:" prefix or angle brackets).'
   ),
 });
+
+// Shared by send/reply/forward: copy the outbound message to the Sent folder
+// (honoring the account's saveToSent switch and sentFolder override) and shape
+// the response fields. Failures surface as sentSaveError instead of a silent
+// savedToSent:false (issue #125).
+type SentSaveOutcome = SentSaveResult & { attempted: boolean };
+
+async function saveSentCopy(
+  imapService: ImapService,
+  accountId: string,
+  account: ImapAccount,
+  rawMessage: Buffer | string | undefined,
+): Promise<SentSaveOutcome> {
+  if (!rawMessage || account.saveToSent === false) {
+    return { attempted: false, saved: false };
+  }
+  try {
+    const result = await imapService.appendToSentFolder(accountId, rawMessage, account.sentFolder);
+    return { attempted: true, ...result };
+  } catch (err) {
+    return { attempted: true, saved: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+const sentSaveFields = (outcome: SentSaveOutcome) => ({
+  savedToSent: outcome.saved,
+  ...(outcome.folder ? { sentFolder: outcome.folder } : {}),
+  ...(outcome.attempted && !outcome.saved ? { sentSaveError: outcome.error ?? 'Unknown error' } : {}),
+});
+
+const sentSaveSuffix = (outcome: SentSaveOutcome) => {
+  if (outcome.saved) return ` (saved to "${outcome.folder}")`;
+  if (outcome.attempted) return ' (warning: copy NOT saved to Sent folder — see sentSaveError)';
+  return '';
+};
 
 const DOWNLOAD_DIR = process.env.IMAP_DOWNLOAD_DIR || join(homedir(), 'Downloads', 'imap-attachments');
 const MAX_UPLOAD_SIZE = parseInt(process.env.IMAP_MAX_UPLOAD_SIZE ?? '', 10) || 25 * 1024 * 1024;
@@ -857,13 +892,8 @@ export function emailTools(
 
     const { messageId, rawMessage } = await smtpService.sendEmail(accountId, account, emailComposer);
 
-    // Save copy to Sent folder
-    let savedToSent = false;
-    if (rawMessage && account.saveToSent !== false) {
-      try {
-        savedToSent = await imapService.appendToSentFolder(accountId, rawMessage);
-      } catch { /* non-critical */ }
-    }
+    // Save copy to Sent folder (non-critical: the mail is already sent)
+    const sentSave = await saveSentCopy(imapService, accountId, account, rawMessage);
 
     return {
       content: [{
@@ -871,8 +901,8 @@ export function emailTools(
         text: JSON.stringify({
           success: true,
           messageId,
-          savedToSent,
-          message: savedToSent ? 'Email sent successfully (saved to Sent folder)' : 'Email sent successfully',
+          ...sentSaveFields(sentSave),
+          message: `Email sent successfully${sentSaveSuffix(sentSave)}`,
         }, null, 2)
       }]
     };
@@ -1002,13 +1032,8 @@ export function emailTools(
 
     const { messageId, rawMessage } = await smtpService.sendEmail(accountId, account, emailComposer);
 
-    // Save copy to Sent folder
-    let savedToSent = false;
-    if (rawMessage && account.saveToSent !== false) {
-      try {
-        savedToSent = await imapService.appendToSentFolder(accountId, rawMessage);
-      } catch { /* non-critical */ }
-    }
+    // Save copy to Sent folder (non-critical: the mail is already sent)
+    const sentSave = await saveSentCopy(imapService, accountId, account, rawMessage);
 
     return {
       content: [{
@@ -1016,8 +1041,8 @@ export function emailTools(
         text: JSON.stringify({
           success: true,
           messageId,
-          savedToSent,
-          message: savedToSent ? 'Reply sent successfully (saved to Sent folder)' : 'Reply sent successfully',
+          ...sentSaveFields(sentSave),
+          message: `Reply sent successfully${sentSaveSuffix(sentSave)}`,
         }, null, 2)
       }]
     };
@@ -1059,13 +1084,8 @@ export function emailTools(
 
     const { messageId, rawMessage } = await smtpService.sendEmail(accountId, account, emailComposer);
 
-    // Save copy to Sent folder
-    let savedToSent = false;
-    if (rawMessage && account.saveToSent !== false) {
-      try {
-        savedToSent = await imapService.appendToSentFolder(accountId, rawMessage);
-      } catch { /* non-critical */ }
-    }
+    // Save copy to Sent folder (non-critical: the mail is already sent)
+    const sentSave = await saveSentCopy(imapService, accountId, account, rawMessage);
 
     return {
       content: [{
@@ -1073,8 +1093,8 @@ export function emailTools(
         text: JSON.stringify({
           success: true,
           messageId,
-          savedToSent,
-          message: savedToSent ? 'Email forwarded successfully (saved to Sent folder)' : 'Email forwarded successfully',
+          ...sentSaveFields(sentSave),
+          message: `Email forwarded successfully${sentSaveSuffix(sentSave)}`,
         }, null, 2)
       }]
     };

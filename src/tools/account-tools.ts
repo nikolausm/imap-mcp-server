@@ -24,8 +24,9 @@ export function accountTools(
       smtpHost: z.string().optional().describe('SMTP server hostname. Defaults to IMAP host with imap.→smtp. rewrite'),
       smtpPort: z.coerce.number().optional().describe('SMTP server port (465 for SMTPS, 587 for STARTTLS). Defaults to 587'),
       smtpSecure: z.boolean().optional().describe('Use implicit TLS (SMTPS). Ignored for port 587/25 which always use STARTTLS, and for port 465 which always uses implicit TLS'),
+      sentFolder: z.string().optional().describe('Explicit Sent-folder name for saving sent-mail copies (e.g. "Gesendet"). Only needed when auto-detection fails — the server must lack a \\Sent SPECIAL-USE folder. Check names with imap_list_folders'),
     }
-  }, async ({ name, host, port, user, password, tls, email, smtpHost, smtpPort, smtpSecure }) => {
+  }, async ({ name, host, port, user, password, tls, email, smtpHost, smtpPort, smtpSecure, sentFolder }) => {
     const smtp = (smtpHost || smtpPort !== undefined || smtpSecure !== undefined)
       ? {
           host: smtpHost || host,
@@ -43,6 +44,7 @@ export function accountTools(
       tls,
       ...(email ? { email } : {}),
       ...(smtp ? { smtp } : {}),
+      ...(sentFolder ? { sentFolder } : {}),
     });
 
     return {
@@ -75,8 +77,9 @@ export function accountTools(
       smtpUser: z.string().optional().describe('SMTP username (if different from IMAP user)'),
       smtpPassword: z.string().optional().describe('SMTP password (if different from IMAP password)'),
       saveToSent: z.boolean().optional().describe('Save sent emails to the Sent folder'),
+      sentFolder: z.string().optional().describe('Explicit Sent-folder name for saving sent-mail copies (e.g. "Gesendet"). Overrides auto-detection; pass an empty string to clear the override and re-enable auto-detection. Check names with imap_list_folders'),
     }
-  }, async ({ accountId, name, host, port, user, password, tls, email, smtpHost, smtpPort, smtpSecure, smtpUser, smtpPassword, saveToSent }) => {
+  }, async ({ accountId, name, host, port, user, password, tls, email, smtpHost, smtpPort, smtpSecure, smtpUser, smtpPassword, saveToSent, sentFolder }) => {
     const existing = accountManager.getAccount(accountId);
     if (!existing) {
       throw new Error(`Account ${accountId} not found`);
@@ -91,6 +94,8 @@ export function accountTools(
     if (tls !== undefined) updates.tls = tls;
     if (email !== undefined) updates.email = email;
     if (saveToSent !== undefined) updates.saveToSent = saveToSent;
+    // Empty string clears the override (falls back to auto-detection).
+    if (sentFolder !== undefined) updates.sentFolder = sentFolder === '' ? undefined : sentFolder;
 
     const smtpTouched = [smtpHost, smtpPort, smtpSecure, smtpUser, smtpPassword].some(v => v !== undefined);
     if (smtpTouched) {

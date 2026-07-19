@@ -135,8 +135,8 @@ export class WebUIServer {
     // Add new account
     this.app.post('/api/accounts', async (req, res) => {
       try {
-        const { name, email, password, host, port, tls, smtp, imapUsername } = req.body;
-        
+        const { name, email, password, host, port, tls, smtp, imapUsername, sentFolder } = req.body;
+
         // Auto-detect provider if not specified
         let imapHost = host;
         let imapPort = port;
@@ -160,6 +160,7 @@ export class WebUIServer {
           tls: useTls !== false,
           ...(imapUsername ? { email } : {}),
           smtp: smtp || undefined,
+          ...(typeof sentFolder === 'string' && sentFolder ? { sentFolder } : {}),
         });
 
         // addAccount returns the plaintext password back; never echo it.
@@ -225,7 +226,7 @@ export class WebUIServer {
     // Update account
     this.app.put('/api/accounts/:id', async (req, res) => {
       try {
-        const { name, email, password, host, port, tls, smtp, saveToSent, imapUsername } = req.body;
+        const { name, email, password, host, port, tls, smtp, saveToSent, imapUsername, sentFolder } = req.body;
 
         const updates: any = {};
         if (name !== undefined) updates.name = name;
@@ -242,7 +243,9 @@ export class WebUIServer {
         if (tls !== undefined) updates.tls = tls;
         if (smtp !== undefined) updates.smtp = smtp;
         if (saveToSent !== undefined) updates.saveToSent = saveToSent;
-        
+        // Empty string clears the override (falls back to auto-detection).
+        if (typeof sentFolder === 'string') updates.sentFolder = sentFolder === '' ? undefined : sentFolder;
+
         // updateAccount returns a DECRYPTED account (plaintext IMAP + SMTP
         // passwords). A no-op update (e.g. a rename with no password supplied)
         // would otherwise hand every stored secret back over the wire — strip.

@@ -13,6 +13,10 @@ export interface ImapAccount {
   keepalive?: boolean;
   smtp?: SmtpConfig;
   saveToSent?: boolean;
+  /** Explicit Sent-folder name (e.g. "Gesendet", "[Gmail]/Gesendete Objekte").
+   * When set, sent-mail copies are appended here, skipping SPECIAL-USE /
+   * localized-name auto-detection. Leave unset to auto-detect. */
+  sentFolder?: string;
 }
 
 export interface SmtpConfig {
@@ -57,6 +61,16 @@ export interface Attachment {
   contentId?: string;
   textContent?: string;
   textContentTruncated?: boolean;
+}
+
+/** Outcome of copying a sent message into the Sent folder. `error` explains
+ * a failure instead of the save silently reporting `false` (issue #125). */
+export interface SentSaveResult {
+  saved: boolean;
+  /** Folder the append targeted (resolved or overridden). Absent when no Sent folder could be found. */
+  folder?: string;
+  /** Why the save failed, when `saved` is false. */
+  error?: string;
 }
 
 export interface Folder {

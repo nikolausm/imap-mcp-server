@@ -18,7 +18,7 @@ export function folderTools(
 ): void {
   // List folders tool
   server.registerTool('imap_list_folders', {
-    description: 'List all folders/mailboxes for an account (names, hierarchy delimiter, attributes). Use this first to discover exact folder names before searching, moving, or creating subfolders — folder naming varies by provider (e.g. "Archive" vs "[Gmail]/All Mail" vs "INBOX.Archive").',
+    description: 'List all folders/mailboxes for an account (names, hierarchy delimiter, attributes, RFC 6154 special-use role). Use this first to discover exact folder names before searching, moving, or creating subfolders — folder naming varies by provider (e.g. "Archive" vs "[Gmail]/All Mail" vs "INBOX.Archive"). The specialUse field ("\\\\Sent", "\\\\Drafts", "\\\\Trash", "\\\\Junk", "\\\\Archive") identifies a folder\'s role independent of its localized name (e.g. "Gesendet" is the Sent folder when specialUse is "\\\\Sent").',
     inputSchema: {
       ...accountSelector,
     }
@@ -34,6 +34,9 @@ export function folderTools(
             name: folder.name,
             delimiter: folder.delimiter,
             attributes: folder.attributes,
+            // RFC 6154 special-use role (language-independent): lets callers
+            // find e.g. the Sent folder even when it is named "Gesendet".
+            specialUse: folder.specialUse,
             hasChildren: !!folder.children && folder.children.length > 0,
           })),
         }, null, 2)
