@@ -478,7 +478,7 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
   ```
   Parameters:
   - accountId: Account ID to send from
-  - to: Recipient email address(es)
+  - to: Recipient email address(es) — an array, or a single comma-separated string
   - subject: Email subject
   - text: Plain text content (optional)
   - html: HTML content (optional)
@@ -638,6 +638,22 @@ src/
 - Check if your email provider requires app-specific passwords
 - Verify that IMAP is enabled in your email account settings
 - For sending emails, ensure your account has SMTP access enabled
+
+### Recipients arriving as `["a@x.com","b@y.com"]`
+
+`to`, `cc`, `bcc`, `references` and `uid` accept either a single value or an
+array. In JSON Schema that is an `anyOf`, and some MCP clients drop the `anyOf`
+before showing the schema to the model — the field then looks untyped or
+string-typed, and the client serializes the model's array into a string. The
+server used to pass that string straight to nodemailer, which folded the
+literal `[` and `]` into the first and last address, so every recipient was
+rejected by the receiving mail server (issue #127).
+
+The server now detects a stringified array and restores it, both when
+validating tool input and again before composing the message, and logs a
+warning to stderr naming the field. Nothing needs to change on your side. If
+you want to bypass the client behavior entirely, pass recipients as one
+comma-separated string: `"Alice <alice@example.com>, Bob <bob@example.org>"`.
 
 ### SMTP Configuration
 

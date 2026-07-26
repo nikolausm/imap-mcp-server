@@ -1,6 +1,7 @@
 import nodemailer from 'nodemailer';
 import MailComposer from 'nodemailer/lib/mail-composer/index.js';
 import { ImapAccount, EmailComposer, SmtpConfig } from '../types/index.js';
+import { parseSerializedArray } from '../utils/array-input.js';
 
 export class SmtpService {
   private transporters: Map<string, nodemailer.Transporter> = new Map();
@@ -104,12 +105,24 @@ export class SmtpService {
     };
   }
 
+  // Last line of defense against an address list that was serialized into a
+  // string somewhere between the caller and here (see utils/array-input.ts).
+  // nodemailer would otherwise fold the literal brackets into the first and
+  // last address and every recipient bounces, so recover the array instead.
+  private static addresses(
+    value: string | string[] | undefined,
+    field: string
+  ): string | string[] | undefined {
+    return parseSerializedArray(value, field) as string | string[] | undefined;
+  }
+
   private toMailOptions(account: ImapAccount, email: EmailComposer): nodemailer.SendMailOptions {
+    const references = SmtpService.addresses(email.references, 'references');
     return {
       from: email.from || account.email || account.user,
-      to: email.to,
-      cc: email.cc,
-      bcc: email.bcc,
+      to: SmtpService.addresses(email.to, 'to'),
+      cc: SmtpService.addresses(email.cc, 'cc'),
+      bcc: SmtpService.addresses(email.bcc, 'bcc'),
       subject: email.subject,
       text: email.text,
       html: email.html,
@@ -123,7 +136,7 @@ export class SmtpService {
       })),
       replyTo: email.replyTo,
       inReplyTo: email.inReplyTo,
-      references: Array.isArray(email.references) ? email.references.join(' ') : email.references,
+      references: Array.isArray(references) ? references.join(' ') : references,
     };
   }
 
