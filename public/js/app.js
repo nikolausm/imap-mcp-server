@@ -36,9 +36,11 @@ const ENV_VAR_FIELDS = [
     { varSpan: 'smtpPasswordFromEnvVar', suffix: '_SMTP_PASSWORD' }
 ];
 
-// Build the env var name for an account, mirroring AccountManager normalization
-// (uppercase, every non-alphanumeric character replaced by "_"). Falls back to a
-// <ACCOUNT_NAME> placeholder until an account name is entered.
+// Build the env var name for an account. This is served as a static asset, so
+// it cannot import the server module — keep it in sync with envVarName() in
+// src/utils/env-credentials.ts (uppercase, every non-alphanumeric character
+// replaced by "_"). Falls back to a <ACCOUNT_NAME> placeholder until an account
+// name is entered.
 function envVarName(accountName, suffix) {
     const key = (accountName || '').toUpperCase().replace(/[^A-Z0-9]/g, '_') || '<ACCOUNT_NAME>';
     return `IMAP_MCP_ACCOUNT_${key}${suffix}`;

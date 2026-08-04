@@ -4,6 +4,7 @@ import path from 'path';
 import os from 'os';
 import crypto from 'crypto';
 import { ImapAccount } from '../types/index.js';
+import { ENV_CREDENTIAL_SUFFIXES, envVarName } from '../utils/env-credentials.js';
 
 export class AccountManager {
   private configPath: string;
@@ -139,24 +140,23 @@ export class AccountManager {
    * `captureEnvOverrides`) and served here from the encrypted cache.
    */
   private applyEnvOverrides(account: ImapAccount): ImapAccount {
-    const key = account.name.toUpperCase().replace(/[^A-Z0-9]/g, "_");
-    const prefix = `IMAP_MCP_ACCOUNT_${key}`;
+    const varName = (suffix: string) => envVarName(account.name, suffix);
 
     const result: ImapAccount = { ...account };
 
-    const imapUser = this.getEnvOverride(`${prefix}_IMAP_USERNAME`);
+    const imapUser = this.getEnvOverride(varName(ENV_CREDENTIAL_SUFFIXES.imapUser));
     if (imapUser !== undefined) {
       result.user = imapUser;
     }
 
-    const imapPassword = this.getEnvOverride(`${prefix}_IMAP_PASSWORD`);
+    const imapPassword = this.getEnvOverride(varName(ENV_CREDENTIAL_SUFFIXES.imapPassword));
     if (imapPassword !== undefined) {
       result.password = imapPassword;
     }
 
     if (result.smtp) {
-      const smtpUser = this.getEnvOverride(`${prefix}_SMTP_USERNAME`);
-      const smtpPassword = this.getEnvOverride(`${prefix}_SMTP_PASSWORD`);
+      const smtpUser = this.getEnvOverride(varName(ENV_CREDENTIAL_SUFFIXES.smtpUser));
+      const smtpPassword = this.getEnvOverride(varName(ENV_CREDENTIAL_SUFFIXES.smtpPassword));
 
       if (smtpUser !== undefined || smtpPassword !== undefined) {
         result.smtp = { ...result.smtp };
@@ -209,9 +209,9 @@ export class AccountManager {
    */
   private hashCacheKey(name: string): string {
     return crypto
-      .createHmac("sha256", Buffer.from(this.encryptionKey, "hex"))
+      .createHmac('sha256', Buffer.from(this.encryptionKey, 'hex'))
       .update(name)
-      .digest("hex");
+      .digest('hex');
   }
 
   getAllAccounts(): ImapAccount[] {

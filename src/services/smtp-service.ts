@@ -2,6 +2,7 @@ import nodemailer from 'nodemailer';
 import MailComposer from 'nodemailer/lib/mail-composer/index.js';
 import { ImapAccount, EmailComposer, SmtpConfig } from '../types/index.js';
 import { parseSerializedArray } from '../utils/array-input.js';
+import { assertCredentialsResolved } from '../utils/env-credentials.js';
 
 export class SmtpService {
   private transporters: Map<string, nodemailer.Transporter> = new Map();
@@ -10,6 +11,10 @@ export class SmtpService {
     if (this.transporters.has(account.id)) {
       return this.transporters.get(account.id)!;
     }
+
+    // See ImapService.connect: name the missing variable instead of letting the
+    // provider reject a blank credential with a generic auth error.
+    assertCredentialsResolved(account, 'smtp');
 
     const smtpConfig = account.smtp || this.getDefaultSmtpConfig(account);
     const { secure, requireTLS } = this.resolveTlsMode(smtpConfig.port, smtpConfig.secure);

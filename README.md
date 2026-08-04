@@ -142,6 +142,21 @@ credential up from that variable at runtime.
 - SMTP variables take effect only when the account already has an SMTP config.
 - Each variable takes effect independently; set only the ones you need.
 
+**If the variable is missing**, the account still holds the empty placeholder the
+wizard wrote. Rather than dialing out with a blank credential — which providers
+answer with a generic authentication failure that looks exactly like a wrong
+password — the server refuses the connection and names what to set:
+
+```
+Account "Work Gmail" has IMAP credentials marked as environment-managed, but
+this variable was not set when the server started:
+IMAP_MCP_ACCOUNT_WORK_GMAIL_IMAP_PASSWORD. Set it and restart the server, or
+store the credentials on the account via imap_update_account.
+```
+
+Because the variables are read once at startup, setting one in an already-running
+shell has no effect until the server is restarted.
+
 ### Supported Email Providers
 
 The setup wizard includes pre-configured settings for:

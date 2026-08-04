@@ -3,6 +3,7 @@ import { simpleParser } from 'mailparser';
 import { ImapAccount, EmailMessage, EmailContent, EmailBodyFormat, EmailLocation, Folder, SearchCriteria, SearchOptions, SentSaveResult, DEFAULT_BODY_MAX_LENGTH, DEFAULT_BODY_FORMAT, isSystemFlag } from '../types/index.js';
 import type { AccountManager } from './account-manager.js';
 import { htmlToMarkdown, normalizeWhitespace } from './html-to-markdown.js';
+import { assertCredentialsResolved } from '../utils/env-credentials.js';
 
 /**
  * Providers that require IMAP access to be manually enabled in account settings.
@@ -173,6 +174,10 @@ export class ImapService {
     if (existing?.isConnected) {
       return;
     }
+
+    // Fail with the missing variable name rather than dialing out with a blank
+    // credential and getting back an indistinguishable "AUTHENTICATE failed".
+    assertCredentialsResolved(account, 'imap');
 
     const client = new ImapFlow({
       host: account.host,
