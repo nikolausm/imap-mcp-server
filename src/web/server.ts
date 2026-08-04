@@ -135,7 +135,7 @@ export class WebUIServer {
     // Add new account
     this.app.post('/api/accounts', async (req, res) => {
       try {
-        const { name, email, password, host, port, tls, smtp, imapUsername, sentFolder } = req.body;
+        const { name, email, password, host, port, tls, smtp, imapUsername, sentFolder, defaultBcc } = req.body;
 
         // Auto-detect provider if not specified
         let imapHost = host;
@@ -161,6 +161,9 @@ export class WebUIServer {
           ...(imapUsername ? { email } : {}),
           smtp: smtp || undefined,
           ...(typeof sentFolder === 'string' && sentFolder ? { sentFolder } : {}),
+          ...(defaultBcc !== undefined && defaultBcc !== '' && !(Array.isArray(defaultBcc) && defaultBcc.length === 0)
+            ? { defaultBcc }
+            : {}),
         });
 
         // addAccount returns the plaintext password back; never echo it.
@@ -226,7 +229,7 @@ export class WebUIServer {
     // Update account
     this.app.put('/api/accounts/:id', async (req, res) => {
       try {
-        const { name, email, password, host, port, tls, smtp, saveToSent, imapUsername, sentFolder } = req.body;
+        const { name, email, password, host, port, tls, smtp, saveToSent, imapUsername, sentFolder, defaultBcc } = req.body;
 
         const updates: any = {};
         if (name !== undefined) updates.name = name;
@@ -245,6 +248,13 @@ export class WebUIServer {
         if (saveToSent !== undefined) updates.saveToSent = saveToSent;
         // Empty string clears the override (falls back to auto-detection).
         if (typeof sentFolder === 'string') updates.sentFolder = sentFolder === '' ? undefined : sentFolder;
+        if (defaultBcc !== undefined) {
+          if (defaultBcc === '' || (Array.isArray(defaultBcc) && defaultBcc.length === 0)) {
+            updates.defaultBcc = undefined;
+          } else {
+            updates.defaultBcc = defaultBcc;
+          }
+        }
 
         // updateAccount returns a DECRYPTED account (plaintext IMAP + SMTP
         // passwords). A no-op update (e.g. a rename with no password supplied)
