@@ -276,6 +276,9 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
   - sentFolder: Explicit Sent-folder name for sent-mail copies, e.g. "Gesendet"
       (optional — only needed when the server has no \Sent SPECIAL-USE folder
       and auto-detection fails)
+  - defaultBcc: Optional BCC address(es) applied automatically to every
+      outbound send, reply, forward, and draft for this account. Merged with
+      any per-call `bcc` (duplicates removed case-insensitively)
   ```
 
 - **imap_update_account**: Update an existing account (fix SMTP settings, rename, etc.)
@@ -287,6 +290,8 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
   - saveToSent: Save sent emails to the Sent folder (optional)
   - sentFolder: Explicit Sent-folder override (optional). Pass an empty string
       to clear the override and re-enable auto-detection
+  - defaultBcc: Optional default BCC address(es) (optional). Pass an empty
+      string to clear
   ```
 
 - **imap_list_accounts**: List all configured accounts
@@ -502,6 +507,10 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
   why, instead of failing silently. The same applies to `imap_reply_to_email`
   and `imap_forward_email`.
 
+  When the account has `defaultBcc` configured, those address(es) are always
+  BCC'd on send, reply, forward, and draft (merged with any per-call `bcc`;
+  duplicates removed case-insensitively).
+
 - **imap_save_draft**: Save an email as a draft (no send). Takes the same fields as `imap_send_email`, plus `inReplyTo`, `references`, and an optional `folder` override for the Drafts folder.
 
 - **imap_reply_to_email**: Reply to an existing email
@@ -513,6 +522,7 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
   - text: Plain text reply content (optional)
   - html: HTML reply content (optional)
   - replyAll: Reply to all recipients (default: false)
+  - bcc: BCC recipients (optional; merged with account defaultBcc)
   - attachments: Array of attachments (optional, same shape as imap_send_email, including contentDisposition/cid for inline images)
   ```
 
@@ -524,6 +534,7 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
   - uid: UID of the email to forward
   - to: Forward to email address(es)
   - text: Additional text to include (optional)
+  - bcc: BCC recipients (optional; merged with account defaultBcc)
   - includeAttachments: Include original attachments (default: true)
   ```
 

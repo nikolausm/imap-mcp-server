@@ -17,6 +17,10 @@ export interface ImapAccount {
    * When set, sent-mail copies are appended here, skipping SPECIAL-USE /
    * localized-name auto-detection. Leave unset to auto-detect. */
   sentFolder?: string;
+  /** Optional BCC address(es) applied to every outbound send, reply, forward,
+   * and draft. Merged with any per-call `bcc` (call-site values win for
+   * ordering; duplicates are removed case-insensitively). */
+  defaultBcc?: string | string[];
 }
 
 export interface SmtpConfig {

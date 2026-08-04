@@ -4,6 +4,7 @@ import { AccountManager } from '../services/account-manager.js';
 import { SmtpService } from '../services/smtp-service.js';
 import { selectSearchFolders } from '../utils/search-folders.js';
 import { parseSerializedArray } from '../utils/array-input.js';
+import { mergeBcc } from '../utils/default-bcc.js';
 import type { EmailMessage, ImapAccount, SentSaveResult } from '../types/index.js';
 import { z } from 'zod';
 import { join } from 'path';
@@ -61,6 +62,13 @@ const buildAttachments = (atts?: AttachmentInput[]) =>
     cid: att.cid,
   }));
 
+// Merge the account's defaultBcc with a per-call bcc (same pattern as
+// saveSentCopy honoring saveToSent / sentFolder on the account).
+const resolveBcc = (
+  account: ImapAccount,
+  explicitBcc?: string | string[],
+): string | string[] | undefined => mergeBcc(account.defaultBcc, explicitBcc);
+
 // Shared Zod shape for the attachments arrays on send/save_draft/reply — keeps
 // the three tool schemas (and their .describe() text) in sync.
 const attachmentSchema = z.object({
@@ -75,6 +83,14 @@ const attachmentSchema = z.object({
     'Content-ID for inline attachments. Required when contentDisposition is "inline" and the HTML references the image as <img src="cid:THIS_VALUE">. Must match exactly (without the "cid:" prefix or angle brackets).'
   ),
 });
+
+// Shared bcc field for send/draft/reply/forward — keeps merge wording in sync.
+// Built on addressList so bcc gets the same stringified-array recovery as
+// to/cc (#127) on top of the defaultBcc merge.
+const bccSchema = addressList(
+  'bcc',
+  'BCC recipients. Either an array of addresses or a single comma-separated string; merged with the account defaultBcc when set.',
+).optional();
 
 // Shared by send/reply/forward: copy the outbound message to the Sent folder
 // (honoring the account's saveToSent switch and sentFolder override) and shape
@@ -882,7 +898,7 @@ export function emailTools(
 
   // Send email tool
   server.registerTool('imap_send_email', {
-    description: 'Compose and send a NEW email via the account\'s SMTP server (a copy is saved to Sent unless disabled). Use for fresh outbound messages. To respond to an existing message use imap_reply_to_email (keeps threading); to pass a message on use imap_forward_email; to store without sending use imap_save_draft. Supports to/cc/bcc, text and/or HTML, and attachments by base64 content or by file path (see imap_upload_file for large files).',
+    description: 'Compose and send a NEW email via the account\'s SMTP server (a copy is saved to Sent unless disabled; account defaultBcc addresses are always BCC\'d when configured). Use for fresh outbound messages. To respond to an existing message use imap_reply_to_email (keeps threading); to pass a message on use imap_forward_email; to store without sending use imap_save_draft. Supports to/cc/bcc, text and/or HTML, and attachments by base64 content or by file path (see imap_upload_file for large files).',
     inputSchema: {
       ...accountSelector,
       to: addressList('to', 'Recipient email address(es). Either an array of addresses or a single comma-separated string; both accept "Name <addr@example.com>" form.').nonoptional(),
@@ -891,7 +907,7 @@ export function emailTools(
       html: z.string().optional().describe('HTML content'),
       body: z.string().optional().describe("Alias for 'text' (backward-compat with clients that pass 'body')"),
       cc: addressList('cc', 'CC recipients. Either an array of addresses or a single comma-separated string.').optional(),
-      bcc: addressList('bcc', 'BCC recipients. Either an array of addresses or a single comma-separated string.').optional(),
+      bcc: bccSchema,
       replyTo: z.string().optional().describe('Reply-to address'),
       attachments: z.array(attachmentSchema).optional().describe('Email attachments'),
     }
@@ -909,7 +925,7 @@ export function emailTools(
       text: text ?? body,
       html,
       cc,
-      bcc,
+      bcc: resolveBcc(account, bcc),
       replyTo,
       attachments: buildAttachments(attachments as AttachmentInput[] | undefined),
     };
@@ -934,7 +950,7 @@ export function emailTools(
 
   // Save draft tool — composes a message and appends it to the Drafts folder with the \Draft flag
   server.registerTool('imap_save_draft', {
-    description: 'Save an email as a draft in the Drafts folder (no send). Takes the same fields as imap_send_email.',
+    description: 'Save an email as a draft in the Drafts folder (no send). Takes the same fields as imap_send_email (including account defaultBcc when configured).',
     inputSchema: {
       ...accountSelector,
       to: addressList('to', 'Recipient email address(es). Either an array of addresses or a single comma-separated string.').optional(),
@@ -943,7 +959,7 @@ export function emailTools(
       html: z.string().optional().describe('HTML content'),
       body: z.string().optional().describe("Alias for 'text' (backward-compat)"),
       cc: addressList('cc', 'CC recipients. Either an array of addresses or a single comma-separated string.').optional(),
-      bcc: addressList('bcc', 'BCC recipients. Either an array of addresses or a single comma-separated string.').optional(),
+      bcc: bccSchema,
       replyTo: z.string().optional().describe('Reply-to address'),
       inReplyTo: z.string().optional().describe('Message-Id being replied to'),
       references: addressList('references', 'References header value(s)').optional(),
@@ -964,7 +980,7 @@ export function emailTools(
       text: text ?? body,
       html,
       cc,
-      bcc,
+      bcc: resolveBcc(account, bcc),
       replyTo,
       inReplyTo,
       references,
@@ -997,7 +1013,7 @@ export function emailTools(
 
   // Reply to email tool
   server.registerTool('imap_reply_to_email', {
-    description: 'Reply to an existing email identified by folder + uid. Automatically sets the recipient to the original sender, prefixes the subject with "Re:", and preserves threading (In-Reply-To/References). Set replyAll to also include the original recipients. Use this instead of imap_send_email whenever the user is responding to a message already in a mailbox.',
+    description: 'Reply to an existing email identified by folder + uid. Automatically sets the recipient to the original sender, prefixes the subject with "Re:", and preserves threading (In-Reply-To/References). Set replyAll to also include the original recipients. Use this instead of imap_send_email whenever the user is responding to a message already in a mailbox. Account defaultBcc addresses are always BCC\'d when configured.',
     inputSchema: {
       ...accountSelector,
       folder: z.string().default('INBOX').describe('Folder containing the original email'),
@@ -1006,9 +1022,10 @@ export function emailTools(
       html: z.string().optional().describe('HTML reply content'),
       body: z.string().optional().describe("Alias for 'text' (backward-compat)"),
       replyAll: z.boolean().default(false).describe('Reply to all recipients'),
+      bcc: bccSchema,
       attachments: z.array(attachmentSchema).optional().describe('Email attachments'),
     }
-  }, async ({ accountId: rawAccountId, accountName, folder, uid, text, html, body, replyAll, attachments }) => {
+  }, async ({ accountId: rawAccountId, accountName, folder, uid, text, html, body, replyAll, bcc, attachments }) => {
     const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
     const account = await accountManager.getAccount(accountId);
     if (!account) {
@@ -1049,6 +1066,7 @@ export function emailTools(
       subject: originalEmail.subject.startsWith('Re: ') ? originalEmail.subject : `Re: ${originalEmail.subject}`,
       text: text ?? body,
       html,
+      bcc: resolveBcc(account, bcc),
       inReplyTo: originalEmail.messageId,
       references: originalEmail.messageId,
       attachments: buildAttachments(attachments as AttachmentInput[] | undefined),
@@ -1074,7 +1092,7 @@ export function emailTools(
 
   // Forward email tool
   server.registerTool('imap_forward_email', {
-    description: 'Forward an existing email (folder + uid) to new recipients, quoting the original message and headers. Optionally include the original attachments. Use when the user wants to pass an existing message on to someone else; use imap_reply_to_email instead to respond to the sender.',
+    description: 'Forward an existing email (folder + uid) to new recipients, quoting the original message and headers. Optionally include the original attachments. Use when the user wants to pass an existing message on to someone else; use imap_reply_to_email instead to respond to the sender. Account defaultBcc addresses are always BCC\'d when configured.',
     inputSchema: {
       ...accountSelector,
       folder: z.string().default('INBOX').describe('Folder containing the original email'),
@@ -1082,9 +1100,10 @@ export function emailTools(
       to: addressList('to', 'Forward to email address(es). Either an array of addresses or a single comma-separated string.').nonoptional(),
       text: z.string().optional().describe('Additional text to include'),
       body: z.string().optional().describe("Alias for 'text' (backward-compat)"),
+      bcc: bccSchema,
       includeAttachments: z.boolean().default(true).describe('Include original attachments'),
     }
-  }, async ({ accountId: rawAccountId, accountName, folder, uid, to, text, body, includeAttachments }) => {
+  }, async ({ accountId: rawAccountId, accountName, folder, uid, to, text, body, bcc, includeAttachments }) => {
     const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
     const account = await accountManager.getAccount(accountId);
     if (!account) {
@@ -1103,6 +1122,7 @@ export function emailTools(
       subject: originalEmail.subject.startsWith('Fwd: ') ? originalEmail.subject : `Fwd: ${originalEmail.subject}`,
       text: (text ?? body ?? '') + forwardHeader + (originalEmail.textContent || ''),
       html: originalEmail.htmlContent,
+      bcc: resolveBcc(account, bcc),
       references: originalEmail.messageId,
     };
 
