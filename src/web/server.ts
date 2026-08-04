@@ -3,7 +3,7 @@ import cors from 'cors';
 import bodyParser from 'body-parser';
 import path from 'path';
 import fs from 'fs';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import open from 'open';
 import { AccountManager } from '../services/account-manager.js';
 import { ImapService } from '../services/imap-service.js';
@@ -348,7 +348,10 @@ export class WebUIServer {
 }
 
 // CLI entry point
-if (import.meta.url === `file://${process.argv[1]}`) {
+// pathToFileURL, not `file://${argv[1]}`: on Windows the latter yields
+// "file://C:\...\server.ts" while import.meta.url is "file:///C:/.../server.ts",
+// so the two could never match and `npm run web` exited silently (#136).
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const port = parseInt(process.env.PORT || '3000');
   const server = new WebUIServer(port);
   server.start();

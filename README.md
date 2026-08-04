@@ -555,6 +555,13 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
   Parameters:
   - accountId: Account ID
   - folder: Folder name
+
+  Returns:
+  - messages: { total, new, unseen } — from IMAP STATUS
+  - uidvalidity, uidnext
+  - flags, permanentFlags: string arrays
+  - customKeywords: the mailbox's non-system keywords, usable as the
+      `keywords` / `unKeywords` input of imap_search_emails
   ```
 
 - **imap_create_folder**: Create a new IMAP folder/mailbox. Most servers also create any missing parent folders. Returns success even if the folder already exists.
