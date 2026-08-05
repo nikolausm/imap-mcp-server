@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `imap_save_draft` and Sent-folder copies now keep `Bcc` headers in the stored MIME. Nodemailer's `MailComposer` omits Bcc from the built message by default (SMTP envelope only), so even when `defaultBcc` / a call-site `bcc` was merged into the composer, the appended draft or Sent copy had no `Bcc:` line and mail clients showed an empty BCC field. `SmtpService.composeRaw` now sets `keepBcc` on the compiled message. SMTP delivery was already correct; only the IMAP-stored copy was missing the header. Tests in `tests/smtp-service-compose-raw-bcc.test.ts`.
+
 ## [2.0.0] - 2026-08-05
 
 Major only because of the Node requirement. **No tool was renamed, and no tool's

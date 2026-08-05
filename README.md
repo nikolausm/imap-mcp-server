@@ -564,7 +564,8 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
 
   When the account has `defaultBcc` configured, those address(es) are always
   BCC'd on send, reply, forward, and draft (merged with any per-call `bcc`;
-  duplicates removed case-insensitively).
+  duplicates removed case-insensitively). The Bcc header is kept in the MIME
+  stored for drafts and Sent-folder copies so mail clients show it.
 
 - **imap_save_draft**: Save an email as a draft (no send). Takes the same fields as `imap_send_email`, plus `inReplyTo`, `references`, and an optional `folder` override for the Drafts folder.
 

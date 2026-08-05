@@ -146,9 +146,13 @@ export class SmtpService {
   }
 
   // Build the raw RFC 822 message without sending. Used for drafts and Sent-folder copies.
+  // keepBcc is required: MailComposer omits Bcc from the MIME by default (SMTP
+  // envelope-only). Without it, imap_save_draft and Sent-folder copies drop
+  // Bcc even when resolveBcc / defaultBcc injected recipients into email.bcc.
   async composeRaw(account: ImapAccount, email: EmailComposer): Promise<Buffer> {
-    const compiled = new MailComposer(this.toMailOptions(account, email));
-    return compiled.compile().build();
+    const message = new MailComposer(this.toMailOptions(account, email)).compile();
+    message.keepBcc = true;
+    return message.build();
   }
 
   async sendEmail(accountId: string, account: ImapAccount, email: EmailComposer): Promise<{ messageId: string; rawMessage?: Buffer }> {
