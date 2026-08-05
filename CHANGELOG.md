@@ -7,8 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-08-05
+
+Major only because of the Node requirement. **No tool was renamed, and no tool's
+input or output shape changed** — if you are already on Node 22.12 or newer,
+upgrading from 1.6.0 needs no changes on your side.
+
+### Breaking Changes
+- **Minimum supported Node.js is now 22.12** (previously documented as 18). Check yours with `node --version`; if it is older, upgrade Node or stay on 1.6.x.
+
+  This formalizes what the dependency tree already required rather than introducing a new restriction: 11 runtime packages already excluded Node 18 — four of them direct dependencies — and `commander@15` needs >=22.12, while CI still tested on 20.x. That job passed only because npm's `EBADENGINE` is a warning and the tests never reach the affected code. Node 18 reached end-of-life in April 2025, Node 20 in April 2026.
+
+  `package.json` now declares `engines.node`, which it never did before, and the CI matrix moves to 22.x/24.x.
+
+### Added
+- `tests/node-engines.test.ts` guards the advertised Node floor against the actual runtime dependency tree. npm does not do this itself: it validates a dependency's `engines` against the Node performing the install, not against the floor the package declares — so a dependency requiring a newer Node installs silently and only breaks on a user's older runtime. That gap is how #108 reached users. The test walks the lockfile's runtime entries and fails with the offending package names when any of them needs more than we advertise. Dev dependencies are excluded.
+
 ### Changed
-- **Minimum supported Node.js is now 22.12** (previously documented as 18). This formalizes what the dependency tree already required: 11 runtime packages exclude Node 18, and `commander@15` needs >=22.12 — while CI still tested on 20.x. Node 18 and 20 are both end-of-life. `package.json` now declares `engines.node`, the CI matrix moves to 22.x/24.x, and `tests/node-engines.test.ts` walks the runtime tree and fails if any dependency needs a newer Node than we advertise — npm does not check this itself, since it validates a dependency's `engines` against the installing Node rather than against our declared floor. That gap is how #108 reached users.
+- `chalk` 5.6.2 → 6.0.0 (#134). Used only for coloured console output in `imap-setup`. It requires Node >=22, which the new floor covers.
 
 ### Fixed
 - `imap_get_latest_emails` no longer depends on IMAP SEARCH (#138). Opening a mailbox already reports how many messages it holds, and IMAP orders sequence numbers by arrival — so the newest `count` messages are just the tail of that range. The tool used to call `client.search({ all: true })` first and return `[]` whenever that came back empty, which is what a Strato mailbox does despite reporting a non-zero message count via STATUS. Fetching the tail by sequence number instead removes one round-trip on every call and makes the tool independent of the server's SEARCH behavior. The SEARCH path is kept as a fallback for the case where the mailbox metadata is unavailable. Tests in `tests/imap-service-latest-no-search.test.ts`. Criteria-based `imap_search_emails` still requires SEARCH and is unaffected.
