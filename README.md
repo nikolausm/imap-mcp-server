@@ -17,6 +17,10 @@ A powerful Model Context Protocol (MCP) server that provides seamless IMAP email
 
 ## Installation
 
+> **Requires Node.js 22.12 or newer.** Node 18 and 20 have both reached
+> end-of-life, and several of this package's dependencies no longer support
+> them. Check yours with `node --version`.
+
 ### Run via npx (No Installation Required)
 
 Once published to npm, you can run the server directly without cloning or building anything — `npx` downloads the prebuilt package and runs it:

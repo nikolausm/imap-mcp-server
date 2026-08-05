@@ -55,7 +55,7 @@ npm run setup        # launch the web setup wizard
 ```
 
 Always run `npm run build` **and** `npm test` before committing changes that
-touch `src/`. Keep the suite green (currently 350 tests).
+touch `src/`. Keep the suite green (currently 353 tests).
 
 > Note: `npm run lint` (`tsc --noEmit`) is memory-hungry on this project — the
 > MCP SDK's `registerTool` generics are deep enough to surface a pre-existing
@@ -85,7 +85,15 @@ touch `src/`. Keep the suite green (currently 350 tests).
 
 ## Conventions
 
-- TypeScript, ESM (`"type": "module"`), Node ≥ 18.
+- TypeScript, ESM (`"type": "module"`), **Node ≥ 22.12** (declared in
+  `package.json` `engines.node`; CI runs 22.x and 24.x).
+  - npm checks a dependency's `engines` against the Node doing the *install*,
+    not against the floor we declare — so a dependency needing a newer Node
+    installs silently and only breaks on a user's older runtime. This is how
+    #108 happened. `tests/node-engines.test.ts` walks the runtime dependency
+    tree and fails if any package needs more than we advertise. When it fires,
+    either raise the floor (CI matrix, AGENTS.md and README with it) or pin the
+    package back via npm `overrides`.
 - Tool names are stable public API: `imap_*`. Do not rename without a strong
   reason and a migration note.
 - Zod schemas describe every tool input; every field gets a `.describe()` that

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Minimum supported Node.js is now 22.12** (previously documented as 18). This formalizes what the dependency tree already required: 11 runtime packages exclude Node 18, and `commander@15` needs >=22.12 — while CI still tested on 20.x. Node 18 and 20 are both end-of-life. `package.json` now declares `engines.node`, the CI matrix moves to 22.x/24.x, and `tests/node-engines.test.ts` walks the runtime tree and fails if any dependency needs a newer Node than we advertise — npm does not check this itself, since it validates a dependency's `engines` against the installing Node rather than against our declared floor. That gap is how #108 reached users.
+
 ### Fixed
 - `imap_get_latest_emails` no longer depends on IMAP SEARCH (#138). Opening a mailbox already reports how many messages it holds, and IMAP orders sequence numbers by arrival — so the newest `count` messages are just the tail of that range. The tool used to call `client.search({ all: true })` first and return `[]` whenever that came back empty, which is what a Strato mailbox does despite reporting a non-zero message count via STATUS. Fetching the tail by sequence number instead removes one round-trip on every call and makes the tool independent of the server's SEARCH behavior. The SEARCH path is kept as a fallback for the case where the mailbox metadata is unavailable. Tests in `tests/imap-service-latest-no-search.test.ts`. Criteria-based `imap_search_emails` still requires SEARCH and is unaffected.
 

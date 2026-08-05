@@ -19,7 +19,9 @@ jobs:
 
     strategy:
       matrix:
-        node-version: [20.x, 22.x]
+        # Must stay within package.json's engines.node (>=22.12).
+        # tests/node-engines.test.ts guards the floor against the dep tree.
+        node-version: [22.x, 24.x]
       fail-fast: false
 
     steps:
@@ -43,7 +45,7 @@ jobs:
 
       - name: Upload coverage reports
         uses: actions/upload-artifact@v7
-        if: matrix.node-version == '20.x'
+        if: matrix.node-version == '22.x'
         with:
           name: coverage-report
           path: coverage/
@@ -79,7 +81,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: '20.x'
+          node-version: '22.x'
           cache: 'npm'
 
       - name: Install dependencies
@@ -112,7 +114,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: '20.x'
+          node-version: '22.x'
           cache: 'npm'
 
       - name: Install dependencies
