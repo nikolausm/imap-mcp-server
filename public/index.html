@@ -105,8 +105,12 @@
                         <div class="mb-4">
                             <label class="block text-sm font-medium text-gray-700 mb-2">Email Address</label>
                             <input type="email" id="email" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="your@email.com" required>
+                            <label class="flex items-start gap-2 mt-2 cursor-pointer">
+                                <input type="checkbox" id="imapUsernameFromEnv" class="w-4 h-4 mt-0.5 text-blue-600 rounded">
+                                <span class="text-sm text-gray-600">Do not save; set later using environment variable <span class="block font-mono break-all mt-0.5" id="imapUsernameFromEnvVar"></span></span>
+                            </label>
                         </div>
-                        
+
                         <div class="mb-4">
                             <label class="block text-sm font-medium text-gray-700 mb-2">Password</label>
                             <div class="relative">
@@ -116,6 +120,10 @@
                                 </button>
                             </div>
                             <p class="mt-1 text-sm text-gray-500" id="passwordHelp"></p>
+                            <label class="flex items-start gap-2 mt-2 cursor-pointer">
+                                <input type="checkbox" id="imapPasswordFromEnv" class="w-4 h-4 mt-0.5 text-blue-600 rounded">
+                                <span class="text-sm text-gray-600">Do not save; set later using environment variable <span class="block font-mono break-all mt-0.5" id="imapPasswordFromEnvVar"></span></span>
+                            </label>
                         </div>
 
                         <div id="advancedSettings" class="hidden">
@@ -136,7 +144,7 @@
                                     <div class="mt-3">
                                         <label class="block text-sm font-medium text-gray-700 mb-2">IMAP Username</label>
                                         <input type="text" id="imapUsername" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Leave blank to use email address">
-                                        <p class="text-xs text-gray-500 mt-1">Only set this if your IMAP username is different from your email address.</p>
+                                        <p class="text-xs text-gray-500 mt-1">Only set this if your IMAP username is different from your email address. To keep it out of the config, use the "Do not save" option next to the email field above.</p>
                                     </div>
                                 </div>
                                 <div>
@@ -170,10 +178,18 @@
                                             <div>
                                                 <label class="block text-sm font-medium text-gray-700 mb-2">SMTP Username</label>
                                                 <input type="text" id="smtpUser" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                                <label class="flex items-start gap-2 mt-2 cursor-pointer">
+                                                    <input type="checkbox" id="smtpUsernameFromEnv" class="w-4 h-4 mt-0.5 text-blue-600 rounded">
+                                                    <span class="text-sm text-gray-600">Do not save; set later using environment variable <span class="block font-mono break-all mt-0.5" id="smtpUsernameFromEnvVar"></span></span>
+                                                </label>
                                             </div>
                                             <div>
                                                 <label class="block text-sm font-medium text-gray-700 mb-2">SMTP Password</label>
                                                 <input type="password" id="smtpPassword" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                                <label class="flex items-start gap-2 mt-2 cursor-pointer">
+                                                    <input type="checkbox" id="smtpPasswordFromEnv" class="w-4 h-4 mt-0.5 text-blue-600 rounded">
+                                                    <span class="text-sm text-gray-600">Do not save; set later using environment variable <span class="block font-mono break-all mt-0.5" id="smtpPasswordFromEnvVar"></span></span>
+                                                </label>
                                             </div>
                                         </div>
                                     </div>

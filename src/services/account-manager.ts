@@ -4,15 +4,21 @@ import path from 'path';
 import os from 'os';
 import crypto from 'crypto';
 import { ImapAccount } from '../types/index.js';
+import { ENV_CREDENTIAL_SUFFIXES, envVarName } from '../utils/env-credentials.js';
 
 export class AccountManager {
   private configPath: string;
   private accounts: Map<string, ImapAccount> = new Map();
   private encryptionKey: string;
+  private capturedEnvOverrides: Map<string, string> = new Map();
+
+  private static readonly ENV_OVERRIDE_PATTERN =
+    /^IMAP_MCP_ACCOUNT_.+_(?:IMAP|SMTP)_(?:USERNAME|PASSWORD)$/;
 
   constructor() {
     this.configPath = path.join(os.homedir(), '.imap-mcp', 'accounts.json');
     this.encryptionKey = this.getOrCreateEncryptionKey();
+    this.captureEnvOverrides();
     this.loadAccountsSync();
   }
 
@@ -54,9 +60,11 @@ export class AccountManager {
       throw new Error(`Account with id ${id} not found`);
     }
 
-    // Encrypt password if it's being updated
+    // Encrypt password if it's being updated. Use an explicit undefined check so
+    // an empty placeholder ("" — used for env-managed credentials) is encrypted
+    // to a decryptable value rather than stored raw.
     const processedUpdates = { ...updates };
-    if (processedUpdates.password) {
+    if (processedUpdates.password !== undefined) {
       processedUpdates.password = this.encrypt(processedUpdates.password);
     }
     
@@ -101,34 +109,126 @@ export class AccountManager {
 
     const decrypted: ImapAccount = {
       ...account,
-      password: this.decrypt(account.password),
+      password: this.decryptField(account.password),
     };
-    
+
     if (account.smtp?.password) {
       decrypted.smtp = {
         ...account.smtp,
-        password: this.decrypt(account.smtp.password),
+        password: this.decryptField(account.smtp.password),
       };
     }
-    
-    return decrypted;
+
+    return this.applyEnvOverrides(decrypted);
+  }
+
+  /**
+   * Override IMAP/SMTP credentials from environment variables, keyed by the
+   * account's normalized name. This lets credentials be supplied at runtime
+   * (e.g. from a secret manager) instead of the encrypted `accounts.json`.
+   *
+   *   IMAP_MCP_ACCOUNT_<NAME>_IMAP_USERNAME  -> user
+   *   IMAP_MCP_ACCOUNT_<NAME>_IMAP_PASSWORD  -> password
+   *   IMAP_MCP_ACCOUNT_<NAME>_SMTP_USERNAME  -> smtp.user  (only if smtp exists)
+   *   IMAP_MCP_ACCOUNT_<NAME>_SMTP_PASSWORD  -> smtp.password (only if smtp exists)
+   *
+   * <NAME> is the account name uppercased with every non-alphanumeric character
+   * replaced by "_". Overrides are applied in-memory only; nothing is written
+   * back to disk. A variable takes effect only when it was present at startup.
+   *
+   * The values themselves are captured once in the constructor (see
+   * `captureEnvOverrides`) and served here from the encrypted cache.
+   */
+  private applyEnvOverrides(account: ImapAccount): ImapAccount {
+    const varName = (suffix: string) => envVarName(account.name, suffix);
+
+    const result: ImapAccount = { ...account };
+
+    const imapUser = this.getEnvOverride(varName(ENV_CREDENTIAL_SUFFIXES.imapUser));
+    if (imapUser !== undefined) {
+      result.user = imapUser;
+    }
+
+    const imapPassword = this.getEnvOverride(varName(ENV_CREDENTIAL_SUFFIXES.imapPassword));
+    if (imapPassword !== undefined) {
+      result.password = imapPassword;
+    }
+
+    if (result.smtp) {
+      const smtpUser = this.getEnvOverride(varName(ENV_CREDENTIAL_SUFFIXES.smtpUser));
+      const smtpPassword = this.getEnvOverride(varName(ENV_CREDENTIAL_SUFFIXES.smtpPassword));
+
+      if (smtpUser !== undefined || smtpPassword !== undefined) {
+        result.smtp = { ...result.smtp };
+        if (smtpUser !== undefined) {
+          result.smtp.user = smtpUser;
+        }
+        if (smtpPassword !== undefined) {
+          result.smtp.password = smtpPassword;
+        }
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Capture every `IMAP_MCP_ACCOUNT_*_(IMAP|SMTP)_(USERNAME|PASSWORD)` variable
+   * into an encrypted in-memory cache and delete it from `process.env`. Run once
+   * in the constructor so the plaintext secrets do not linger in the process
+   * environment (where they could leak to child processes or diagnostics) any
+   * longer than necessary. `Object.entries` snapshots the keys, so deleting
+   * during iteration is safe.
+   */
+  private captureEnvOverrides(): void {
+    for (const [name, value] of Object.entries(process.env)) {
+      if (value !== undefined && AccountManager.ENV_OVERRIDE_PATTERN.test(name)) {
+        this.capturedEnvOverrides.set(this.hashCacheKey(name), this.encrypt(value));
+        delete process.env[name];
+      }
+    }
+  }
+
+  /**
+   * Return a captured override value by variable name, decrypting it from the
+   * cache. Returns `undefined` when no such variable was present at startup.
+   */
+  private getEnvOverride(name: string): string | undefined {
+    const encrypted = this.capturedEnvOverrides.get(this.hashCacheKey(name));
+    if (encrypted === undefined) {
+      return undefined;
+    }
+    return this.decrypt(encrypted);
+  }
+
+  /**
+   * Derive a deterministic, non-reversible cache key from a variable name via
+   * HMAC-SHA256 keyed by the encryption key. Keeps the account name (embedded in
+   * the variable name) out of the in-memory cache in plaintext while still
+   * allowing lookups.
+   */
+  private hashCacheKey(name: string): string {
+    return crypto
+      .createHmac('sha256', Buffer.from(this.encryptionKey, 'hex'))
+      .update(name)
+      .digest('hex');
   }
 
   getAllAccounts(): ImapAccount[] {
     return Array.from(this.accounts.values()).map(account => {
       const decrypted: ImapAccount = {
         ...account,
-        password: this.decrypt(account.password),
+        password: this.decryptField(account.password),
       };
-      
+
       if (account.smtp?.password) {
         decrypted.smtp = {
           ...account.smtp,
-          password: this.decrypt(account.smtp.password),
+          password: this.decryptField(account.smtp.password),
         };
       }
-      
-      return decrypted;
+
+      return this.applyEnvOverrides(decrypted);
     });
   }
 
@@ -175,17 +275,17 @@ export class AccountManager {
 
     const decrypted: ImapAccount = {
       ...account,
-      password: this.decrypt(account.password),
+      password: this.decryptField(account.password),
     };
-    
+
     if (account.smtp?.password) {
       decrypted.smtp = {
         ...account.smtp,
-        password: this.decrypt(account.smtp.password),
+        password: this.decryptField(account.smtp.password),
       };
     }
-    
-    return decrypted;
+
+    return this.applyEnvOverrides(decrypted);
   }
 
   private loadAccountsSync(): void {
@@ -272,6 +372,26 @@ export class AccountManager {
     encrypted += cipher.final('hex');
 
     return iv.toString('hex') + ':' + encrypted;
+  }
+
+  /**
+   * Decrypt a stored credential field.
+   *
+   * A missing or empty value (null, undefined, or "") is treated as "no
+   * credential" and returns an empty string — the env-override mechanism can
+   * still fill it at runtime. A non-empty value that is not a well-formed
+   * encrypted string (missing the "iv:ciphertext" separator, or otherwise
+   * undecryptable) is a corrupt entry and throws, rather than being silently
+   * swallowed.
+   */
+  private decryptField(value: string | null | undefined): string {
+    if (value === undefined || value === null || value === '') {
+      return '';
+    }
+    if (typeof value !== 'string' || !value.includes(':')) {
+      throw new Error('Cannot decrypt credential field: value is not a valid encrypted string');
+    }
+    return this.decrypt(value);
   }
 
   private decrypt(text: string): string {

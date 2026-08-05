@@ -20,7 +20,40 @@ document.addEventListener('DOMContentLoaded', async () => {
             document.getElementById('inlineTestError').classList.add('hidden');
         });
     });
+
+    // Keep the env var names shown in the "Do not save" labels in sync with the
+    // account name.
+    document.getElementById('accountName').addEventListener('input', updateEnvVarNames);
+    updateEnvVarNames();
 });
+
+// Maps each "do not save" field to its env var suffix and the label span that
+// displays the resulting variable name.
+const ENV_VAR_FIELDS = [
+    { varSpan: 'imapUsernameFromEnvVar', suffix: '_IMAP_USERNAME' },
+    { varSpan: 'imapPasswordFromEnvVar', suffix: '_IMAP_PASSWORD' },
+    { varSpan: 'smtpUsernameFromEnvVar', suffix: '_SMTP_USERNAME' },
+    { varSpan: 'smtpPasswordFromEnvVar', suffix: '_SMTP_PASSWORD' }
+];
+
+// Build the env var name for an account. This is served as a static asset, so
+// it cannot import the server module — keep it in sync with envVarName() in
+// src/utils/env-credentials.ts (uppercase, every non-alphanumeric character
+// replaced by "_"). Falls back to a <ACCOUNT_NAME> placeholder until an account
+// name is entered.
+function envVarName(accountName, suffix) {
+    const key = (accountName || '').toUpperCase().replace(/[^A-Z0-9]/g, '_') || '<ACCOUNT_NAME>';
+    return `IMAP_MCP_ACCOUNT_${key}${suffix}`;
+}
+
+// Fill each label's variable-name span from the current account name.
+function updateEnvVarNames() {
+    const accountName = document.getElementById('accountName').value;
+    ENV_VAR_FIELDS.forEach(({ varSpan, suffix }) => {
+        const el = document.getElementById(varSpan);
+        if (el) el.textContent = envVarName(accountName, suffix);
+    });
+}
 
 // Load providers from API
 async function loadProviders() {
@@ -142,11 +175,14 @@ async function handleAccountUpdate(e) {
         port: parseInt(document.getElementById('imapPort').value),
         tls: selectedProvider?.imapSecurity !== 'STARTTLS',
         saveToSent: document.getElementById('saveToSent').checked,
-        imapUsername: imapUsername || undefined
+        imapUsername: imapUsername || undefined,
+        imapUsernameFromEnv: document.getElementById('imapUsernameFromEnv').checked,
+        imapPasswordFromEnv: document.getElementById('imapPasswordFromEnv').checked
     };
 
-    // Only include password if it was changed
-    if (!accountData.password) {
+    // Only include password if it was changed (unless it is env-managed, which
+    // stores an empty placeholder explicitly).
+    if (!accountData.password && !accountData.imapPasswordFromEnv) {
         delete accountData.password;
     }
 
@@ -176,7 +212,11 @@ async function handleAccountSubmit(e) {
         port: parseInt(document.getElementById('imapPort').value),
         tls: selectedProvider?.imapSecurity !== 'STARTTLS',
         saveToSent: document.getElementById('saveToSent').checked,
-        imapUsername: imapUsername || undefined
+        imapUsername: imapUsername || undefined,
+        // "Do not save to config" flags — the typed value is still used for the
+        // connection test, it just isn't persisted to accounts.json.
+        imapUsernameFromEnv: document.getElementById('imapUsernameFromEnv').checked,
+        imapPasswordFromEnv: document.getElementById('imapPasswordFromEnv').checked
     };
 
     // Add SMTP configuration if enabled
@@ -186,11 +226,13 @@ async function handleAccountSubmit(e) {
             port: parseInt(document.getElementById('smtpPort').value) || 587,
             secure: document.getElementById('smtpSecure').checked
         };
-        
+
         // Add SMTP auth if not using same credentials
         if (!document.getElementById('smtpSameAuth').checked) {
             accountData.smtp.user = document.getElementById('smtpUser').value;
             accountData.smtp.password = document.getElementById('smtpPassword').value;
+            accountData.smtpUsernameFromEnv = document.getElementById('smtpUsernameFromEnv').checked;
+            accountData.smtpPasswordFromEnv = document.getElementById('smtpPasswordFromEnv').checked;
         }
     }
     

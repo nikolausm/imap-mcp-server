@@ -53,8 +53,17 @@ export function folderTools(
     }
   }, async ({ accountId: rawAccountId, accountName, folder }) => {
     const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
+
+    // Counts come from STATUS, not SELECT: imapflow's mailboxOpen() reports
+    // `exists` but neither RECENT nor UNSEEN. STATUS runs first because RFC 3501
+    // discourages issuing it against the currently selected mailbox.
+    const status = await imapService.getFolderStatus(accountId, folder);
     const box = await imapService.selectFolder(accountId, folder);
-    const customKeywords = (Array.from(box.flags || []) as string[]).filter(f => !isSystemFlag(f));
+
+    // imapflow returns flag sets as `Set`, which JSON.stringify renders as {}.
+    const toFlagArray = (flags: Iterable<string> | undefined): string[] =>
+      Array.from(flags ?? []);
+    const flags = toFlagArray(box.flags);
 
     return {
       content: [{
@@ -62,15 +71,15 @@ export function folderTools(
         text: JSON.stringify({
           folder: folder,
           messages: {
-            total: box.messages.total,
-            new: box.messages.new,
-            unseen: box.messages.unseen || 0,
+            total: status.messages,
+            new: status.recent,
+            unseen: status.unseen,
           },
-          uidvalidity: box.uidvalidity,
-          uidnext: box.uidnext,
-          flags: box.flags,
-          permanentFlags: box.permanentFlags,
-          customKeywords,
+          uidvalidity: status.uidValidity,
+          uidnext: status.uidNext,
+          flags,
+          permanentFlags: toFlagArray(box.permanentFlags),
+          customKeywords: flags.filter(f => !isSystemFlag(f)),
         }, null, 2)
       }]
     };

@@ -17,6 +17,10 @@ A powerful Model Context Protocol (MCP) server that provides seamless IMAP email
 
 ## Installation
 
+> **Requires Node.js 22.12 or newer.** Node 18 and 20 have both reached
+> end-of-life, and several of this package's dependencies no longer support
+> them. Check yours with `node --version`.
+
 ### Run via npx (No Installation Required)
 
 Once published to npm, you can run the server directly without cloning or building anything — `npx` downloads the prebuilt package and runs it:
@@ -105,6 +109,57 @@ This will:
 1. Start a local web server
 2. Open your browser to the setup wizard
 3. Guide you through adding email accounts with pre-configured settings
+
+### Overriding Credentials via Environment Variables
+
+You can override the username and password of an already-configured account at
+runtime with environment variables — useful when you inject secrets from a
+password manager or CI system instead of storing them in `accounts.json`.
+
+The variables are keyed by the account **name**, uppercased with every
+non-alphanumeric character replaced by `_`. For an account named `Work Gmail`
+(key `WORK_GMAIL`):
+
+| Variable | Overrides |
+| --- | --- |
+| `IMAP_MCP_ACCOUNT_WORK_GMAIL_IMAP_USERNAME` | IMAP username (`user`) |
+| `IMAP_MCP_ACCOUNT_WORK_GMAIL_IMAP_PASSWORD` | IMAP password |
+| `IMAP_MCP_ACCOUNT_WORK_GMAIL_SMTP_USERNAME` | SMTP username (`smtp.user`) |
+| `IMAP_MCP_ACCOUNT_WORK_GMAIL_SMTP_PASSWORD` | SMTP password |
+
+Notes:
+- Overrides apply **only to existing accounts**; if no account's normalized name
+  matches, the variable is ignored.
+- They are applied **in memory only** — nothing is written back to
+  `accounts.json`, and the values are used as-is (not re-encrypted).
+- Variables are **consumed at startup**: on server start they are captured into
+  an AES-256-encrypted in-memory cache and removed from `process.env`, so the
+  plaintext secret does not linger in the environment (where it could leak to
+  child processes or diagnostics). Set them before launching the server.
+
+The setup wizard integrates with this: each credential field (IMAP password,
+IMAP username, SMTP username, SMTP password) has a **"Do not save to config; set
+later using an environment variable"** checkbox. When ticked, the value you enter
+is still used to test the connection, but it is not written to `accounts.json` —
+the wizard shows the exact variable name to export, and the account picks the
+credential up from that variable at runtime.
+- SMTP variables take effect only when the account already has an SMTP config.
+- Each variable takes effect independently; set only the ones you need.
+
+**If the variable is missing**, the account still holds the empty placeholder the
+wizard wrote. Rather than dialing out with a blank credential — which providers
+answer with a generic authentication failure that looks exactly like a wrong
+password — the server refuses the connection and names what to set:
+
+```
+Account "Work Gmail" has IMAP credentials marked as environment-managed, but
+this variable was not set when the server started:
+IMAP_MCP_ACCOUNT_WORK_GMAIL_IMAP_PASSWORD. Set it and restart the server, or
+store the credentials on the account via imap_update_account.
+```
+
+Because the variables are read once at startup, setting one in an already-running
+shell has no effect until the server is restarted.
 
 ### Supported Email Providers
 
@@ -276,6 +331,9 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
   - sentFolder: Explicit Sent-folder name for sent-mail copies, e.g. "Gesendet"
       (optional — only needed when the server has no \Sent SPECIAL-USE folder
       and auto-detection fails)
+  - defaultBcc: Optional BCC address(es) applied automatically to every
+      outbound send, reply, forward, and draft for this account. Merged with
+      any per-call `bcc` (duplicates removed case-insensitively)
   ```
 
 - **imap_update_account**: Update an existing account (fix SMTP settings, rename, etc.)
@@ -287,6 +345,8 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
   - saveToSent: Save sent emails to the Sent folder (optional)
   - sentFolder: Explicit Sent-folder override (optional). Pass an empty string
       to clear the override and re-enable auto-detection
+  - defaultBcc: Optional default BCC address(es) (optional). Pass an empty
+      string to clear
   ```
 
 - **imap_list_accounts**: List all configured accounts
@@ -478,7 +538,7 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
   ```
   Parameters:
   - accountId: Account ID to send from
-  - to: Recipient email address(es)
+  - to: Recipient email address(es) — an array, or a single comma-separated string
   - subject: Email subject
   - text: Plain text content (optional)
   - html: HTML content (optional)
@@ -502,6 +562,10 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
   why, instead of failing silently. The same applies to `imap_reply_to_email`
   and `imap_forward_email`.
 
+  When the account has `defaultBcc` configured, those address(es) are always
+  BCC'd on send, reply, forward, and draft (merged with any per-call `bcc`;
+  duplicates removed case-insensitively).
+
 - **imap_save_draft**: Save an email as a draft (no send). Takes the same fields as `imap_send_email`, plus `inReplyTo`, `references`, and an optional `folder` override for the Drafts folder.
 
 - **imap_reply_to_email**: Reply to an existing email
@@ -513,6 +577,7 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
   - text: Plain text reply content (optional)
   - html: HTML reply content (optional)
   - replyAll: Reply to all recipients (default: false)
+  - bcc: BCC recipients (optional; merged with account defaultBcc)
   - attachments: Array of attachments (optional, same shape as imap_send_email, including contentDisposition/cid for inline images)
   ```
 
@@ -524,6 +589,7 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
   - uid: UID of the email to forward
   - to: Forward to email address(es)
   - text: Additional text to include (optional)
+  - bcc: BCC recipients (optional; merged with account defaultBcc)
   - includeAttachments: Include original attachments (default: true)
   ```
 
@@ -544,6 +610,13 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
   Parameters:
   - accountId: Account ID
   - folder: Folder name
+
+  Returns:
+  - messages: { total, new, unseen } — from IMAP STATUS
+  - uidvalidity, uidnext
+  - flags, permanentFlags: string arrays
+  - customKeywords: the mailbox's non-system keywords, usable as the
+      `keywords` / `unKeywords` input of imap_search_emails
   ```
 
 - **imap_create_folder**: Create a new IMAP folder/mailbox. Most servers also create any missing parent folders. Returns success even if the folder already exists.
@@ -638,6 +711,22 @@ src/
 - Check if your email provider requires app-specific passwords
 - Verify that IMAP is enabled in your email account settings
 - For sending emails, ensure your account has SMTP access enabled
+
+### Recipients arriving as `["a@x.com","b@y.com"]`
+
+`to`, `cc`, `bcc`, `references` and `uid` accept either a single value or an
+array. In JSON Schema that is an `anyOf`, and some MCP clients drop the `anyOf`
+before showing the schema to the model — the field then looks untyped or
+string-typed, and the client serializes the model's array into a string. The
+server used to pass that string straight to nodemailer, which folded the
+literal `[` and `]` into the first and last address, so every recipient was
+rejected by the receiving mail server (issue #127).
+
+The server now detects a stringified array and restores it, both when
+validating tool input and again before composing the message, and logs a
+warning to stderr naming the field. Nothing needs to change on your side. If
+you want to bypass the client behavior entirely, pass recipients as one
+comma-separated string: `"Alice <alice@example.com>, Bob <bob@example.org>"`.
 
 ### SMTP Configuration
 

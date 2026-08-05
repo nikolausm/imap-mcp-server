@@ -3,6 +3,8 @@ import { ImapService } from '../services/imap-service.js';
 import { AccountManager } from '../services/account-manager.js';
 import { SmtpService } from '../services/smtp-service.js';
 import { selectSearchFolders } from '../utils/search-folders.js';
+import { parseSerializedArray } from '../utils/array-input.js';
+import { mergeBcc } from '../utils/default-bcc.js';
 import type { EmailMessage, ImapAccount, SentSaveResult } from '../types/index.js';
 import { z } from 'zod';
 import { join } from 'path';
@@ -15,6 +17,29 @@ const accountSelector = {
   accountId: z.string().optional().describe('Account ID (from imap_list_accounts). Optional if accountName is given or only one account is configured.'),
   accountName: z.string().optional().describe('Account name instead of accountId. Optional if accountId is given or only one account is configured.'),
 };
+
+// "One or many" inputs. The union is what makes these convenient, and also what
+// makes them fragile: clients that flatten the schema's anyOf hand the model an
+// untyped field and then stringify the array it produces. Recover that shape
+// before validation so an address list can never reach nodemailer as
+// '["a@x.com","b@y.com"]' (issue #127). Real arrays and plain strings are
+// untouched, so the accepted input shape is unchanged.
+//
+// The recovery runs as a Zod `preprocess`, whose input type is `unknown` — which
+// would drop the field from the schema's `required` list. Chain `.nonoptional()`
+// on required fields (and `.optional()` on optional ones) to keep the published
+// schema byte-identical to the plain union it replaces.
+const addressList = (field: string, description: string) =>
+  z.preprocess(
+    value => parseSerializedArray(value, field),
+    z.union([z.string(), z.array(z.string())])
+  ).describe(description);
+
+const uidList = (description: string) =>
+  z.preprocess(
+    value => parseSerializedArray(value, 'uid'),
+    z.union([z.coerce.number(), z.array(z.coerce.number())])
+  ).describe(description);
 
 // Attachment payload as accepted by the send/draft/reply/forward tool schemas.
 // Typed explicitly because the MCP SDK's deep tool-schema inference (the TS2589
@@ -37,6 +62,13 @@ const buildAttachments = (atts?: AttachmentInput[]) =>
     cid: att.cid,
   }));
 
+// Merge the account's defaultBcc with a per-call bcc (same pattern as
+// saveSentCopy honoring saveToSent / sentFolder on the account).
+const resolveBcc = (
+  account: ImapAccount,
+  explicitBcc?: string | string[],
+): string | string[] | undefined => mergeBcc(account.defaultBcc, explicitBcc);
+
 // Shared Zod shape for the attachments arrays on send/save_draft/reply — keeps
 // the three tool schemas (and their .describe() text) in sync.
 const attachmentSchema = z.object({
@@ -51,6 +83,14 @@ const attachmentSchema = z.object({
     'Content-ID for inline attachments. Required when contentDisposition is "inline" and the HTML references the image as <img src="cid:THIS_VALUE">. Must match exactly (without the "cid:" prefix or angle brackets).'
   ),
 });
+
+// Shared bcc field for send/draft/reply/forward — keeps merge wording in sync.
+// Built on addressList so bcc gets the same stringified-array recovery as
+// to/cc (#127) on top of the defaultBcc merge.
+const bccSchema = addressList(
+  'bcc',
+  'BCC recipients. Either an array of addresses or a single comma-separated string; merged with the account defaultBcc when set.',
+).optional();
 
 // Shared by send/reply/forward: copy the outbound message to the Sent folder
 // (honoring the account's saveToSent switch and sentFolder override) and shape
@@ -437,7 +477,7 @@ export function emailTools(
     inputSchema: {
       ...accountSelector,
       folder: z.string().default('INBOX').describe('Folder name'),
-      uid: z.union([z.coerce.number(), z.array(z.coerce.number())]).describe('Email UID, or array of UIDs to mark as read in one call (avoids N round-trips when triaging). All listed UIDs share the same IMAP STORE command, so the operation is atomic at the server level.'),
+      uid: uidList('Email UID, or array of UIDs to mark as read in one call (avoids N round-trips when triaging). All listed UIDs share the same IMAP STORE command, so the operation is atomic at the server level.').nonoptional(),
     }
   }, async ({ accountId: rawAccountId, accountName, folder, uid }) => {
     const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
@@ -476,7 +516,7 @@ export function emailTools(
     inputSchema: {
       ...accountSelector,
       folder: z.string().default('INBOX').describe('Folder name'),
-      uid: z.union([z.coerce.number(), z.array(z.coerce.number())]).describe('Email UID, or array of UIDs to mark as unread in one call (avoids N round-trips when triaging). All listed UIDs share the same IMAP STORE command, so the operation is atomic at the server level.'),
+      uid: uidList('Email UID, or array of UIDs to mark as unread in one call (avoids N round-trips when triaging). All listed UIDs share the same IMAP STORE command, so the operation is atomic at the server level.').nonoptional(),
     }
   }, async ({ accountId: rawAccountId, accountName, folder, uid }) => {
     const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
@@ -632,7 +672,7 @@ export function emailTools(
     inputSchema: {
       ...accountSelector,
       folder: z.string().default('INBOX').describe('Source folder name'),
-      uid: z.union([z.coerce.number(), z.array(z.coerce.number())]).describe('Single email UID or array of UIDs to move in one call. Pass an array when triaging many messages at once (e.g. "move the 10 invoices I just classified to Archive") to avoid N round-trips.'),
+      uid: uidList('Single email UID or array of UIDs to move in one call. Pass an array when triaging many messages at once (e.g. "move the 10 invoices I just classified to Archive") to avoid N round-trips.').nonoptional(),
       targetFolder: z.string().describe('Destination folder name'),
       createDestinationIfMissing: z.boolean().optional().describe('If true, create the destination folder before moving when it does not exist (default: false)'),
     }
@@ -858,16 +898,16 @@ export function emailTools(
 
   // Send email tool
   server.registerTool('imap_send_email', {
-    description: 'Compose and send a NEW email via the account\'s SMTP server (a copy is saved to Sent unless disabled). Use for fresh outbound messages. To respond to an existing message use imap_reply_to_email (keeps threading); to pass a message on use imap_forward_email; to store without sending use imap_save_draft. Supports to/cc/bcc, text and/or HTML, and attachments by base64 content or by file path (see imap_upload_file for large files).',
+    description: 'Compose and send a NEW email via the account\'s SMTP server (a copy is saved to Sent unless disabled; account defaultBcc addresses are always BCC\'d when configured). Use for fresh outbound messages. To respond to an existing message use imap_reply_to_email (keeps threading); to pass a message on use imap_forward_email; to store without sending use imap_save_draft. Supports to/cc/bcc, text and/or HTML, and attachments by base64 content or by file path (see imap_upload_file for large files).',
     inputSchema: {
       ...accountSelector,
-      to: z.union([z.string(), z.array(z.string())]).describe('Recipient email address(es)'),
+      to: addressList('to', 'Recipient email address(es). Either an array of addresses or a single comma-separated string; both accept "Name <addr@example.com>" form.').nonoptional(),
       subject: z.string().describe('Email subject'),
       text: z.string().optional().describe('Plain text content'),
       html: z.string().optional().describe('HTML content'),
       body: z.string().optional().describe("Alias for 'text' (backward-compat with clients that pass 'body')"),
-      cc: z.union([z.string(), z.array(z.string())]).optional().describe('CC recipients'),
-      bcc: z.union([z.string(), z.array(z.string())]).optional().describe('BCC recipients'),
+      cc: addressList('cc', 'CC recipients. Either an array of addresses or a single comma-separated string.').optional(),
+      bcc: bccSchema,
       replyTo: z.string().optional().describe('Reply-to address'),
       attachments: z.array(attachmentSchema).optional().describe('Email attachments'),
     }
@@ -885,7 +925,7 @@ export function emailTools(
       text: text ?? body,
       html,
       cc,
-      bcc,
+      bcc: resolveBcc(account, bcc),
       replyTo,
       attachments: buildAttachments(attachments as AttachmentInput[] | undefined),
     };
@@ -910,19 +950,19 @@ export function emailTools(
 
   // Save draft tool — composes a message and appends it to the Drafts folder with the \Draft flag
   server.registerTool('imap_save_draft', {
-    description: 'Save an email as a draft in the Drafts folder (no send). Takes the same fields as imap_send_email.',
+    description: 'Save an email as a draft in the Drafts folder (no send). Takes the same fields as imap_send_email (including account defaultBcc when configured).',
     inputSchema: {
       ...accountSelector,
-      to: z.union([z.string(), z.array(z.string())]).optional().describe('Recipient email address(es)'),
+      to: addressList('to', 'Recipient email address(es). Either an array of addresses or a single comma-separated string.').optional(),
       subject: z.string().optional().describe('Email subject'),
       text: z.string().optional().describe('Plain text content'),
       html: z.string().optional().describe('HTML content'),
       body: z.string().optional().describe("Alias for 'text' (backward-compat)"),
-      cc: z.union([z.string(), z.array(z.string())]).optional().describe('CC recipients'),
-      bcc: z.union([z.string(), z.array(z.string())]).optional().describe('BCC recipients'),
+      cc: addressList('cc', 'CC recipients. Either an array of addresses or a single comma-separated string.').optional(),
+      bcc: bccSchema,
       replyTo: z.string().optional().describe('Reply-to address'),
       inReplyTo: z.string().optional().describe('Message-Id being replied to'),
-      references: z.union([z.string(), z.array(z.string())]).optional().describe('References header value(s)'),
+      references: addressList('references', 'References header value(s)').optional(),
       attachments: z.array(attachmentSchema).optional().describe('Email attachments'),
       folder: z.string().optional().describe('Override the Drafts folder name (defaults to auto-detected Drafts folder)'),
     }
@@ -940,7 +980,7 @@ export function emailTools(
       text: text ?? body,
       html,
       cc,
-      bcc,
+      bcc: resolveBcc(account, bcc),
       replyTo,
       inReplyTo,
       references,
@@ -973,7 +1013,7 @@ export function emailTools(
 
   // Reply to email tool
   server.registerTool('imap_reply_to_email', {
-    description: 'Reply to an existing email identified by folder + uid. Automatically sets the recipient to the original sender, prefixes the subject with "Re:", and preserves threading (In-Reply-To/References). Set replyAll to also include the original recipients. Use this instead of imap_send_email whenever the user is responding to a message already in a mailbox.',
+    description: 'Reply to an existing email identified by folder + uid. Automatically sets the recipient to the original sender, prefixes the subject with "Re:", and preserves threading (In-Reply-To/References). Set replyAll to also include the original recipients. Use this instead of imap_send_email whenever the user is responding to a message already in a mailbox. Account defaultBcc addresses are always BCC\'d when configured.',
     inputSchema: {
       ...accountSelector,
       folder: z.string().default('INBOX').describe('Folder containing the original email'),
@@ -982,9 +1022,10 @@ export function emailTools(
       html: z.string().optional().describe('HTML reply content'),
       body: z.string().optional().describe("Alias for 'text' (backward-compat)"),
       replyAll: z.boolean().default(false).describe('Reply to all recipients'),
+      bcc: bccSchema,
       attachments: z.array(attachmentSchema).optional().describe('Email attachments'),
     }
-  }, async ({ accountId: rawAccountId, accountName, folder, uid, text, html, body, replyAll, attachments }) => {
+  }, async ({ accountId: rawAccountId, accountName, folder, uid, text, html, body, replyAll, bcc, attachments }) => {
     const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
     const account = await accountManager.getAccount(accountId);
     if (!account) {
@@ -1025,6 +1066,7 @@ export function emailTools(
       subject: originalEmail.subject.startsWith('Re: ') ? originalEmail.subject : `Re: ${originalEmail.subject}`,
       text: text ?? body,
       html,
+      bcc: resolveBcc(account, bcc),
       inReplyTo: originalEmail.messageId,
       references: originalEmail.messageId,
       attachments: buildAttachments(attachments as AttachmentInput[] | undefined),
@@ -1050,17 +1092,18 @@ export function emailTools(
 
   // Forward email tool
   server.registerTool('imap_forward_email', {
-    description: 'Forward an existing email (folder + uid) to new recipients, quoting the original message and headers. Optionally include the original attachments. Use when the user wants to pass an existing message on to someone else; use imap_reply_to_email instead to respond to the sender.',
+    description: 'Forward an existing email (folder + uid) to new recipients, quoting the original message and headers. Optionally include the original attachments. Use when the user wants to pass an existing message on to someone else; use imap_reply_to_email instead to respond to the sender. Account defaultBcc addresses are always BCC\'d when configured.',
     inputSchema: {
       ...accountSelector,
       folder: z.string().default('INBOX').describe('Folder containing the original email'),
       uid: z.coerce.number().describe('UID of the email to forward'),
-      to: z.union([z.string(), z.array(z.string())]).describe('Forward to email address(es)'),
+      to: addressList('to', 'Forward to email address(es). Either an array of addresses or a single comma-separated string.').nonoptional(),
       text: z.string().optional().describe('Additional text to include'),
       body: z.string().optional().describe("Alias for 'text' (backward-compat)"),
+      bcc: bccSchema,
       includeAttachments: z.boolean().default(true).describe('Include original attachments'),
     }
-  }, async ({ accountId: rawAccountId, accountName, folder, uid, to, text, body, includeAttachments }) => {
+  }, async ({ accountId: rawAccountId, accountName, folder, uid, to, text, body, bcc, includeAttachments }) => {
     const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
     const account = await accountManager.getAccount(accountId);
     if (!account) {
@@ -1079,6 +1122,7 @@ export function emailTools(
       subject: originalEmail.subject.startsWith('Fwd: ') ? originalEmail.subject : `Fwd: ${originalEmail.subject}`,
       text: (text ?? body ?? '') + forwardHeader + (originalEmail.textContent || ''),
       html: originalEmail.htmlContent,
+      bcc: resolveBcc(account, bcc),
       references: originalEmail.messageId,
     };
 

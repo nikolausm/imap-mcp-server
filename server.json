@@ -6,12 +6,12 @@
     "url": "https://github.com/nikolausm/imap-mcp-server",
     "source": "github"
   },
-  "version": "1.5.2",
+  "version": "1.6.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "imap-mcp-server",
-      "version": "1.5.2",
+      "version": "1.6.0",
       "transport": {
         "type": "stdio"
       }

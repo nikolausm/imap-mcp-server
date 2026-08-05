@@ -3,10 +3,15 @@ import { readFileSync, readdirSync, statSync } from 'fs';
 import { join } from 'path';
 
 // Regression guard for #108: `string-width` 8.x uses the regex `v` flag, which
-// throws "Invalid regular expression flags" on Node <20. AGENTS.md promises
-// Node >=18 support, so any transitive upgrade to 8.x silently breaks the
-// `imap-setup` entrypoint for older Node installs. Pin via npm `overrides` and
-// assert no copy of 8.x ships under node_modules.
+// throws "Invalid regular expression flags" on Node <20, and a transitive
+// upgrade to 8.x silently broke the `imap-setup` entrypoint. Pinned via npm
+// `overrides`; this asserts no copy of 8.x ships under node_modules.
+//
+// Note: the original Node-18 rationale is obsolete now that the floor is 22.12
+// (see tests/node-engines.test.ts, which generalizes this check to the whole
+// runtime tree). The pin is kept because dropping it is a dependency change
+// with no upside, not because 8.x is still dangerous — it can go the next time
+// this area is touched.
 
 const ROOT = join(process.cwd(), 'node_modules');
 const SEMVER_8X = /^8\./;

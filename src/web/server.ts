@@ -3,7 +3,7 @@ import cors from 'cors';
 import bodyParser from 'body-parser';
 import path from 'path';
 import fs from 'fs';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import open from 'open';
 import { AccountManager } from '../services/account-manager.js';
 import { ImapService } from '../services/imap-service.js';
@@ -135,13 +135,17 @@ export class WebUIServer {
     // Add new account
     this.app.post('/api/accounts', async (req, res) => {
       try {
-        const { name, email, password, host, port, tls, smtp, imapUsername, sentFolder } = req.body;
+        const {
+          name, email, password, host, port, tls, smtp, imapUsername, sentFolder, defaultBcc,
+          imapUsernameFromEnv, imapPasswordFromEnv,
+          smtpUsernameFromEnv, smtpPasswordFromEnv,
+        } = req.body;
 
         // Auto-detect provider if not specified
         let imapHost = host;
         let imapPort = port;
         let useTls = tls;
-        
+
         if (!host && email) {
           const provider = getProviderByEmail(email);
           if (provider) {
@@ -150,17 +154,28 @@ export class WebUIServer {
             useTls = provider.imapSecurity !== 'STARTTLS';
           }
         }
-        
+
+        // Credentials flagged as env-managed are stored as empty placeholders;
+        // the corresponding IMAP_MCP_ACCOUNT_* env var supplies them at runtime.
         const account = await this.accountManager.addAccount({
           name: name || email,
           host: imapHost,
           port: imapPort || 993,
-          user: imapUsername || email,
-          password,
+          user: imapUsernameFromEnv ? '' : (imapUsername || email),
+          password: imapPasswordFromEnv ? '' : password,
           tls: useTls !== false,
-          ...(imapUsername ? { email } : {}),
-          smtp: smtp || undefined,
+          ...(imapUsername || imapUsernameFromEnv ? { email } : {}),
+          smtp: smtp
+            ? {
+                ...smtp,
+                ...(smtpUsernameFromEnv ? { user: '' } : {}),
+                ...(smtpPasswordFromEnv ? { password: '' } : {}),
+              }
+            : undefined,
           ...(typeof sentFolder === 'string' && sentFolder ? { sentFolder } : {}),
+          ...(defaultBcc !== undefined && defaultBcc !== '' && !(Array.isArray(defaultBcc) && defaultBcc.length === 0)
+            ? { defaultBcc }
+            : {}),
         });
 
         // addAccount returns the plaintext password back; never echo it.
@@ -226,25 +241,51 @@ export class WebUIServer {
     // Update account
     this.app.put('/api/accounts/:id', async (req, res) => {
       try {
-        const { name, email, password, host, port, tls, smtp, saveToSent, imapUsername, sentFolder } = req.body;
+        const {
+          name, email, password, host, port, tls, smtp, saveToSent, imapUsername, sentFolder, defaultBcc,
+          imapUsernameFromEnv, imapPasswordFromEnv,
+          smtpUsernameFromEnv, smtpPasswordFromEnv,
+        } = req.body;
 
         const updates: any = {};
         if (name !== undefined) updates.name = name;
-        if (imapUsername) {
+        // Env-managed username → store an empty placeholder for it.
+        if (imapUsernameFromEnv) {
+          updates.user = '';
+          if (email !== undefined) updates.email = email;
+        } else if (imapUsername) {
           updates.user = imapUsername;
           if (email !== undefined) updates.email = email;
         } else if (email !== undefined) {
           updates.user = email;
           updates.email = undefined;
         }
-        if (password !== undefined) updates.password = password;
+        // Env-managed password → empty placeholder; otherwise only update when sent.
+        if (imapPasswordFromEnv) {
+          updates.password = '';
+        } else if (password !== undefined) {
+          updates.password = password;
+        }
         if (host !== undefined) updates.host = host;
         if (port !== undefined) updates.port = port;
         if (tls !== undefined) updates.tls = tls;
-        if (smtp !== undefined) updates.smtp = smtp;
+        if (smtp !== undefined) {
+          updates.smtp = {
+            ...smtp,
+            ...(smtpUsernameFromEnv ? { user: '' } : {}),
+            ...(smtpPasswordFromEnv ? { password: '' } : {}),
+          };
+        }
         if (saveToSent !== undefined) updates.saveToSent = saveToSent;
         // Empty string clears the override (falls back to auto-detection).
         if (typeof sentFolder === 'string') updates.sentFolder = sentFolder === '' ? undefined : sentFolder;
+        if (defaultBcc !== undefined) {
+          if (defaultBcc === '' || (Array.isArray(defaultBcc) && defaultBcc.length === 0)) {
+            updates.defaultBcc = undefined;
+          } else {
+            updates.defaultBcc = defaultBcc;
+          }
+        }
 
         // updateAccount returns a DECRYPTED account (plaintext IMAP + SMTP
         // passwords). A no-op update (e.g. a rename with no password supplied)
@@ -338,7 +379,10 @@ export class WebUIServer {
 }
 
 // CLI entry point
-if (import.meta.url === `file://${process.argv[1]}`) {
+// pathToFileURL, not `file://${argv[1]}`: on Windows the latter yields
+// "file://C:\...\server.ts" while import.meta.url is "file:///C:/.../server.ts",
+// so the two could never match and `npm run web` exited silently (#136).
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const port = parseInt(process.env.PORT || '3000');
   const server = new WebUIServer(port);
   server.start();
