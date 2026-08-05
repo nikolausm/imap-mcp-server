@@ -478,6 +478,39 @@ export class ImapService {
    * Backwards-compatible: when `options` is omitted, the returned shape is
    * identical to the previous version.
    */
+  /**
+   * Address the newest `count` messages of the currently open mailbox.
+   *
+   * Preferred form is a sequence-number range derived from EXISTS, which the
+   * server already reported when the mailbox was selected. Some servers answer
+   * SEARCH with an empty set even though EXISTS is non-zero (#138), which used
+   * to make every read path here come back empty.
+   *
+   * Returns `null` when the mailbox is genuinely empty, or the SEARCH-derived
+   * UID list when the mailbox metadata is unavailable for some reason.
+   */
+  private async latestMessageRange(
+    client: any,
+    count: number,
+  ): Promise<{ value: any; options: any } | null> {
+    const exists = Number(client.mailbox?.exists);
+
+    if (Number.isFinite(exists)) {
+      if (exists <= 0) {
+        return null;
+      }
+      const first = Math.max(1, exists - count + 1);
+      // No `uid: true` here — this is a sequence-number range.
+      return { value: `${first}:${exists}`, options: {} };
+    }
+
+    const uids = await client.search({ all: true }, { uid: true });
+    if (!uids || uids.length === 0) {
+      return null;
+    }
+    return { value: [...uids].sort((a: number, b: number) => a - b).slice(-count), options: { uid: true } };
+  }
+
   async getLatestEmails(
     accountId: string,
     folderName: string,
@@ -492,13 +525,6 @@ export class ImapService {
     try {
       lock = await client.getMailboxLock(folderName);
 
-      const uids = await client.search({ all: true }, { uid: true });
-      if (!uids || uids.length === 0) {
-        return [];
-      }
-
-      const latestUids = [...uids].sort((a, b) => a - b).slice(-count);
-
       const fetchQuery: any = {
         uid: true,
         envelope: true,
@@ -507,9 +533,20 @@ export class ImapService {
         ...(includeBody ? { source: true } : {}),
       };
 
+      // Opening the mailbox already told us how many messages it holds, and
+      // IMAP orders sequence numbers by arrival — so the newest `count`
+      // messages are simply the tail of that range. Fetching them by sequence
+      // number needs no SEARCH at all: one round-trip fewer, and immune to
+      // servers that answer SEARCH with nothing despite a non-zero EXISTS
+      // (#138). Falls back to SEARCH only if the mailbox metadata is missing.
+      const range = await this.latestMessageRange(client, count);
+      if (range === null) {
+        return [];
+      }
+
       const messages: EmailMessage[] = [];
 
-      for await (const msg of client.fetch(latestUids, fetchQuery, { uid: true })) {
+      for await (const msg of client.fetch(range.value, fetchQuery, range.options)) {
         const flags = Array.from(msg.flags || []) as string[];
         const base: EmailMessage = {
           uid: msg.uid,

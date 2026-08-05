@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `imap_get_latest_emails` no longer depends on IMAP SEARCH (#138). Opening a mailbox already reports how many messages it holds, and IMAP orders sequence numbers by arrival — so the newest `count` messages are just the tail of that range. The tool used to call `client.search({ all: true })` first and return `[]` whenever that came back empty, which is what a Strato mailbox does despite reporting a non-zero message count via STATUS. Fetching the tail by sequence number instead removes one round-trip on every call and makes the tool independent of the server's SEARCH behavior. The SEARCH path is kept as a fallback for the case where the mailbox metadata is unavailable. Tests in `tests/imap-service-latest-no-search.test.ts`. Criteria-based `imap_search_emails` still requires SEARCH and is unaffected.
+
 ## [1.6.0] - 2026-08-05
 
 ### Added
