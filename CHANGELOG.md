@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- Two dependency advisories cleared — `npm audit` reports 0 vulnerabilities again, with no source changes. `html-to-text` → `^10.0.1` pulls in `deepmerge-ts` 8.0.1 (GHSA-ggr8-5vv4-36mx, stack exhaustion when merging recursive object graphs); this is the one that matters, because it sits on a **runtime** path via `mailparser` → `html-to-text`. `mailparser` pins `html-to-text` to exactly `10.0.0`, so the fix cannot arrive on its own — the override deliberately supersedes that pin. Upstream 10.0.1 is a patch whose only change is that same `deepmerge-ts` bump. `nanoid` → `^3.3.18` (GHSA-2v37-7h3g-55p8, custom generators can loop indefinitely when size is zero) is dev-scope only, reached through `vitest` → `vite` → `postcss`.
+
+  As in #144, the CI `security` job (`npm audit --audit-level=high`) had started failing on `main` itself, which turns every open pull request red regardless of its content and blocks `dependabot-auto-merge.yml`.
+
 ## [2.0.0] - 2026-08-05
 
 Major only because of the Node requirement. **No tool was renamed, and no tool's
