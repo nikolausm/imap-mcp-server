@@ -15,7 +15,19 @@ jobs:
     # Fork PRs don't get access to repo secrets or OIDC tokens, so the review
     # action can't authenticate and the job always fails. Skip it for forks;
     # external PRs are still covered by build/lint/security/test.
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    #
+    # Dependabot needs the same treatment for the same underlying reason. Its
+    # events resolve secrets from the separate *Dependabot* secret store rather
+    # than the Actions one ("Secret source: Dependabot" in the run log), so
+    # CLAUDE_CODE_OAUTH_TOKEN arrives empty and the action dies within seconds.
+    # Mirroring the token into that store would only spend review budget on
+    # lockfile diffs; dependabot-auto-merge.yml already gates those PRs with the
+    # full test/lint/build/audit suite. Guard on github.actor, not on the PR
+    # author, so a maintainer pushing to a Dependabot branch still gets a review
+    # — that event resolves secrets normally.
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'dependabot[bot]'
 
     runs-on: ubuntu-latest
     permissions:
