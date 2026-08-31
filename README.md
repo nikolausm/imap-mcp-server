@@ -328,6 +328,11 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
   - user: Username
   - password: Password
   - tls: Use TLS/SSL (default: true)
+  - allowStartTLS: When tls is false, set to false to also disable the
+      opportunistic STARTTLS upgrade imapflow otherwise attempts whenever the
+      server advertises it (validating the cert against `host` regardless of
+      `tls`). Needed for providers that advertise STARTTLS on a hostname
+      covered only by a shared/wildcard cert. Defaults to true.
   - sentFolder: Explicit Sent-folder name for sent-mail copies, e.g. "Gesendet"
       (optional — only needed when the server has no \Sent SPECIAL-USE folder
       and auto-detection fails)
@@ -340,7 +345,7 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
   ```
   Parameters:
   - accountId: ID of the account to update
-  - name, host, port, user, password, tls, email: IMAP fields (all optional)
+  - name, host, port, user, password, tls, allowStartTLS, email: IMAP fields (all optional)
   - smtpHost, smtpPort, smtpSecure, smtpUser, smtpPassword: SMTP fields (optional)
   - saveToSent: Save sent emails to the Sent folder (optional)
   - sentFolder: Explicit Sent-folder override (optional). Pass an empty string
