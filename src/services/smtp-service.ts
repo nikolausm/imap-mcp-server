@@ -121,6 +121,18 @@ export class SmtpService {
     return parseSerializedArray(value, field) as string | string[] | undefined;
   }
 
+  // MimeNode streams 7bit/8bit text content through unchanged, so a bare LF
+  // (as opposed to CRLF) in the source string survives into the built MIME
+  // buffer. RFC 5322 requires CRLF line breaks in message bodies, and strict
+  // servers (e.g. Cyrus) reject the whole APPEND/message with a bare "Command
+  // failed" for it -- with no indication that line endings were the problem.
+  // Composing (SMTP send) is unaffected since nodemailer/the SMTP stream
+  // itself normalizes this, which is why sending worked but saving a Sent/
+  // Drafts copy of the exact same multi-line message did not.
+  private static normalizeLineEndings(value: string | undefined): string | undefined {
+    return value === undefined ? value : value.replace(/\r\n/g, '\n').replace(/\n/g, '\r\n');
+  }
+
   private toMailOptions(account: ImapAccount, email: EmailComposer): nodemailer.SendMailOptions {
     const references = SmtpService.addresses(email.references, 'references');
     return {
@@ -129,8 +141,8 @@ export class SmtpService {
       cc: SmtpService.addresses(email.cc, 'cc'),
       bcc: SmtpService.addresses(email.bcc, 'bcc'),
       subject: email.subject,
-      text: email.text,
-      html: email.html,
+      text: SmtpService.normalizeLineEndings(email.text),
+      html: SmtpService.normalizeLineEndings(email.html),
       attachments: email.attachments?.map(att => ({
         filename: att.filename,
         content: att.content,
