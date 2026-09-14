@@ -5,11 +5,13 @@ import { SmtpService } from '../services/smtp-service.js';
 import { selectSearchFolders } from '../utils/search-folders.js';
 import { parseSerializedArray } from '../utils/array-input.js';
 import { mergeBcc } from '../utils/default-bcc.js';
-import type { EmailMessage, ImapAccount, SentSaveResult } from '../types/index.js';
+import type { EmailAttachment, EmailMessage, ImapAccount, SentSaveResult } from '../types/index.js';
 import { z } from 'zod';
-import { join } from 'path';
+import { basename, join } from 'path';
 import { homedir } from 'os';
 import { randomBytes } from 'crypto';
+import { constants as fsConstants } from 'fs';
+import { access, stat } from 'fs/promises';
 
 // Reusable, backward-compatible account selector. accountId stays accepted as
 // before; accountName and the single-account default are additive conveniences.
@@ -52,15 +54,119 @@ type AttachmentInput = {
   contentDisposition?: 'attachment' | 'inline';
   cid?: string;
 };
-const buildAttachments = (atts?: AttachmentInput[]) =>
-  atts?.map(att => ({
-    filename: att.filename,
-    content: att.content ? Buffer.from(att.content, 'base64') : undefined,
-    path: att.path,
-    contentType: att.contentType,
-    contentDisposition: att.contentDisposition,
-    cid: att.cid,
-  }));
+
+type NormalizedAttachments = {
+  attachments?: EmailAttachment[];
+  diagnostics: AttachmentDiagnostic[];
+};
+
+type AttachmentDiagnostic = {
+  index: number;
+  filename: string;
+  contentType: string;
+  size: number;
+  source: 'content' | 'path';
+  contentDisposition: 'attachment' | 'inline';
+  cid?: string;
+};
+
+const DEFAULT_ATTACHMENT_CONTENT_TYPE = 'application/octet-stream';
+
+function decodeStrictBase64(value: string, index: number): Buffer {
+  const normalized = value.trim();
+  if (!normalized) {
+    throw new Error(`Invalid attachment at index ${index}: content must be non-empty base64`);
+  }
+  if (normalized.length % 4 !== 0 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(normalized)) {
+    throw new Error(`Invalid attachment at index ${index}: content is not valid base64`);
+  }
+  return Buffer.from(normalized, 'base64');
+}
+
+export async function normalizeAttachments(atts?: AttachmentInput[]): Promise<NormalizedAttachments> {
+  if (!atts || atts.length === 0) {
+    return { attachments: undefined, diagnostics: [] };
+  }
+
+  const attachments: EmailAttachment[] = [];
+  const diagnostics: AttachmentDiagnostic[] = [];
+
+  for (const [index, att] of atts.entries()) {
+    const filename = basename(att.filename ?? '').trim();
+    if (!filename) {
+      throw new Error(`Invalid attachment at index ${index}: filename is required`);
+    }
+
+    const hasContent = att.content !== undefined;
+    const hasPath = att.path !== undefined;
+    if (hasContent === hasPath) {
+      throw new Error(`Invalid attachment at index ${index}: provide exactly one of content or path`);
+    }
+
+    const contentType = att.contentType || DEFAULT_ATTACHMENT_CONTENT_TYPE;
+    const contentDisposition = att.contentDisposition ?? 'attachment';
+    const cid = att.cid?.trim();
+    if (contentDisposition === 'inline' && !cid) {
+      throw new Error(`Invalid attachment at index ${index}: cid is required for inline attachments`);
+    }
+
+    if (hasContent) {
+      const content = decodeStrictBase64(att.content!, index);
+      attachments.push({
+        filename,
+        content,
+        contentType,
+        contentDisposition,
+        ...(cid ? { cid } : {}),
+      });
+      diagnostics.push({
+        index,
+        filename,
+        contentType,
+        size: content.length,
+        source: 'content',
+        contentDisposition,
+        ...(cid ? { cid } : {}),
+      });
+      continue;
+    }
+
+    const filePath = att.path?.trim();
+    if (!filePath) {
+      throw new Error(`Invalid attachment at index ${index}: path must be non-empty`);
+    }
+
+    let fileStat;
+    try {
+      fileStat = await stat(filePath);
+      if (!fileStat.isFile()) {
+        throw new Error('not a regular file');
+      }
+      await access(filePath, fsConstants.R_OK);
+    } catch {
+      throw new Error(`Invalid attachment at index ${index}: path is not a readable file. Check that the attachment path exists, points to a regular file, and is readable.`);
+    }
+
+    attachments.push({
+      filename,
+      path: filePath,
+      contentType,
+      contentDisposition,
+      ...(cid ? { cid } : {}),
+    });
+    diagnostics.push({
+      index,
+      filename,
+      contentType,
+      size: fileStat.size,
+      source: 'path',
+      contentDisposition,
+      ...(cid ? { cid } : {}),
+    });
+  }
+
+  return { attachments, diagnostics };
+}
 
 // Merge the account's defaultBcc with a per-call bcc (same pattern as
 // saveSentCopy honoring saveToSent / sentFolder on the account).
@@ -73,9 +179,9 @@ const resolveBcc = (
 // the three tool schemas (and their .describe() text) in sync.
 const attachmentSchema = z.object({
   filename: z.string().describe('Attachment filename'),
-  content: z.string().optional().describe('Base64 encoded content'),
-  path: z.string().optional().describe('File path to attach'),
-  contentType: z.string().optional().describe('MIME type'),
+  content: z.string().optional().describe('Base64 encoded content. Provide exactly one of content or path.'),
+  path: z.string().optional().describe('Readable local file path to attach. Provide exactly one of path or content; paths returned by imap_upload_file are accepted.'),
+  contentType: z.string().optional().describe('MIME type. Defaults to application/octet-stream when omitted.'),
   contentDisposition: z.enum(['attachment', 'inline']).optional().describe(
     'How the attachment is presented. Use "inline" for images referenced from the HTML body via cid: (e.g. a signature/footer banner); omit or use "attachment" for regular downloadable files.'
   ),
@@ -910,13 +1016,15 @@ export function emailTools(
       bcc: bccSchema,
       replyTo: z.string().optional().describe('Reply-to address'),
       attachments: z.array(attachmentSchema).optional().describe('Email attachments'),
+      dryRun: z.boolean().default(false).describe('Validate attachments and compose MIME without sending SMTP mail or saving a Sent copy. Use to diagnose attachment payloads safely before sending.'),
     }
-  }, async ({ accountId: rawAccountId, accountName, to, subject, text, html, body, cc, bcc, replyTo, attachments }) => {
+  }, async ({ accountId: rawAccountId, accountName, to, subject, text, html, body, cc, bcc, replyTo, attachments, dryRun }) => {
     const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
     const account = await accountManager.getAccount(accountId);
     if (!account) {
       throw new Error(`Account ${accountId} not found`);
     }
+    const normalizedAttachments = await normalizeAttachments(attachments as AttachmentInput[] | undefined);
 
     const emailComposer = {
       from: account.email || account.user,
@@ -927,8 +1035,24 @@ export function emailTools(
       cc,
       bcc: resolveBcc(account, bcc),
       replyTo,
-      attachments: buildAttachments(attachments as AttachmentInput[] | undefined),
+      attachments: normalizedAttachments.attachments,
     };
+
+    if (dryRun) {
+      await smtpService.composeRaw(account, emailComposer);
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            success: true,
+            dryRun: true,
+            attachmentCount: normalizedAttachments.diagnostics.length,
+            attachmentDiagnostics: normalizedAttachments.diagnostics,
+            message: 'Email dry run completed successfully',
+          }, null, 2)
+        }]
+      };
+    }
 
     const { messageId, rawMessage } = await smtpService.sendEmail(accountId, account, emailComposer);
 
@@ -941,6 +1065,8 @@ export function emailTools(
         text: JSON.stringify({
           success: true,
           messageId,
+          attachmentCount: normalizedAttachments.diagnostics.length,
+          attachmentDiagnostics: normalizedAttachments.diagnostics,
           ...sentSaveFields(sentSave),
           message: `Email sent successfully${sentSaveSuffix(sentSave)}`,
         }, null, 2)
@@ -972,6 +1098,7 @@ export function emailTools(
     if (!account) {
       throw new Error(`Account ${accountId} not found`);
     }
+    const normalizedAttachments = await normalizeAttachments(attachments as AttachmentInput[] | undefined);
 
     const emailComposer = {
       from: account.email || account.user,
@@ -984,7 +1111,7 @@ export function emailTools(
       replyTo,
       inReplyTo,
       references,
-      attachments: buildAttachments(attachments as AttachmentInput[] | undefined),
+      attachments: normalizedAttachments.attachments,
     };
 
     const rawMessage = await smtpService.composeRaw(account, emailComposer);
@@ -1005,6 +1132,8 @@ export function emailTools(
         text: JSON.stringify({
           success: true,
           folder: draftsFolder,
+          attachmentCount: normalizedAttachments.diagnostics.length,
+          attachmentDiagnostics: normalizedAttachments.diagnostics,
           message: `Draft saved to "${draftsFolder}"`,
         }, null, 2)
       }]
@@ -1031,6 +1160,7 @@ export function emailTools(
     if (!account) {
       throw new Error(`Account ${accountId} not found`);
     }
+    const normalizedAttachments = await normalizeAttachments(attachments as AttachmentInput[] | undefined);
 
     // Get original email (envelope only is needed here; skip body conversion)
     const originalEmail = await imapService.getEmailContent(accountId, folder, uid, { bodyFormat: 'text' });
@@ -1069,7 +1199,7 @@ export function emailTools(
       bcc: resolveBcc(account, bcc),
       inReplyTo: originalEmail.messageId,
       references: originalEmail.messageId,
-      attachments: buildAttachments(attachments as AttachmentInput[] | undefined),
+      attachments: normalizedAttachments.attachments,
     };
 
     const { messageId, rawMessage } = await smtpService.sendEmail(accountId, account, emailComposer);
@@ -1083,6 +1213,8 @@ export function emailTools(
         text: JSON.stringify({
           success: true,
           messageId,
+          attachmentCount: normalizedAttachments.diagnostics.length,
+          attachmentDiagnostics: normalizedAttachments.diagnostics,
           ...sentSaveFields(sentSave),
           message: `Reply sent successfully${sentSaveSuffix(sentSave)}`,
         }, null, 2)

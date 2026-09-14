@@ -552,12 +552,23 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
   - replyTo: Reply-to address (optional)
   - attachments: Array of attachments (optional)
     - filename: Attachment filename
-    - content: Base64 encoded content
-    - path: File path to attach
-    - contentType: MIME type
+    - content: Base64 encoded content; provide exactly one of `content` or `path`
+    - path: Readable local file path to attach; provide exactly one of `path` or `content`
+    - contentType: MIME type (defaults to `application/octet-stream`)
     - contentDisposition: "attachment" (default) or "inline" — use "inline" for images shown in the HTML body via cid:
     - cid: Content-ID for inline attachments; must match the `cid:` value used in an `<img src="cid:...">` tag in `html`
+  - dryRun: Validate attachments and compose MIME without sending or saving to Sent (optional, default: false)
   ```
+  Attachments are validated before SMTP is contacted. Invalid base64, unreadable
+  paths, missing filenames, ambiguous sources, and inline attachments without
+  `cid` fail fast. Successful sends and dry-runs return `attachmentCount` and
+  safe `attachmentDiagnostics`: filename, MIME type, size, source, disposition,
+  and cid. Diagnostics omit bytes, raw MIME, and local file paths.
+
+  For large files, upload with `imap_upload_file` first and pass its returned
+  local `path`; for inline images, set `contentDisposition: "inline"` and a
+  matching `cid`.
+
   After sending, a copy is saved to the account's Sent folder (unless
   `saveToSent` is disabled on the account). The folder is resolved via the
   account's `sentFolder` override → the server's `\Sent` SPECIAL-USE flag →
