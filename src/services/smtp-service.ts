@@ -1,13 +1,13 @@
-import nodemailer from 'nodemailer';
+import nodemailer, { type SendMailOptions, type Transporter } from 'nodemailer';
 import MailComposer from 'nodemailer/lib/mail-composer/index.js';
 import { ImapAccount, EmailComposer, SmtpConfig } from '../types/index.js';
 import { parseSerializedArray } from '../utils/array-input.js';
 import { assertCredentialsResolved } from '../utils/env-credentials.js';
 
 export class SmtpService {
-  private transporters: Map<string, nodemailer.Transporter> = new Map();
+  private transporters: Map<string, Transporter> = new Map();
 
-  async createTransporter(account: ImapAccount): Promise<nodemailer.Transporter> {
+  async createTransporter(account: ImapAccount): Promise<Transporter> {
     if (this.transporters.has(account.id)) {
       return this.transporters.get(account.id)!;
     }
@@ -133,7 +133,7 @@ export class SmtpService {
     return value === undefined ? value : value.replace(/\r\n/g, '\n').replace(/\n/g, '\r\n');
   }
 
-  private toMailOptions(account: ImapAccount, email: EmailComposer): nodemailer.SendMailOptions {
+  private toMailOptions(account: ImapAccount, email: EmailComposer): SendMailOptions {
     const references = SmtpService.addresses(email.references, 'references');
     return {
       from: email.from || account.email || account.user,
