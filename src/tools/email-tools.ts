@@ -489,7 +489,7 @@ export function emailTools(
       ...accountSelector,
       folder: z.string().default('INBOX').describe('Folder name'),
       uid: z.coerce.number().describe('Email UID'),
-      filename: z.string().describe('Attachment filename or contentId'),
+      filename: z.string().describe('Attachment filename or contentId as listed by imap_get_email. Matched exactly first, then Unicode-normalized (NFC/NFD spellings of umlauts and accents are treated as equal); a contentId may be given with or without its angle brackets'),
       savePath: z.string().optional().describe('Optional file path to save the attachment to. If not provided, files are saved to the shared downloads directory.'),
       extractText: z.boolean().default(true).describe('For PDFs, extract and return text content inline'),
     }

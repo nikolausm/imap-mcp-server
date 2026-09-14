@@ -511,7 +511,9 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
   - accountId: Account ID
   - folder: Folder name (default: INBOX)
   - uid: Email UID
-  - filename: Attachment filename or contentId
+  - filename: Attachment filename or contentId (as listed by imap_get_email; NFC/NFD
+      spellings of accented characters are treated as equal, and a contentId may
+      be passed with or without angle brackets)
   - savePath: Optional file path to save the attachment to
   - extractText: For PDFs, extract and return text content inline (default: true)
   ```

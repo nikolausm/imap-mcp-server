@@ -857,9 +857,28 @@ export class ImapService {
       }
 
       const parsed = await simpleParser(source.source);
-      const attachment = parsed.attachments?.find(
-        (att: any) => att.filename === filename || att.contentId === filename
-      );
+      // Exact match first (preserves existing behaviour), then a normalized
+      // match: macOS senders ship filenames in NFD (u + U+0308) while an LLM
+      // that read the listing and calls back with the same name has usually
+      // gone through NFC, so a byte-wise compare fails on identical-looking
+      // strings (#168). contentId is reported with angle brackets by
+      // mailparser; accept the bare form too.
+      const normalizeName = (value: unknown): string =>
+        typeof value === 'string'
+          ? value.normalize('NFC').trim().replace(/^<|>$/g, '')
+          : '';
+      const wanted = normalizeName(filename);
+      const attachment =
+        parsed.attachments?.find(
+          (att: any) => att.filename === filename || att.contentId === filename
+        ) ??
+        (wanted !== ''
+          ? parsed.attachments?.find(
+              (att: any) =>
+                normalizeName(att.filename) === wanted ||
+                normalizeName(att.contentId) === wanted
+            )
+          : undefined);
 
       if (!attachment) {
         throw new Error(`Attachment "${filename}" not found in email UID ${uid}`);
