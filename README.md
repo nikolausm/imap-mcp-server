@@ -554,7 +554,7 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
     - filename: Attachment filename
     - content: Base64 encoded content; provide exactly one of `content` or `path`
     - path: Readable local file path to attach; provide exactly one of `path` or `content`
-    - contentType: MIME type (defaults to `application/octet-stream`)
+    - contentType: MIME type (optional; detected from the filename extension when omitted)
     - contentDisposition: "attachment" (default) or "inline" — use "inline" for images shown in the HTML body via cid:
     - cid: Content-ID for inline attachments; must match the `cid:` value used in an `<img src="cid:...">` tag in `html`
   - dryRun: Validate attachments and compose MIME without sending or saving to Sent (optional, default: false)

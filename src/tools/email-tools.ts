@@ -12,6 +12,7 @@ import { homedir } from 'os';
 import { randomBytes } from 'crypto';
 import { constants as fsConstants } from 'fs';
 import { access, stat } from 'fs/promises';
+import { detectMimeType } from 'nodemailer/lib/mime-funcs/index.js';
 
 // Reusable, backward-compatible account selector. accountId stays accepted as
 // before; accountName and the single-account default are additive conveniences.
@@ -70,10 +71,19 @@ type AttachmentDiagnostic = {
   cid?: string;
 };
 
-const DEFAULT_ATTACHMENT_CONTENT_TYPE = 'application/octet-stream';
+// Mirrors what nodemailer's MailComposer does when contentType is omitted:
+// detect the MIME type from the filename extension (falls back to
+// application/octet-stream for unknown extensions). We only use this for the
+// diagnostics; the attachment itself is handed to nodemailer without a
+// contentType so its own detection stays authoritative.
+const resolveContentType = (contentType: string | undefined, filename: string): string =>
+  contentType || detectMimeType(filename);
 
 function decodeStrictBase64(value: string, index: number): Buffer {
-  const normalized = value.trim();
+  // LLM clients and copy/paste routinely wrap base64 at 76 columns or add a
+  // trailing newline; whitespace carries no information in base64, so strip
+  // it before validating rather than rejecting an otherwise valid payload.
+  const normalized = value.replace(/\s+/g, '');
   if (!normalized) {
     throw new Error(`Invalid attachment at index ${index}: content must be non-empty base64`);
   }
@@ -103,7 +113,7 @@ export async function normalizeAttachments(atts?: AttachmentInput[]): Promise<No
       throw new Error(`Invalid attachment at index ${index}: provide exactly one of content or path`);
     }
 
-    const contentType = att.contentType || DEFAULT_ATTACHMENT_CONTENT_TYPE;
+    const contentType = resolveContentType(att.contentType, filename);
     const contentDisposition = att.contentDisposition ?? 'attachment';
     const cid = att.cid?.trim();
     if (contentDisposition === 'inline' && !cid) {
@@ -115,7 +125,7 @@ export async function normalizeAttachments(atts?: AttachmentInput[]): Promise<No
       attachments.push({
         filename,
         content,
-        contentType,
+        contentType: att.contentType,
         contentDisposition,
         ...(cid ? { cid } : {}),
       });
@@ -150,7 +160,7 @@ export async function normalizeAttachments(atts?: AttachmentInput[]): Promise<No
     attachments.push({
       filename,
       path: filePath,
-      contentType,
+      contentType: att.contentType,
       contentDisposition,
       ...(cid ? { cid } : {}),
     });
@@ -181,7 +191,7 @@ const attachmentSchema = z.object({
   filename: z.string().describe('Attachment filename'),
   content: z.string().optional().describe('Base64 encoded content. Provide exactly one of content or path.'),
   path: z.string().optional().describe('Readable local file path to attach. Provide exactly one of path or content; paths returned by imap_upload_file are accepted.'),
-  contentType: z.string().optional().describe('MIME type. Defaults to application/octet-stream when omitted.'),
+  contentType: z.string().optional().describe('MIME type. When omitted it is detected from the filename extension (e.g. .pdf → application/pdf); unknown extensions fall back to application/octet-stream.'),
   contentDisposition: z.enum(['attachment', 'inline']).optional().describe(
     'How the attachment is presented. Use "inline" for images referenced from the HTML body via cid: (e.g. a signature/footer banner); omit or use "attachment" for regular downloadable files.'
   ),

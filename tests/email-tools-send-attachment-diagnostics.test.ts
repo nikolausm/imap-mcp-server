@@ -119,6 +119,39 @@ describe('imap_send_email attachment diagnostics', () => {
     expect(JSON.stringify(parsed.attachmentDiagnostics)).not.toContain('pdf bytes');
   });
 
+  it('detects the MIME type from the filename when contentType is omitted', async () => {
+    mockImapService.appendToSentFolder.mockResolvedValueOnce({ saved: true, folder: 'Sent' });
+
+    const result = await sendEmailHandler({
+      ...baseArgs,
+      attachments: [{ filename: 'report.pdf', content: Buffer.from('pdf bytes').toString('base64') }],
+    });
+    const parsed = JSON.parse(result.content[0].text);
+
+    // nodemailer detects the type from the extension when none is given; the
+    // diagnostics must report the same and the attachment handed to the SMTP
+    // service must not carry a forced application/octet-stream.
+    expect(parsed.attachmentDiagnostics[0].contentType).toBe('application/pdf');
+    const composed = mockSmtpService.sendEmail.mock.calls[0][2] as any;
+    expect(composed.attachments[0].contentType).toBeUndefined();
+  });
+
+  it('accepts base64 content wrapped at 76 columns with a trailing newline', async () => {
+    mockImapService.appendToSentFolder.mockResolvedValueOnce({ saved: true, folder: 'Sent' });
+    const bytes = Buffer.alloc(120, 0x41);
+    const wrapped = bytes.toString('base64').replace(/(.{76})/g, '$1\r\n') + '\n';
+
+    const result = await sendEmailHandler({
+      ...baseArgs,
+      attachments: [{ filename: 'blob.bin', content: wrapped }],
+    });
+    const parsed = JSON.parse(result.content[0].text);
+
+    expect(parsed.attachmentDiagnostics[0].size).toBe(120);
+    const composed = mockSmtpService.sendEmail.mock.calls[0][2] as any;
+    expect(composed.attachments[0].content.equals(bytes)).toBe(true);
+  });
+
   it('dry-runs by composing MIME without sending or saving to Sent', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'imap-mcp-attachments-'));
     const filePath = join(dir, 'invoice.pdf');
