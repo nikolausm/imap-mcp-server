@@ -189,6 +189,13 @@ export class ImapService {
       // check the cert against a default of "localhost" and reject a cert
       // bound to e.g. 127.0.0.1 (local bridges like ProtonMail Bridge).
       tls: { host: account.host },
+      // imapflow opportunistically upgrades a non-`secure` connection via
+      // STARTTLS whenever the server advertises it, independent of `secure`.
+      // That's the desired behavior for the common STARTTLS-on-submission-port
+      // case, but some providers advertise STARTTLS on a hostname covered only
+      // by a shared/wildcard cert that doesn't match — allowStartTLS: false
+      // lets an account opt out and stay on the plain connection.
+      ...(account.allowStartTLS === false ? { doSTARTTLS: false } : {}),
       auth: {
         user: account.user,
         pass: account.password,
@@ -1590,6 +1597,8 @@ export class ImapService {
       secure: account.tls,
       // Validate the certificate against the host we actually dial; see connect().
       tls: { host: account.host },
+      // See connect() — allowStartTLS: false opts out of the opportunistic upgrade.
+      ...(account.allowStartTLS === false ? { doSTARTTLS: false } : {}),
       auth: {
         user: account.user,
         pass: account.password,

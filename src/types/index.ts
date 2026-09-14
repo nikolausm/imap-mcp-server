@@ -6,6 +6,15 @@ export interface ImapAccount {
   user: string;
   password: string;
   tls: boolean;
+  /** When `tls` is false, imapflow still opportunistically upgrades via STARTTLS
+   * if the server advertises it, validating the cert against `host` regardless
+   * of the `tls` setting. Some providers (e.g. DreamHost shared mail hosting)
+   * advertise STARTTLS on a hostname covered only by a shared wildcard cert,
+   * so the opportunistic upgrade fails cert validation even though the account
+   * was configured for a plain connection. Set this to `false` to disable the
+   * STARTTLS upgrade attempt entirely and stay on the plain connection.
+   * Defaults to `true` (existing opportunistic-STARTTLS behavior). */
+  allowStartTLS?: boolean;
   email?: string;
   loginMethod?: string;
   authTimeout?: number;
