@@ -189,6 +189,13 @@ export class ImapService {
       // check the cert against a default of "localhost" and reject a cert
       // bound to e.g. 127.0.0.1 (local bridges like ProtonMail Bridge).
       tls: { host: account.host },
+      // imapflow opportunistically upgrades a non-`secure` connection via
+      // STARTTLS whenever the server advertises it, independent of `secure`.
+      // That's the desired behavior for the common STARTTLS-on-submission-port
+      // case, but some providers advertise STARTTLS on a hostname covered only
+      // by a shared/wildcard cert that doesn't match — allowStartTLS: false
+      // lets an account opt out and stay on the plain connection.
+      ...(account.allowStartTLS === false ? { doSTARTTLS: false } : {}),
       auth: {
         user: account.user,
         pass: account.password,
@@ -850,9 +857,28 @@ export class ImapService {
       }
 
       const parsed = await simpleParser(source.source);
-      const attachment = parsed.attachments?.find(
-        (att: any) => att.filename === filename || att.contentId === filename
-      );
+      // Exact match first (preserves existing behaviour), then a normalized
+      // match: macOS senders ship filenames in NFD (u + U+0308) while an LLM
+      // that read the listing and calls back with the same name has usually
+      // gone through NFC, so a byte-wise compare fails on identical-looking
+      // strings (#168). contentId is reported with angle brackets by
+      // mailparser; accept the bare form too.
+      const normalizeName = (value: unknown): string =>
+        typeof value === 'string'
+          ? value.normalize('NFC').trim().replace(/^<|>$/g, '')
+          : '';
+      const wanted = normalizeName(filename);
+      const attachment =
+        parsed.attachments?.find(
+          (att: any) => att.filename === filename || att.contentId === filename
+        ) ??
+        (wanted !== ''
+          ? parsed.attachments?.find(
+              (att: any) =>
+                normalizeName(att.filename) === wanted ||
+                normalizeName(att.contentId) === wanted
+            )
+          : undefined);
 
       if (!attachment) {
         throw new Error(`Attachment "${filename}" not found in email UID ${uid}`);
@@ -1590,6 +1616,8 @@ export class ImapService {
       secure: account.tls,
       // Validate the certificate against the host we actually dial; see connect().
       tls: { host: account.host },
+      // See connect() — allowStartTLS: false opts out of the opportunistic upgrade.
+      ...(account.allowStartTLS === false ? { doSTARTTLS: false } : {}),
       auth: {
         user: account.user,
         pass: account.password,

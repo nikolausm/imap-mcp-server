@@ -1155,6 +1155,92 @@ describe('ImapService', () => {
       expect(result.filename).toBe('image.png');
     });
 
+    // #168: attachment names arrive in NFD from macOS senders but come back
+    // from an LLM (or any text round-trip) in NFC. Both spellings render the
+    // same and must resolve to the same attachment.
+    it('should match an NFD-encoded filename when asked for the NFC spelling', async () => {
+      const attachmentBuffer = Buffer.from('umlaut content');
+      const nfdName = '\u00dcbersicht.pdf'.normalize('NFD');
+      const nfcName = '\u00dcbersicht.pdf'.normalize('NFC');
+      expect(nfdName).not.toBe(nfcName);
+
+      mockInstance.fetchOneMock.mockResolvedValue({
+        source: Buffer.from('fake raw email source'),
+      });
+      mockedSimpleParser.mockResolvedValue({
+        attachments: [
+          { filename: nfdName, content: attachmentBuffer, contentType: 'application/pdf', contentId: undefined },
+        ],
+      } as any);
+
+      await imapService.connect(mockAccount);
+      const result = await imapService.getAttachmentContent(mockAccount.id, 'INBOX', 42, nfcName);
+
+      expect(result.content).toBe(attachmentBuffer);
+      expect(result.filename).toBe(nfdName);
+    });
+
+    it('should match an NFC-encoded filename when asked for the NFD spelling', async () => {
+      const attachmentBuffer = Buffer.from('umlaut content');
+      const nfdName = '\u00dcbersicht.pdf'.normalize('NFD');
+      const nfcName = '\u00dcbersicht.pdf'.normalize('NFC');
+
+      mockInstance.fetchOneMock.mockResolvedValue({
+        source: Buffer.from('fake raw email source'),
+      });
+      mockedSimpleParser.mockResolvedValue({
+        attachments: [
+          { filename: nfcName, content: attachmentBuffer, contentType: 'application/pdf', contentId: undefined },
+        ],
+      } as any);
+
+      await imapService.connect(mockAccount);
+      const result = await imapService.getAttachmentContent(mockAccount.id, 'INBOX', 42, nfdName);
+
+      expect(result.content).toBe(attachmentBuffer);
+    });
+
+    it('should match a contentId given without the angle brackets mailparser reports', async () => {
+      const attachmentBuffer = Buffer.from('inline image data');
+
+      mockInstance.fetchOneMock.mockResolvedValue({
+        source: Buffer.from('fake raw email source'),
+      });
+      mockedSimpleParser.mockResolvedValue({
+        attachments: [
+          { filename: 'image.png', content: attachmentBuffer, contentType: 'image/png', contentId: '<abc123@mail>' },
+        ],
+      } as any);
+
+      await imapService.connect(mockAccount);
+      const result = await imapService.getAttachmentContent(mockAccount.id, 'INBOX', 99, 'abc123@mail');
+
+      expect(result.content).toBe(attachmentBuffer);
+      expect(result.filename).toBe('image.png');
+    });
+
+    it('should prefer an exact match over a normalized one', async () => {
+      const exact = Buffer.from('exact');
+      const other = Buffer.from('other');
+      const nfdName = '\u00dcbersicht.pdf'.normalize('NFD');
+      const nfcName = '\u00dcbersicht.pdf'.normalize('NFC');
+
+      mockInstance.fetchOneMock.mockResolvedValue({
+        source: Buffer.from('fake raw email source'),
+      });
+      mockedSimpleParser.mockResolvedValue({
+        attachments: [
+          { filename: nfdName, content: other, contentType: 'application/pdf', contentId: undefined },
+          { filename: nfcName, content: exact, contentType: 'application/pdf', contentId: undefined },
+        ],
+      } as any);
+
+      await imapService.connect(mockAccount);
+      const result = await imapService.getAttachmentContent(mockAccount.id, 'INBOX', 42, nfcName);
+
+      expect(result.content).toBe(exact);
+    });
+
     it('should throw error when email not found', async () => {
       mockInstance.fetchOneMock.mockResolvedValue(null);
 
