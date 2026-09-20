@@ -5,6 +5,13 @@ import { program } from 'commander';
 import { promises as fs } from 'fs';
 import path from 'path';
 import os from 'os';
+import { fileURLToPath } from 'url';
+
+// Resolve the built server next to this module rather than relative to the
+// caller's working directory. `imap-setup` is installed on PATH by
+// `npm install -g`, so it is usually run from an unrelated directory; using
+// process.cwd() wrote a path to whatever folder the user happened to be in.
+const serverEntryPath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'index.js');
 
 program
   .name('imap-setup')
@@ -41,8 +48,7 @@ async function setupClaudeIntegration(): Promise<void> {
     // Create config directory if it doesn't exist
     await fs.mkdir(configDir, { recursive: true });
     
-    // Get current working directory (where the built files are)
-    const serverPath = path.join(process.cwd(), 'dist', 'index.js');
+    const serverPath = serverEntryPath;
     
     let config: any = {};
     
@@ -61,8 +67,10 @@ async function setupClaudeIntegration(): Promise<void> {
     }
     
     // Add or update IMAP MCP server
+    // Use the absolute path of the current Node binary: GUI apps on macOS do
+    // not inherit the user's shell PATH, so a bare 'node' is often not found.
     config.mcpServers.imap = {
-      command: 'node',
+      command: process.execPath,
       args: [serverPath]
     };
     
@@ -83,8 +91,8 @@ async function setupClaudeIntegration(): Promise<void> {
     console.log(chalk.gray('  {'));
     console.log(chalk.gray('    "mcpServers": {'));
     console.log(chalk.gray('      "imap": {'));
-    console.log(chalk.gray('        "command": "node",'));
-    console.log(chalk.gray(`        "args": ["${path.join(process.cwd(), 'dist', 'index.js')}"]`));
+    console.log(chalk.gray(`        "command": "${process.execPath}",`));
+    console.log(chalk.gray(`        "args": ["${serverEntryPath}"]`));
     console.log(chalk.gray('      }'));
     console.log(chalk.gray('    }'));
     console.log(chalk.gray('  }'));
