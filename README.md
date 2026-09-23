@@ -539,7 +539,10 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
   ```
   At least one concrete criterion (`from`, `to`, `subject`, `before`, or `since`)
   is required — a call with no criteria is refused, so it can never match and
-  delete an entire folder.
+  delete an entire folder. On servers whose SEARCH is broken (see
+  Troubleshooting → Search returns nothing) this tool, `imap_delete_spam` and
+  `imap_delete_by_domain` return an error instead of deleting from a
+  client-side match.
 
 - **imap_send_email**: Send a new email
   ```
@@ -746,6 +749,25 @@ validating tool input and again before composing the message, and logs a
 warning to stderr naming the field. Nothing needs to change on your side. If
 you want to bypass the client behavior entirely, pass recipients as one
 comma-separated string: `"Alice <alice@example.com>, Bob <bob@example.org>"`.
+
+### Search returns nothing although the folder has mail (Strato)
+
+Since mid-2026 Strato's IMAP server (`imap.strato.com`) answers every SEARCH
+command with an empty result, while FETCH still works (issue #138). The server
+detects this: when a SEARCH comes back empty for a folder that is not empty and
+`SEARCH ALL` is empty as well, it fetches the envelopes and applies the
+criteria itself. `imap_search_emails`, `imap_find_thread_messages`, the unread counts and the
+spam analysis keep working; `imap_get_latest_emails` never needed SEARCH.
+
+Limits of the fallback:
+
+- It is slower — every envelope of the folder is downloaded per search.
+- A `body` search downloads and parses each remaining candidate, so it is
+  refused above 2000 candidates; narrow it with `since`/`from`/`subject`.
+- Deleting tools (`imap_bulk_delete_by_search`, `imap_delete_spam`,
+  `imap_delete_by_domain`) do **not** use it and return an error instead. Find
+  the messages with `imap_search_emails` and delete their UIDs with
+  `imap_bulk_delete`.
 
 ### SMTP Configuration
 

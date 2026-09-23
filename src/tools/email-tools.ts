@@ -929,7 +929,8 @@ export function emailTools(
     }
 
     // First search for matching emails
-    const messages = await imapService.searchEmails(accountId, folder, criteria);
+    // Destructive: never delete based on a client-side match (#138).
+    const messages = await imapService.searchEmails(accountId, folder, criteria, { clientSideFallback: false });
 
     if (messages.length === 0) {
       return {
