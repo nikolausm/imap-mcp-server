@@ -21,22 +21,13 @@ const accountSelector = {
   accountName: z.string().optional().describe('Account name instead of accountId. Optional if accountId is given or only one account is configured.'),
 };
 
-// "One or many" inputs. The union is what makes these convenient, and also what
-// makes them fragile: clients that flatten the schema's anyOf hand the model an
-// untyped field and then stringify the array it produces. Recover that shape
-// before validation so an address list can never reach nodemailer as
-// '["a@x.com","b@y.com"]' (issue #127). Real arrays and plain strings are
-// untouched, so the accepted input shape is unchanged.
-//
-// The recovery runs as a Zod `preprocess`, whose input type is `unknown` — which
-// would drop the field from the schema's `required` list. Chain `.nonoptional()`
-// on required fields (and `.optional()` on optional ones) to keep the published
-// schema byte-identical to the plain union it replaces.
-const addressList = (field: string, description: string) =>
-  z.preprocess(
-    value => parseSerializedArray(value, field),
-    z.union([z.string(), z.array(z.string())])
-  ).describe(description);
+// Recipient-list parameters use a plain `z.string()` schema. The previous
+// `z.preprocess` + `z.union([z.string(), z.array(z.string())])` combination
+// broke client-side validation: `z.preprocess` has no JSON Schema
+// representation, so the generated schema lost the field's `type` and MCP
+// clients rejected any value with "Invalid input at to" (error -32602). A
+// plain string keeps an explicit `type: "string"`; multiple recipients can
+// still be passed as one comma-separated string.
 
 const uidList = (description: string) =>
   z.preprocess(
@@ -200,11 +191,10 @@ const attachmentSchema = z.object({
   ),
 });
 
-// Shared bcc field for send/draft/reply/forward — keeps merge wording in sync.
-// Built on addressList so bcc gets the same stringified-array recovery as
-// to/cc (#127) on top of the defaultBcc merge.
-const bccSchema = addressList(
-  'bcc',
+// Shared bcc field for send/draft/reply/forward — keeps merge wording in sync
+// with the defaultBcc merge. Plain z.string() (see the note above on
+// recipient-list schemas).
+const bccSchema = z.string().describe(
   'BCC recipients. Either an array of addresses or a single comma-separated string; merged with the account defaultBcc when set.',
 ).optional();
 
@@ -1017,12 +1007,12 @@ export function emailTools(
     description: 'Compose and send a NEW email via the account\'s SMTP server (a copy is saved to Sent unless disabled; account defaultBcc addresses are always BCC\'d when configured). Use for fresh outbound messages. To respond to an existing message use imap_reply_to_email (keeps threading); to pass a message on use imap_forward_email; to store without sending use imap_save_draft. Supports to/cc/bcc, text and/or HTML, and attachments by base64 content or by file path (see imap_upload_file for large files).',
     inputSchema: {
       ...accountSelector,
-      to: addressList('to', 'Recipient email address(es). Either an array of addresses or a single comma-separated string; both accept "Name <addr@example.com>" form.').nonoptional(),
+      to: z.string().describe('Recipient email address(es). Either an array of addresses or a single comma-separated string; both accept "Name <addr@example.com>" form.'),
       subject: z.string().describe('Email subject'),
       text: z.string().optional().describe('Plain text content'),
       html: z.string().optional().describe('HTML content'),
       body: z.string().optional().describe("Alias for 'text' (backward-compat with clients that pass 'body')"),
-      cc: addressList('cc', 'CC recipients. Either an array of addresses or a single comma-separated string.').optional(),
+      cc: z.string().describe('CC recipients. Either an array of addresses or a single comma-separated string.').optional(),
       bcc: bccSchema,
       replyTo: z.string().optional().describe('Reply-to address'),
       attachments: z.array(attachmentSchema).optional().describe('Email attachments'),
@@ -1089,16 +1079,16 @@ export function emailTools(
     description: 'Save an email as a draft in the Drafts folder (no send). Takes the same fields as imap_send_email (including account defaultBcc when configured).',
     inputSchema: {
       ...accountSelector,
-      to: addressList('to', 'Recipient email address(es). Either an array of addresses or a single comma-separated string.').optional(),
+      to: z.string().describe('Recipient email address(es). Either an array of addresses or a single comma-separated string.').optional(),
       subject: z.string().optional().describe('Email subject'),
       text: z.string().optional().describe('Plain text content'),
       html: z.string().optional().describe('HTML content'),
       body: z.string().optional().describe("Alias for 'text' (backward-compat)"),
-      cc: addressList('cc', 'CC recipients. Either an array of addresses or a single comma-separated string.').optional(),
+      cc: z.string().describe('CC recipients. Either an array of addresses or a single comma-separated string.').optional(),
       bcc: bccSchema,
       replyTo: z.string().optional().describe('Reply-to address'),
       inReplyTo: z.string().optional().describe('Message-Id being replied to'),
-      references: addressList('references', 'References header value(s)').optional(),
+      references: z.string().describe('References header value(s)').optional(),
       attachments: z.array(attachmentSchema).optional().describe('Email attachments'),
       folder: z.string().optional().describe('Override the Drafts folder name (defaults to auto-detected Drafts folder)'),
     }
@@ -1239,7 +1229,7 @@ export function emailTools(
       ...accountSelector,
       folder: z.string().default('INBOX').describe('Folder containing the original email'),
       uid: z.coerce.number().describe('UID of the email to forward'),
-      to: addressList('to', 'Forward to email address(es). Either an array of addresses or a single comma-separated string.').nonoptional(),
+      to: z.string().describe('Forward to email address(es). Either an array of addresses or a single comma-separated string.'),
       text: z.string().optional().describe('Additional text to include'),
       body: z.string().optional().describe("Alias for 'text' (backward-compat)"),
       bcc: bccSchema,
