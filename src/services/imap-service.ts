@@ -530,8 +530,9 @@ export class ImapService {
       if (!msg.source) continue;
       try {
         const parsed = await simpleParser(msg.source);
-        const html = typeof parsed.html === 'string' ? parsed.html : '';
-        if (`${parsed.text || ''}\n${html}`.toLowerCase().includes(needle)) {
+        // Plain text only, like IMAP BODY: searching the HTML would match tag
+        // and CSS names. mailparser derives `text` from HTML-only messages.
+        if ((parsed.text || '').toLowerCase().includes(needle)) {
           matches.push(msg.uid);
         }
       } catch {
@@ -1494,29 +1495,10 @@ export class ImapService {
     const foundUids = new Set<number>();
     lock = await client.getMailboxLock(searchFolder);
     try {
-      for (const msgId of messageIds) {
-        try {
-          const inReplyMatches = await client.search(
-            { header: { 'in-reply-to': msgId } as any },
-            { uid: true },
-          );
-          for (const uid of inReplyMatches || []) foundUids.add(uid);
-
-          if (includeReferences) {
-            const refMatches = await client.search(
-              { header: { 'references': msgId } as any },
-              { uid: true },
-            );
-            for (const uid of refMatches || []) foundUids.add(uid);
-          }
-        } catch {
-          // Skip per-message errors so one bad search doesn't kill the whole sweep
-        }
-      }
-
-      // Nothing found may just mean the server's SEARCH is broken (#138):
-      // match In-Reply-To / References client-side over fetched headers.
-      if (foundUids.size === 0 && await this.searchIsBroken(client)) {
+      if (await this.searchIsBroken(client)) {
+        // The server's SEARCH is broken (#138): one HEADER search per
+        // Message-ID would only return nothing N times. Match In-Reply-To /
+        // References client-side over the fetched headers instead.
         const wanted = new Set(messageIds.map(id => this.normalizeMessageId(id)).filter(Boolean));
         const headerNames = includeReferences ? ['in-reply-to', 'references'] : ['in-reply-to'];
         for await (const msg of client.fetch('1:*', { uid: true, headers: headerNames })) {
@@ -1528,6 +1510,26 @@ export class ImapService {
           ];
           if (referenced.some(id => wanted.has(id))) {
             foundUids.add(msg.uid);
+          }
+        }
+      } else {
+        for (const msgId of messageIds) {
+          try {
+            const inReplyMatches = await client.search(
+              { header: { 'in-reply-to': msgId } as any },
+              { uid: true },
+            );
+            for (const uid of inReplyMatches || []) foundUids.add(uid);
+
+            if (includeReferences) {
+              const refMatches = await client.search(
+                { header: { 'references': msgId } as any },
+                { uid: true },
+              );
+              for (const uid of refMatches || []) foundUids.add(uid);
+            }
+          } catch {
+            // Skip per-message errors so one bad search doesn't kill the whole sweep
           }
         }
       }

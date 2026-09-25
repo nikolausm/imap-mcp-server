@@ -66,6 +66,21 @@ describe('searchEmails on a server whose SEARCH is broken (#138)', () => {
     expect(sourceFetch[0]).toEqual([101, 103]);
   });
 
+  it('matches body text, not HTML markup', async () => {
+    const htmlOnly = {
+      ...MESSAGES[1], uid: 104,
+      source: raw('Subject: Hi\r\nContent-Type: text/html', '<p style="font-weight:bold">Hello there</p>'),
+    };
+    const client = makeClient({
+      mailbox: { exists: 1 },
+      fetch: vi.fn(function* () { yield htmlOnly; }),
+    });
+    const service = serviceWith(client);
+
+    expect((await service.searchEmails('acc', 'INBOX', { body: 'hello there' })).map(m => m.uid)).toEqual([104]);
+    expect(await service.searchEmails('acc', 'INBOX', { body: 'font-weight' })).toEqual([]);
+  });
+
   it('refuses a body search over too many candidates', async () => {
     const client = makeClient({ mailbox: { exists: CLIENT_SIDE_BODY_SEARCH_MAX + 1 } });
     const many = Array.from({ length: CLIENT_SIDE_BODY_SEARCH_MAX + 1 }, (_, i) => ({ ...MESSAGES[0], uid: i + 1 }));
@@ -124,6 +139,19 @@ describe('findThreadMessages on a server whose SEARCH is broken (#138)', () => {
     const result = await serviceWith(client).findThreadMessages('acc', 'Sent', 'INBOX');
     expect(result.messageIds).toEqual(['<ROOT@x>']);
     expect(result.uids).toEqual([101, 102]);
+  });
+
+  it('skips the per-Message-ID HEADER searches once SEARCH is known to be broken', async () => {
+    const root = { uid: 1, envelope: { messageId: '<root@x>' } };
+    const client = makeClient({
+      fetch: vi.fn(function* (_range: any, query: any) {
+        yield* query.headers ? MESSAGES : [root];
+      }),
+    });
+
+    await serviceWith(client).findThreadMessages('acc', 'Sent', 'INBOX');
+    const headerSearches = client.search.mock.calls.filter(([q]: any[]) => q.header);
+    expect(headerSearches).toHaveLength(0);
   });
 
   it('ignores References when searchReferences is false', async () => {
