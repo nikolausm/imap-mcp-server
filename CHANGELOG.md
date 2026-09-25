@@ -7,8 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-09-26
+
+No tool was renamed, and no existing input or output shape changed. The new
+fields below are optional.
+
+### Added
+- `allowStartTLS` account option (#158). Setting `tls: false` only turns off implicit TLS. imapflow still upgrades via STARTTLS whenever the server advertises it, and checks the certificate against the host you connected to. Shared hosts such as DreamHost advertise STARTTLS behind a wildcard certificate that does not match, so plain accounts failed there. Set `allowStartTLS: false` to stay on the plain connection. Available in `imap_add_account`, `imap_update_account` and `imap_list_accounts`. Defaults to `true`, so existing behavior is unchanged.
+- Outgoing attachments are validated before SMTP is contacted (#161). Invalid base64, unreadable paths, missing filenames, ambiguous sources, and inline attachments without `cid` now fail with a clear error. Base64 wrapped at 76 columns is accepted. `imap_send_email` gains an optional `dryRun` that validates attachments and builds the MIME without sending anything. Successful sends and dry runs report `attachmentCount` and `attachmentDiagnostics`: filename, type, size, source, disposition and cid, but no content and no local paths.
+
 ### Fixed
+- `imap_search_emails` and the other SEARCH-based tools work again on Strato (#138). Strato's IMAP server returns an empty result for every SEARCH, while FETCH still works. When a SEARCH comes back empty for a folder that is not empty, and `SEARCH ALL` is empty as well, the server now fetches the envelopes and applies the criteria itself. This covers `imap_search_emails`, `imap_find_thread_messages` (In-Reply-To/References matched over fetched headers), unread counts and spam analysis. A `body` search parses only the candidates left after the other criteria, up to 2000. The deleting tools (`imap_bulk_delete_by_search`, `imap_delete_spam`, `imap_delete_by_domain`) deliberately do not use this fallback and return an explicit error instead. On servers where SEARCH works, the only change is one extra `SEARCH ALL` when a search finds nothing. Tests in `tests/imap-service-search-fallback.test.ts`.
+- `imap-setup` wrote a path relative to the current directory into `claude_desktop_config.json`, so a globally installed wizard produced a server path that did not exist and Claude Desktop reported only `Connection closed` (#177, #178). The path is now resolved from the module's own location, and the absolute Node binary (`process.execPath`) is written instead of a bare `node`. Apps started from the macOS GUI do not inherit the shell PATH.
+- `imap_save_draft` and the Sent copy of `imap_send_email` failed on strict servers such as Cyrus for any multi-line body (#170). Text and HTML bodies are now normalized to CRLF before composing. SMTP delivery itself was never affected.
+- `imap_download_attachment` finds attachments whose names arrive in Unicode NFD form, which macOS senders use, when given the NFC spelling (#168). A `contentId` also works without angle brackets.
+- An attachment without `contentType` keeps nodemailer's extension-based type detection again, so a `.pdf` goes out as `application/pdf`.
 - `imap_save_draft` and Sent-folder copies now keep `Bcc` headers in the stored MIME. Nodemailer's `MailComposer` omits Bcc from the built message by default (SMTP envelope only), so even when `defaultBcc` / a call-site `bcc` was merged into the composer, the appended draft or Sent copy had no `Bcc:` line and mail clients showed an empty BCC field. `SmtpService.composeRaw` now sets `keepBcc` on the compiled message. SMTP delivery was already correct; only the IMAP-stored copy was missing the header. Tests in `tests/smtp-service-compose-raw-bcc.test.ts`.
+
+### Changed
+- Dependency majors: `imapflow` 1.7 → 2.0, `nodemailer` 9 → 10, `dotenv` 17 → 18. dotenv now writes its status line to stderr instead of stdout, so it can no longer interfere with the stdio MCP channel. Dev dependency: `vitest` 5.
 
 ### Security
 - Two dependency advisories cleared — `npm audit` reports 0 vulnerabilities again, with no source changes. `html-to-text` → `^10.0.1` pulls in `deepmerge-ts` 8.0.1 (GHSA-ggr8-5vv4-36mx, stack exhaustion when merging recursive object graphs); this is the one that matters, because it sits on a **runtime** path via `mailparser` → `html-to-text`. `mailparser` pins `html-to-text` to exactly `10.0.0`, so the fix cannot arrive on its own — the override deliberately supersedes that pin. Upstream 10.0.1 is a patch whose only change is that same `deepmerge-ts` bump. `nanoid` → `^3.3.18` (GHSA-2v37-7h3g-55p8, custom generators can loop indefinitely when size is zero) is dev-scope only, reached through `vitest` → `vite` → `postcss`.
