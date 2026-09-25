@@ -3,6 +3,8 @@ name: Release
 # Publishes to npm and the official MCP Registry whenever a version tag is pushed.
 #
 # Trigger:  git tag vX.Y.Z && git push origin vX.Y.Z
+#           or re-run manually from main (Actions → Release → Run workflow): an
+#           already-published npm version is skipped, the registry step retried.
 #
 # Requirements (one-time setup):
 #   - npm Trusted Publisher: on npmjs.com -> package "imap-mcp-server" ->
@@ -50,7 +52,13 @@ jobs:
 
       - name: Verify version consistency
         run: |
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          # A manual run (workflow_dispatch) from a branch has no tag to compare
+          # against; it re-publishes whatever version package.json declares.
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            TAG_VERSION="${GITHUB_REF_NAME#v}"
+          else
+            TAG_VERSION=$(node -p "require('./package.json').version")
+          fi
           PKG_VERSION=$(node -p "require('./package.json').version")
           SRV_VERSION=$(node -p "require('./server.json').version")
           SRV_PKG_VERSION=$(node -p "require('./server.json').packages[0].version")
@@ -74,7 +82,15 @@ jobs:
         run: npm test
 
       - name: Publish to npm (Trusted Publishing via OIDC)
-        run: npm publish   # no token: OIDC authenticates, provenance is automatic
+        # Skipped when this version is already on npm, so a run that failed at a
+        # later step (e.g. the MCP Registry below) can simply be re-run.
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "imap-mcp-server@$VERSION" version >/dev/null 2>&1; then
+            echo "imap-mcp-server@$VERSION is already on npm — skipping publish."
+          else
+            npm publish   # no token: OIDC authenticates, provenance is automatic
+          fi
 
       - name: Install mcp-publisher
         run: |
@@ -86,4 +102,12 @@ jobs:
         run: ./mcp-publisher login github-oidc
 
       - name: Publish to MCP Registry
-        run: ./mcp-publisher publish
+        # The registry validates the version against npm, which can take a few
+        # minutes to serve a fresh publish (v2.1.0 failed with a 404 here).
+        run: |
+          for attempt in $(seq 1 10); do
+            if ./mcp-publisher publish; then exit 0; fi
+            echo "Attempt $attempt failed — waiting for npm to serve the new version…"
+            sleep 60
+          done
+          exit 1
