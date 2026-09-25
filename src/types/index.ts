@@ -131,6 +131,12 @@ export interface SearchOptions {
   /** Cap on body field length per message (per body field independently).
    * Defaults to 10000, matching `imap_get_email`'s `maxContentLength`. */
   bodyMaxLength?: number;
+  /** Some servers answer every SEARCH with an empty set even though the
+   * mailbox is not empty (Strato, #138). When that is detected, matching
+   * falls back to filtering FETCHed envelopes client-side. Defaults to true.
+   * Destructive callers pass false: they get an error instead of a delete
+   * set that was not computed by the server. */
+  clientSideFallback?: boolean;
 }
 
 /** Default body length cap when none is supplied (matches `imap_get_email`). */

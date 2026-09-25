@@ -4,6 +4,20 @@ import { ImapAccount, EmailMessage, EmailContent, EmailBodyFormat, EmailLocation
 import type { AccountManager } from './account-manager.js';
 import { htmlToMarkdown, normalizeWhitespace } from './html-to-markdown.js';
 import { assertCredentialsResolved } from '../utils/env-credentials.js';
+import { matchesSearchCriteria, extractMessageIds } from '../utils/client-side-search.js';
+
+/**
+ * Upper bound on messages whose source is downloaded and parsed for a
+ * client-side body search (#138). Cheaper criteria are applied first, so this
+ * only bites when the remaining candidate set is still large.
+ */
+export const CLIENT_SIDE_BODY_SEARCH_MAX = 2000;
+
+export const SEARCH_UNAVAILABLE_MESSAGE =
+  'The IMAP server returned no SEARCH results although the folder is not empty — its SEARCH ' +
+  'command appears to be broken (seen with Strato, #138). Refusing to delete based on a ' +
+  'client-side match. Use imap_search_emails to find the messages, then imap_bulk_delete ' +
+  'with their UIDs.';
 
 /**
  * Providers that require IMAP access to be manually enabled in account settings.
@@ -384,8 +398,7 @@ export class ImapService {
     try {
       lock = await client.getMailboxLock(folderName);
 
-      const searchQuery = this.buildSearchQuery(criteria);
-      const uids = await client.search(searchQuery, { uid: true });
+      const uids = await this.searchUids(client, criteria, options?.clientSideFallback !== false);
 
       if (!uids || uids.length === 0) {
         return [];
@@ -443,6 +456,90 @@ export class ImapService {
         lock.release();
       }
     }
+  }
+
+  /**
+   * SEARCH the currently open mailbox for `criteria` and return matching UIDs.
+   *
+   * Some servers answer every SEARCH with an empty set even though the mailbox
+   * holds messages (Strato since mid-2026, #138) — FETCH keeps working there.
+   * An empty answer for a non-empty mailbox is therefore double-checked: if
+   * `SEARCH ALL` comes back empty as well, SEARCH is broken and the criteria
+   * are evaluated client-side over FETCHed envelopes instead. With
+   * `allowFallback` false (destructive callers) that case throws instead.
+   */
+  private async searchUids(client: any, criteria: SearchCriteria, allowFallback: boolean): Promise<number[]> {
+    const query = this.buildSearchQuery(criteria);
+    const uids = await client.search(query, { uid: true });
+    if (uids && uids.length > 0) {
+      return uids;
+    }
+
+    const isAllQuery = query.all === true && Object.keys(query).length === 1;
+    const broken = isAllQuery ? this.mailboxHasMessages(client) : await this.searchIsBroken(client);
+    if (!broken) {
+      return [];
+    }
+    if (!allowFallback) {
+      throw new Error(SEARCH_UNAVAILABLE_MESSAGE);
+    }
+    return this.clientSideSearch(client, criteria);
+  }
+
+  private mailboxHasMessages(client: any): boolean {
+    const exists = Number(client.mailbox?.exists);
+    return Number.isFinite(exists) && exists > 0;
+  }
+
+  /** True when the open mailbox has messages but `SEARCH ALL` finds none (#138). */
+  private async searchIsBroken(client: any): Promise<boolean> {
+    if (!this.mailboxHasMessages(client)) {
+      return false;
+    }
+    const all = await client.search({ all: true }, { uid: true });
+    return !all || all.length === 0;
+  }
+
+  /**
+   * Evaluate `criteria` without SEARCH: FETCH every envelope in the open
+   * mailbox and filter locally. A `body` criterion is applied last, and only
+   * to the candidates left after the cheaper criteria, by parsing their source.
+   */
+  private async clientSideSearch(client: any, criteria: SearchCriteria): Promise<number[]> {
+    const candidates: number[] = [];
+    for await (const msg of client.fetch('1:*', { uid: true, envelope: true, flags: true, internalDate: true })) {
+      if (matchesSearchCriteria(msg, criteria)) {
+        candidates.push(msg.uid);
+      }
+    }
+
+    if (!criteria.body || candidates.length === 0) {
+      return candidates;
+    }
+    if (candidates.length > CLIENT_SIDE_BODY_SEARCH_MAX) {
+      throw new Error(
+        `This server's SEARCH is unavailable (#138), so a body search has to download each message. ` +
+        `${candidates.length} messages are candidates (limit ${CLIENT_SIDE_BODY_SEARCH_MAX}) — ` +
+        `narrow the search with since/before/from/to/subject.`
+      );
+    }
+
+    const needle = criteria.body.toLowerCase();
+    const matches: number[] = [];
+    for await (const msg of client.fetch(candidates, { uid: true, source: true }, { uid: true })) {
+      if (!msg.source) continue;
+      try {
+        const parsed = await simpleParser(msg.source);
+        // Plain text only, like IMAP BODY: searching the HTML would match tag
+        // and CSS names. mailparser derives `text` from HTML-only messages.
+        if ((parsed.text || '').toLowerCase().includes(needle)) {
+          matches.push(msg.uid);
+        }
+      } catch {
+        // Unparseable source — treat as non-matching rather than failing the search.
+      }
+    }
+    return matches;
   }
 
   /**
@@ -1378,7 +1475,7 @@ export class ImapService {
     const messageIds: string[] = [];
     let lock = await client.getMailboxLock(sourceFolder);
     try {
-      const allUids = await client.search({ all: true }, { uid: true });
+      const allUids = await this.searchUids(client, {}, true);
       if (allUids && allUids.length > 0) {
         for await (const msg of client.fetch(allUids, { uid: true, envelope: true }, { uid: true })) {
           if (msg.envelope?.messageId) {
@@ -1398,23 +1495,42 @@ export class ImapService {
     const foundUids = new Set<number>();
     lock = await client.getMailboxLock(searchFolder);
     try {
-      for (const msgId of messageIds) {
-        try {
-          const inReplyMatches = await client.search(
-            { header: { 'in-reply-to': msgId } as any },
-            { uid: true },
-          );
-          for (const uid of inReplyMatches || []) foundUids.add(uid);
-
-          if (includeReferences) {
-            const refMatches = await client.search(
-              { header: { 'references': msgId } as any },
+      if (await this.searchIsBroken(client)) {
+        // The server's SEARCH is broken (#138): one HEADER search per
+        // Message-ID would only return nothing N times. Match In-Reply-To /
+        // References client-side over the fetched headers instead.
+        const wanted = new Set(messageIds.map(id => this.normalizeMessageId(id)).filter(Boolean));
+        const headerNames = includeReferences ? ['in-reply-to', 'references'] : ['in-reply-to'];
+        for await (const msg of client.fetch('1:*', { uid: true, headers: headerNames })) {
+          if (!msg.headers) continue;
+          const headers = parseRawHeaders(msg.headers);
+          const referenced = [
+            ...extractMessageIds(headers['in-reply-to']),
+            ...(includeReferences ? extractMessageIds(headers['references']) : []),
+          ];
+          if (referenced.some(id => wanted.has(id))) {
+            foundUids.add(msg.uid);
+          }
+        }
+      } else {
+        for (const msgId of messageIds) {
+          try {
+            const inReplyMatches = await client.search(
+              { header: { 'in-reply-to': msgId } as any },
               { uid: true },
             );
-            for (const uid of refMatches || []) foundUids.add(uid);
+            for (const uid of inReplyMatches || []) foundUids.add(uid);
+
+            if (includeReferences) {
+              const refMatches = await client.search(
+                { header: { 'references': msgId } as any },
+                { uid: true },
+              );
+              for (const uid of refMatches || []) foundUids.add(uid);
+            }
+          } catch {
+            // Skip per-message errors so one bad search doesn't kill the whole sweep
           }
-        } catch {
-          // Skip per-message errors so one bad search doesn't kill the whole sweep
         }
       }
     } finally {

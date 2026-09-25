@@ -99,7 +99,8 @@ export function spamTools(
       dryRun: z.boolean().default(true).describe('If true, only report what would be deleted without deleting'),
     }
   }, async ({ accountId, folder, limit, minConfidence, dryRun }) => {
-    const messages = await imapService.searchEmails(accountId, folder, {});
+    // Destructive: never delete based on a client-side match (#138).
+    const messages = await imapService.searchEmails(accountId, folder, {}, { clientSideFallback: false });
     const limitedMessages = messages.slice(0, limit);
 
     const emailData = limitedMessages.map(m => ({
@@ -315,9 +316,10 @@ export function spamTools(
     }
   }, async ({ accountId, folder, domain, dryRun }) => {
     // Search for emails from the domain
+    // Destructive: never delete based on a client-side match (#138).
     const messages = await imapService.searchEmails(accountId, folder, {
       from: `@${domain}`,
-    });
+    }, { clientSideFallback: false });
 
     if (messages.length === 0) {
       return {
