@@ -23,6 +23,7 @@ No tool was renamed, and no existing input or output shape changed. The new
 fields below are optional.
 
 ### Added
+- OS keyring setup guide for Windows, macOS, and Ubuntu 24.04 / 26.04 (`docs/KEYRING.md`).
 - `allowStartTLS` account option (#158). Setting `tls: false` only turns off implicit TLS. imapflow still upgrades via STARTTLS whenever the server advertises it, and checks the certificate against the host you connected to. Shared hosts such as DreamHost advertise STARTTLS behind a wildcard certificate that does not match, so plain accounts failed there. Set `allowStartTLS: false` to stay on the plain connection. Available in `imap_add_account`, `imap_update_account` and `imap_list_accounts`. Defaults to `true`, so existing behavior is unchanged.
 - Outgoing attachments are validated before SMTP is contacted (#161). Invalid base64, unreadable paths, missing filenames, ambiguous sources, and inline attachments without `cid` now fail with a clear error. Base64 wrapped at 76 columns is accepted. `imap_send_email` gains an optional `dryRun` that validates attachments and builds the MIME without sending anything. Successful sends and dry runs report `attachmentCount` and `attachmentDiagnostics`: filename, type, size, source, disposition and cid, but no content and no local paths.
 

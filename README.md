@@ -661,7 +661,7 @@ At runtime, each IMAP/SMTP username/password is resolved in this order (first hi
 
 1. **`IMAP_MCP_ACCOUNT_*` environment variables** present at process start (captured and scrubbed from `process.env`).
 2. **Vault / OpenBao** only when the account opts in (`credentialSource: "vault"` and/or per-account `vaultPath`) **and** `VAULT_ADDR`/`BAO_ADDR` plus token or AppRole auth is available. Global `IMAP_MCP_VAULT_PATH` is the default path template for opted-in accounts — setting addr/path alone does **not** reroute every account. Vault beats the OS keyring for opted-in accounts so rotated/revoked secrets win. KV v2 paths are `mount/path` (auto-normalized to `mount/data/path`). Field names match the env key segment, e.g. `WORK_GMAIL_IMAP_PASSWORD`.
-3. **OS keyring** via optional `@napi-rs/keyring` (service `imap-mcp`). Soft-fails if the native binding or desktop secret service is unavailable. New accounts prefer writing passwords here when the keyring works.
+3. **OS keyring** via optional `@napi-rs/keyring` (service `imap-mcp`). Soft-fails if the native binding or desktop secret service is unavailable. New accounts prefer writing passwords here when the keyring works. Platform setup for Windows Credential Manager, macOS Keychain, and Ubuntu 24.04 / 26.04 (libsecret / GNOME Keyring): [docs/KEYRING.md](./docs/KEYRING.md).
 4. **Encrypted `~/.imap-mcp/accounts.json`** using **AES-256-GCM** with a data key preferably stored only in the keyring (`store-dek`). A co-located `.key` file is legacy/headless fallback only.
 
 Migrate legacy AES-CBC ciphertext with `IMAP_MCP_MIGRATE_CREDENTIALS=1` (or the programmatic `migrateLegacyCiphertext()` helper). The old `.key` is never deleted automatically.
