@@ -32,13 +32,17 @@ export class WebUIServer {
   private accountManager: AccountManager;
   private imapService: ImapService;
   private port: number;
+  private bindHost: string;
 
   constructor(
     port: number = 3000,
-    deps: { accountManager?: AccountManager; imapService?: ImapService } = {},
+    deps: { accountManager?: AccountManager; imapService?: ImapService; bindHost?: string } = {},
   ) {
     this.app = express();
     this.port = port;
+    // Default loopback-only. Set IMAP_MCP_BIND=0.0.0.0 (or pass bindHost) for LAN.
+    this.bindHost = deps.bindHost
+      ?? (process.env.IMAP_MCP_BIND?.trim() || '127.0.0.1');
     this.accountManager = deps.accountManager ?? new AccountManager();
     this.imapService = deps.imapService ?? new ImapService();
 
@@ -354,8 +358,15 @@ export class WebUIServer {
 
   async start(autoOpen: boolean = true): Promise<void> {
     return new Promise((resolve) => {
-      const server = this.app.listen(this.port, () => {
-        console.log(`🌐 Web UI server running at http://localhost:${this.port}`);
+      if (this.bindHost !== '127.0.0.1' && this.bindHost !== 'localhost' && this.bindHost !== '::1') {
+        console.warn(
+          `[imap-mcp] Web wizard binding to ${this.bindHost} (not loopback). ` +
+            `The setup API is unauthenticated; only use IMAP_MCP_BIND=0.0.0.0 on trusted networks.`,
+        );
+      }
+      const server = this.app.listen(this.port, this.bindHost, () => {
+        const displayHost = this.bindHost === '0.0.0.0' ? 'localhost' : this.bindHost;
+        console.log(`🌐 Web UI server running at http://${displayHost}:${this.port} (bind ${this.bindHost})`);
         
         if (autoOpen) {
           // Open browser after a short delay
