@@ -30,6 +30,17 @@ export interface ImapAccount {
    * and draft. Merged with any per-call `bcc` (call-site values win for
    * ordering; duplicates are removed case-insensitively). */
   defaultBcc?: string | string[];
+  /**
+   * Where secrets for this account are expected to live when env overrides are
+   * absent. Informational + resolution hint; env always wins when present.
+   * - keyring: OS keyring entries under service `imap-mcp`
+   * - vault: OpenBao/Vault KV (IMAP_MCP_VAULT_PATH or vaultPath)
+   * - file: AES-GCM ciphertext in accounts.json (DEK preferably in keyring)
+   * - env: placeholders only; credentials supplied via IMAP_MCP_ACCOUNT_*
+   */
+  credentialSource?: 'keyring' | 'vault' | 'file' | 'env';
+  /** Optional per-account KV v2 path (`mount/path`) overriding IMAP_MCP_VAULT_PATH. */
+  vaultPath?: string;
 }
 
 export interface SmtpConfig {
