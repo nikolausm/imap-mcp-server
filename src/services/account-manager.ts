@@ -295,10 +295,27 @@ export class AccountManager {
       credentialSource: source,
     };
 
+    const renamed = updates.name !== undefined && updates.name !== existingAccount.name;
     this.accounts.set(id, updatedAccount);
     await this.saveAccounts();
 
+    // Renames change env-style override cache keys; keyring/vault secrets must be
+    // re-bound under the new name or getAccount returns empty placeholders.
+    if (renamed || updatedAccount.credentialSource === 'keyring' || updatedAccount.credentialSource === 'vault') {
+      if (renamed) {
+        this.dropOverridesForAccountName(existingAccount.name);
+      }
+      await this.hydrateAccount(updatedAccount);
+    }
+
     return this.getAccount(id)!;
+  }
+
+  private dropOverridesForAccountName(accountName: string): void {
+    for (const suffix of Object.values(ENV_CREDENTIAL_SUFFIXES)) {
+      const name = envVarName(accountName, suffix);
+      this.capturedEnvOverrides.delete(this.hashCacheKey(name));
+    }
   }
 
   getAccount(id: string): ImapAccount | undefined {

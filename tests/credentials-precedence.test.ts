@@ -117,4 +117,56 @@ describe('credential resolution precedence', () => {
     delete process.env.VAULT_TOKEN;
     delete process.env.IMAP_MCP_VAULT_PATH;
   });
+
+  it('preserves keyring secret across rename', async () => {
+    const keyHex = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+    const key = Buffer.from(keyHex, 'hex');
+    const filePw = encryptAesGcm('file-pass', key, fieldAad('acc-1', 'password'));
+    let accountsJson = JSON.stringify([
+      {
+        id: 'acc-1',
+        name: 'Work Gmail',
+        host: 'imap.test.com',
+        port: 993,
+        user: 'file-user',
+        password: filePw,
+        tls: true,
+        credentialSource: 'keyring',
+      },
+    ]);
+
+    vi.mocked(readFileSync).mockImplementation((p: any) => {
+      const s = String(p);
+      if (s.endsWith('.key')) return keyHex;
+      if (s.endsWith('accounts.json')) return accountsJson;
+      throw Object.assign(new Error('enoent'), { code: 'ENOENT' });
+    });
+    vi.mocked(fs.writeFile).mockImplementation(async (p: any, data: any) => {
+      if (String(p).endsWith('accounts.json')) {
+        accountsJson = String(data);
+      }
+    });
+
+    const mem = new Map<string, string>();
+    class FakeEntry {
+      constructor(private service: string, private name: string) {}
+      getPassword() {
+        const v = mem.get(`${this.service}|${this.name}`);
+        if (v === undefined) throw new Error('missing');
+        return v;
+      }
+      setPassword(v: string) { mem.set(`${this.service}|${this.name}`, v); }
+      deletePassword() { mem.delete(`${this.service}|${this.name}`); }
+    }
+    __setKeyringEntryCtorForTests(FakeEntry as any);
+    mem.set(`imap-mcp|${accountSecretName('acc-1', 'imap-password')}`, 'keyring-pass');
+
+    const manager = new AccountManager();
+    await manager.hydrateExternalCredentials();
+    expect(manager.getAccount('acc-1')?.password).toBe('keyring-pass');
+
+    await manager.updateAccount('acc-1', { name: 'Renamed Mail' });
+    expect(manager.getAccount('acc-1')?.name).toBe('Renamed Mail');
+    expect(manager.getAccount('acc-1')?.password).toBe('keyring-pass');
+  });
 });
