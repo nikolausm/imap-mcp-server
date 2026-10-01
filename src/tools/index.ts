@@ -14,7 +14,7 @@ import { spamTools } from './spam-tools.js';
  * These never mutate a mailbox (no flag changes, moves, or deletes), never send
  * mail, and never change stored accounts or spam lists — they only read mail,
  * folders, and local config. This is the set exposed when `IMAP_MCP_READ_ONLY`
- * is enabled. Keep this list in sync when adding new read-only tools.
+ * is enabled (the default). Keep this list in sync when adding new read-only tools.
  */
 export const READ_ONLY_TOOLS: readonly string[] = [
   // Account (non-mutating)
@@ -61,17 +61,25 @@ function isTruthy(value: string | undefined): boolean {
   return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
 }
 
+/** Interpret an explicit false-ish env value (`0`, `false`, `no`, `off`). */
+function isExplicitlyFalse(value: string | undefined): boolean {
+  if (value === undefined || value === null) return false;
+  return ['0', 'false', 'no', 'off'].includes(value.trim().toLowerCase());
+}
+
 /**
  * Resolve which tools should be registered based on env configuration.
  *
- * Returns a `Set` of allowed tool names, or `null` to allow **all** tools
- * (the default when nothing is configured).
+ * Returns a `Set` of allowed tool names, or `null` to allow **all** tools.
  *
- * Precedence:
+ * Precedence (safe-by-default since 2.2.0):
  *  1. `IMAP_MCP_ENABLED_TOOLS` — explicit comma-separated allowlist. When set,
  *     it is authoritative and `IMAP_MCP_READ_ONLY` is ignored.
- *  2. `IMAP_MCP_READ_ONLY` — when truthy, exposes the {@link READ_ONLY_TOOLS} subset.
- *  3. Otherwise → `null` (all tools registered, original behavior).
+ *  2. `IMAP_MCP_READ_ONLY` — when truthy **or unset**, exposes the
+ *     {@link READ_ONLY_TOOLS} subset. Set to `false`/`0`/`no`/`off` to register
+ *     the full mutating surface (send/delete/account tools).
+ *  3. `IMAP_MCP_ALLOW_MUTATING=true` — equivalent to `IMAP_MCP_READ_ONLY=false`
+ *     when no allowlist is set (opt-in full tool surface).
  */
 export function resolveEnabledTools(
   env: NodeJS.ProcessEnv = process.env
@@ -80,10 +88,12 @@ export function resolveEnabledTools(
   if (explicit.length > 0) {
     return new Set(explicit);
   }
-  if (isTruthy(env.IMAP_MCP_READ_ONLY)) {
-    return new Set(READ_ONLY_TOOLS);
+  // Opt-in full surface: explicit false on READ_ONLY, or ALLOW_MUTATING truthy.
+  if (isExplicitlyFalse(env.IMAP_MCP_READ_ONLY) || isTruthy(env.IMAP_MCP_ALLOW_MUTATING)) {
+    return null;
   }
-  return null;
+  // Default (including unset IMAP_MCP_READ_ONLY): read-only.
+  return new Set(READ_ONLY_TOOLS);
 }
 
 /**

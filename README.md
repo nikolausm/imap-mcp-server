@@ -4,7 +4,7 @@ A powerful Model Context Protocol (MCP) server that provides seamless IMAP email
 
 ## Features
 
-- 🔐 **Secure Account Management**: Encrypted credential storage with AES-256 encryption
+- 🔐 **Credential storage**: AES-256-CBC obfuscation at rest in `~/.imap-mcp` (prefer env/OS keyring for real secrecy)
 - 🚀 **Connection Pooling**: Efficient IMAP connection management
 - 📧 **Comprehensive Email Operations**: Search, read, move, mark, delete, and bulk delete emails
 - ✉️ **Email Sending**: Send, reply, and forward emails via SMTP
@@ -260,19 +260,24 @@ Add the IMAP MCP server to your Claude Desktop configuration file:
 }
 ```
 
-### Restricting tool access (read-only mode / allowlist)
+### Restricting tool access (read-only by default / allowlist)
 
-By default all tools are exposed. You can restrict which tools the agent sees
-using two environment variables (set them under the `env` key of your MCP
-config). This is useful when you want to give an assistant **read-only** access
-to a mailbox, or expose only a hand-picked subset of tools.
+**Safe by default:** when neither `IMAP_MCP_ENABLED_TOOLS` nor an explicit
+`IMAP_MCP_READ_ONLY=false` / `IMAP_MCP_ALLOW_MUTATING=true` is set, only the
+read-only tool subset is registered. Mutating tools (send, delete, move, flag,
+account edits) require an explicit opt-in. This reduces the blast radius of
+prompt injection via email content.
 
 | Variable | Effect |
 | --- | --- |
-| `IMAP_MCP_READ_ONLY` | When truthy (`1`, `true`, `yes`, `on`), only the safe, read-only tools are registered — searching, reading, listing folders, unread counts, spam analysis. No tool that sends mail, deletes/moves messages, changes flags, or edits accounts is exposed. |
-| `IMAP_MCP_ENABLED_TOOLS` | Comma-separated allowlist of tool names — only these are registered. Names are case-insensitive and the `imap_` prefix is optional (`search_emails` ≡ `imap_search_emails`). When set, it takes precedence over `IMAP_MCP_READ_ONLY`. |
+| `IMAP_MCP_READ_ONLY` | Default / unset / truthy (`1`, `true`, `yes`, `on`) → read-only tools only. Set to `false` / `0` / `no` / `off` to expose the full mutating surface. |
+| `IMAP_MCP_ALLOW_MUTATING` | When truthy, equivalent to `IMAP_MCP_READ_ONLY=false` (opt-in full tool surface). |
+| `IMAP_MCP_ENABLED_TOOLS` | Comma-separated allowlist of tool names — only these are registered. Names are case-insensitive and the `imap_` prefix is optional (`search_emails` ≡ `imap_search_emails`). When set, it takes precedence over the read-only / mutating flags. |
+| `IMAP_DOWNLOAD_DIR` | Jail root for downloads and (by default) path-based attachments. Default: `~/Downloads/imap-attachments`. |
+| `IMAP_ATTACHMENT_DIRS` | Extra allowlisted roots for attachment `path` values (colon-separated on POSIX; semicolon on Windows). |
+| `IMAP_MCP_BIND` | Web wizard listen address. Default `127.0.0.1`. Set `0.0.0.0` only on trusted networks. |
 
-**Example — read-only access:**
+**Example — full (mutating) access (opt-in):**
 
 ```json
 {
@@ -280,7 +285,7 @@ to a mailbox, or expose only a hand-picked subset of tools.
     "imap": {
       "command": "npx",
       "args": ["-y", "imap-mcp-server"],
-      "env": { "IMAP_MCP_READ_ONLY": "true" }
+      "env": { "IMAP_MCP_READ_ONLY": "false" }
     }
   }
 }
@@ -657,15 +662,23 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
 
 ## Security
 
-- Credentials are encrypted using AES-256-CBC encryption
-- Encryption keys are stored separately in `~/.imap-mcp/.key`
-- Account configurations are stored in `~/.imap-mcp/accounts.json`
+- **Read-only tools by default** — set `IMAP_MCP_READ_ONLY=false` (or
+  `IMAP_MCP_ALLOW_MUTATING=true`) to enable send/delete/account tools
+- **Path jail** — attachment `path` and download `savePath` must resolve under
+  `IMAP_DOWNLOAD_DIR` (and optional `IMAP_ATTACHMENT_DIRS`); `~/.imap-mcp` is
+  never readable via attachment paths
+- Credentials in `accounts.json` are **obfuscated** with AES-256-CBC; the key
+  lives at `~/.imap-mcp/.key` beside the ciphertext. Anyone who can read both
+  recovers plaintext — prefer `IMAP_MCP_ACCOUNT_*` env overrides or an OS
+  keyring for real secret management
 - The store directory, `.key`, and `accounts.json` are written owner-only
-  (`0700`/`0600`) so other local users cannot read the key or the credentials
-- The web setup wizard's HTTP API never returns stored passwords to the browser
-- Downloaded attachments are confined to the downloads directory; sender-supplied
-  filenames cannot write outside it
+  (`0700`/`0600`) on POSIX
+- Web setup wizard binds **127.0.0.1** by default (`IMAP_MCP_BIND` to override);
+  its HTTP API never returns stored passwords to the browser
+- Prefer strict IMAP TLS (`tls: true`, the default); cleartext IMAP sends
+  credentials in the clear
 - Never commit or share your encryption key or account configurations
+- See [SECURITY.md](./SECURITY.md) for the full model and disclosure process
 
 ## Development
 

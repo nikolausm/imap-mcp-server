@@ -67,3 +67,46 @@ describe('imap_download_attachment — path traversal via sender-controlled file
     expect(path.dirname(savedTo)).toBe(downloadRoot);
   });
 });
+
+describe('imap_download_attachment — savePath jail', () => {
+  it('rejects an absolute savePath outside the download directory', async () => {
+    mockImapService.getAttachmentContent.mockResolvedValueOnce({
+      content: Buffer.from('payload'),
+      contentType: 'application/octet-stream',
+      filename: 'note.txt',
+    });
+
+    const outside = path.join(os.tmpdir(), `imap-savepath-escape-${process.pid}.txt`);
+    await expect(
+      downloadHandler({
+        accountId: 'acc1',
+        folder: 'INBOX',
+        uid: 1,
+        filename: 'note.txt',
+        savePath: outside,
+        extractText: false,
+      }),
+    ).rejects.toThrow(/savePath/);
+  });
+
+  it('allows a savePath under the download directory', async () => {
+    mockImapService.getAttachmentContent.mockResolvedValueOnce({
+      content: Buffer.from('payload'),
+      contentType: 'application/octet-stream',
+      filename: 'note.txt',
+    });
+
+    const inside = path.join(TMP_DOWNLOAD_DIR, 'nested', 'note.txt');
+    const result = await downloadHandler({
+      accountId: 'acc1',
+      folder: 'INBOX',
+      uid: 1,
+      filename: 'note.txt',
+      savePath: inside,
+      extractText: false,
+    });
+
+    const parsed = JSON.parse(result.content[0].text);
+    expect(path.resolve(parsed.path)).toBe(path.resolve(inside));
+  });
+});

@@ -9,16 +9,34 @@ control**.
 - **Local execution.** The server runs entirely on your own machine as a local
   MCP process (stdio). It is not a hosted service and does not require any
   account with this project.
-- **Credential storage.** IMAP/SMTP credentials are stored encrypted with
-  **AES-256-CBC** in `~/.imap-mcp/accounts.json`. The encryption key is generated
-  locally and kept at `~/.imap-mcp/.key`. The store directory and both files are
-  written owner-only (`0700`/`0600`) so other local users cannot read them;
-  anyone who can read both files can read your credentials.
+- **Safe-by-default tool surface.** Unless you opt in to mutating tools
+  (`IMAP_MCP_READ_ONLY=false` or `IMAP_MCP_ALLOW_MUTATING=true`, or an explicit
+  `IMAP_MCP_ENABLED_TOOLS` allowlist), only read-only tools are registered.
+  Prompt injection via email content cannot drive send/delete/account changes
+  when the default applies.
+- **Filesystem jail.** Attachment `path` values and download `savePath` values
+  are confined to `IMAP_DOWNLOAD_DIR` (and optional `IMAP_ATTACHMENT_DIRS`).
+  The credential store (`~/.imap-mcp`) is never readable via attachment paths.
+- **Credential storage.** IMAP/SMTP credentials in `~/.imap-mcp/accounts.json`
+  are obfuscated at rest with **AES-256-CBC**. The key is generated locally and
+  kept at `~/.imap-mcp/.key` **next to** the ciphertext. Anyone who can read
+  both files can recover plaintext passwords — this is **not** a vault or OS
+  keyring. Prefer environment-injected credentials
+  (`IMAP_MCP_ACCOUNT_*`) or an OS keyring for real secret management. The store
+  directory and both files are written owner-only (`0700`/`0600`) so other local
+  users cannot read them on POSIX.
+- **Web setup wizard.** Binds **127.0.0.1** by default. Set
+  `IMAP_MCP_BIND=0.0.0.0` only on trusted networks. Host/Origin loopback checks
+  remain in place; the API is still unauthenticated for local clients.
+- **TLS.** Prefer `tls: true` (the default) for IMAP. Cleartext
+  (`tls: false` / disabled STARTTLS) sends credentials in the clear — only use
+  when a provider requires it and the network path is trusted.
 - **No telemetry.** The server collects no analytics, usage data, or crash
   reports.
 - **No third-party data sharing.** The only outbound network connections are to
-  the IMAP and SMTP servers **you** configure. Email content and credentials are
-  never sent anywhere else.
+  the IMAP and SMTP servers **you** configure (plus optional spam-scoring APIs
+  you enable). Email content and credentials are never sent anywhere else by
+  this project.
 - **Your MCP client sees your mail.** Email content returned by these tools is
   passed to whichever MCP client/LLM you connect (e.g. Claude, ChatGPT, Cursor).
   Review that client's own privacy terms; treat any connected model as a party
@@ -26,9 +44,13 @@ control**.
 
 ## Recommendations for users
 
+- Leave the **default read-only** tool surface unless you need send/delete.
 - Use **app-specific passwords** where your provider supports them (Gmail,
   iCloud, Yahoo, Fastmail, …) instead of your primary password.
+- Prefer **env credential overrides** over storing passwords in `accounts.json`.
 - Keep `~/.imap-mcp/` readable only by your user account.
+- Do not run the web wizard with `IMAP_MCP_BIND=0.0.0.0` on shared/multi-user
+  hosts or untrusted LANs.
 - Prefer least-privilege accounts/folders when possible.
 - Be deliberate with destructive tools (`imap_delete_email`,
   `imap_bulk_delete`, `imap_bulk_delete_by_search`) — use the `dryRun` option to

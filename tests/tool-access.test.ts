@@ -33,7 +33,7 @@ const DESTRUCTIVE_TOOLS = [
 /** Collect the tool names that `registerTools` actually registers under the given env. */
 function registeredToolsFor(env: Record<string, string | undefined>): string[] {
   const saved: Record<string, string | undefined> = {};
-  for (const key of ['IMAP_MCP_ENABLED_TOOLS', 'IMAP_MCP_READ_ONLY']) {
+  for (const key of ['IMAP_MCP_ENABLED_TOOLS', 'IMAP_MCP_READ_ONLY', 'IMAP_MCP_ALLOW_MUTATING']) {
     saved[key] = process.env[key];
     if (env[key] === undefined) delete process.env[key];
     else process.env[key] = env[key];
@@ -54,8 +54,8 @@ function registeredToolsFor(env: Record<string, string | undefined>): string[] {
 }
 
 describe('resolveEnabledTools', () => {
-  it('returns null (all tools) when nothing is configured', () => {
-    expect(resolveEnabledTools({})).toBeNull();
+  it('returns the read-only subset by default (nothing configured)', () => {
+    expect(resolveEnabledTools({})).toEqual(new Set(READ_ONLY_TOOLS));
   });
 
   it('returns the read-only subset when IMAP_MCP_READ_ONLY is truthy', () => {
@@ -66,16 +66,24 @@ describe('resolveEnabledTools', () => {
   it.each(['1', 'true', 'YES', 'On'])(
     'treats %s as enabling read-only mode',
     (value) => {
-      expect(resolveEnabledTools({ IMAP_MCP_READ_ONLY: value })).not.toBeNull();
+      expect(resolveEnabledTools({ IMAP_MCP_READ_ONLY: value })).toEqual(new Set(READ_ONLY_TOOLS));
     }
   );
 
-  it.each(['0', 'false', 'no', ''])(
-    'treats %s as NOT enabling read-only mode',
+  it.each(['0', 'false', 'no', 'off'])(
+    'treats %s as opting into the full mutating surface',
     (value) => {
       expect(resolveEnabledTools({ IMAP_MCP_READ_ONLY: value })).toBeNull();
     }
   );
+
+  it('treats IMAP_MCP_ALLOW_MUTATING as opting into the full surface', () => {
+    expect(resolveEnabledTools({ IMAP_MCP_ALLOW_MUTATING: 'true' })).toBeNull();
+  });
+
+  it('keeps read-only when IMAP_MCP_READ_ONLY is an empty string (unset-equivalent)', () => {
+    expect(resolveEnabledTools({ IMAP_MCP_READ_ONLY: '' })).toEqual(new Set(READ_ONLY_TOOLS));
+  });
 
   it('returns the explicit allowlist from IMAP_MCP_ENABLED_TOOLS', () => {
     const set = resolveEnabledTools({
@@ -133,17 +141,25 @@ describe('registerTools gating', () => {
   afterEach(() => {
     delete process.env.IMAP_MCP_ENABLED_TOOLS;
     delete process.env.IMAP_MCP_READ_ONLY;
+    delete process.env.IMAP_MCP_ALLOW_MUTATING;
   });
 
-  it('registers ALL tools when unrestricted', () => {
+  it('registers only the read-only subset by default', () => {
     const names = registeredToolsFor({});
-    // Sanity: the full surface is large and includes destructive tools.
+    expect(new Set(names)).toEqual(new Set(READ_ONLY_TOOLS));
+    for (const tool of DESTRUCTIVE_TOOLS) {
+      expect(names).not.toContain(tool);
+    }
+  });
+
+  it('registers ALL tools when IMAP_MCP_READ_ONLY=false', () => {
+    const names = registeredToolsFor({ IMAP_MCP_READ_ONLY: 'false' });
     expect(names.length).toBeGreaterThan(READ_ONLY_TOOLS.length);
     expect(names).toContain('imap_delete_email');
     expect(names).toContain('imap_send_email');
   });
 
-  it('registers only the read-only subset in read-only mode', () => {
+  it('registers only the read-only subset when IMAP_MCP_READ_ONLY=true', () => {
     const names = registeredToolsFor({ IMAP_MCP_READ_ONLY: 'true' });
     expect(new Set(names)).toEqual(new Set(READ_ONLY_TOOLS));
     for (const tool of DESTRUCTIVE_TOOLS) {

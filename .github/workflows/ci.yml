@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, master, develop]
+    branches: [main, master, develop, 'security/**', hardened]
   pull_request:
-    branches: [main, master, develop]
+    branches: [main, master, develop, hardened]
   workflow_dispatch:
     inputs:
       skip_tests:

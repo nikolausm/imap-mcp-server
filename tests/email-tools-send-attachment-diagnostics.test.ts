@@ -1,8 +1,14 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { mkdtemp, writeFile } from 'fs/promises';
+import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
+import { mkdtemp, writeFile, mkdir, rm } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { emailTools } from '../src/tools/email-tools.js';
+import { mkdirSync } from 'fs';
+
+const DOWNLOAD_ROOT = join(tmpdir(), `imap-send-attach-root-${process.pid}`);
+process.env.IMAP_DOWNLOAD_DIR = DOWNLOAD_ROOT;
+mkdirSync(join(DOWNLOAD_ROOT, 'uploads'), { recursive: true });
+
+const { emailTools } = await import('../src/tools/email-tools.js');
 
 let sendEmailHandler: Function;
 
@@ -73,7 +79,7 @@ describe('imap_send_email attachment diagnostics', () => {
     expect(mockImapService.appendToSentFolder).not.toHaveBeenCalled();
   });
 
-  it('does not disclose supplied paths when a path attachment is unreadable', async () => {
+  it('does not disclose supplied paths when a path attachment is outside the jail', async () => {
     const suppliedPath = join(tmpdir(), 'imap-mcp-private-path', 'missing-secret-report.pdf');
 
     let thrown: unknown;
@@ -88,7 +94,8 @@ describe('imap_send_email attachment diagnostics', () => {
 
     expect(thrown).toBeInstanceOf(Error);
     const message = (thrown as Error).message;
-    expect(message).toBe('Invalid attachment at index 0: path is not a readable file. Check that the attachment path exists, points to a regular file, and is readable.');
+    expect(message).toMatch(/Invalid attachment at index 0:/);
+    expect(message).toMatch(/allowlisted|jail|credential store/i);
     expect(message).not.toContain(suppliedPath);
     expect(message).not.toContain('missing-secret-report.pdf');
     expect(message).not.toContain('imap-mcp-private-path');
@@ -153,7 +160,8 @@ describe('imap_send_email attachment diagnostics', () => {
   });
 
   it('dry-runs by composing MIME without sending or saving to Sent', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'imap-mcp-attachments-'));
+    const dir = join(DOWNLOAD_ROOT, 'uploads');
+    await mkdir(dir, { recursive: true });
     const filePath = join(dir, 'invoice.pdf');
     await writeFile(filePath, Buffer.from('file bytes'));
 

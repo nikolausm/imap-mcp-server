@@ -8,11 +8,16 @@ import { mergeBcc } from '../utils/default-bcc.js';
 import type { EmailAttachment, EmailMessage, ImapAccount, SentSaveResult } from '../types/index.js';
 import { z } from 'zod';
 import { basename, join } from 'path';
-import { homedir } from 'os';
 import { randomBytes } from 'crypto';
 import { constants as fsConstants } from 'fs';
 import { access, stat } from 'fs/promises';
 import { detectMimeType } from 'nodemailer/lib/mime-funcs/index.js';
+import {
+  assertPathInsideJail,
+  resolveAttachmentAllowRoots,
+  resolveDownloadRoot,
+  resolveJailedSavePath,
+} from '../utils/path-jail.js';
 
 // Reusable, backward-compatible account selector. accountId stays accepted as
 // before; accountName and the single-account default are additive conveniences.
@@ -146,20 +151,35 @@ export async function normalizeAttachments(atts?: AttachmentInput[]): Promise<No
       throw new Error(`Invalid attachment at index ${index}: path must be non-empty`);
     }
 
+    // Jail path-based attachments to the download/upload roots (and optional
+    // IMAP_ATTACHMENT_DIRS). Rejects absolute paths outside the jail and never
+    // allows reading the credential store (~/.imap-mcp).
+    let jailedPath: string;
+    try {
+      jailedPath = assertPathInsideJail(filePath, resolveAttachmentAllowRoots(), {
+        label: `attachment at index ${index}`,
+        rejectCredentialStore: true,
+        rejectSymlinkLeaf: true,
+      });
+    } catch (err) {
+      throw new Error(err instanceof Error ? err.message : String(err));
+    }
+
     let fileStat;
     try {
-      fileStat = await stat(filePath);
+      fileStat = await stat(jailedPath);
       if (!fileStat.isFile()) {
         throw new Error('not a regular file');
       }
-      await access(filePath, fsConstants.R_OK);
-    } catch {
-      throw new Error(`Invalid attachment at index ${index}: path is not a readable file. Check that the attachment path exists, points to a regular file, and is readable.`);
+      await access(jailedPath, fsConstants.R_OK);
+    } catch (err) {
+      if (err instanceof Error && err.message.startsWith('Invalid attachment')) throw err;
+      throw new Error(`Invalid attachment at index ${index}: path is not a readable file inside the attachment jail. Use imap_upload_file or place the file under IMAP_DOWNLOAD_DIR / IMAP_ATTACHMENT_DIRS.`);
     }
 
     attachments.push({
       filename,
-      path: filePath,
+      path: jailedPath,
       contentType: att.contentType,
       contentDisposition,
       ...(cid ? { cid } : {}),
@@ -190,7 +210,7 @@ const resolveBcc = (
 const attachmentSchema = z.object({
   filename: z.string().describe('Attachment filename'),
   content: z.string().optional().describe('Base64 encoded content. Provide exactly one of content or path.'),
-  path: z.string().optional().describe('Readable local file path to attach. Provide exactly one of path or content; paths returned by imap_upload_file are accepted.'),
+  path: z.string().optional().describe('Local file path to attach; must resolve inside IMAP_DOWNLOAD_DIR (default ~/Downloads/imap-attachments) or IMAP_ATTACHMENT_DIRS. Paths from imap_upload_file are accepted. Absolute paths outside the jail are rejected. Provide exactly one of path or content.'),
   contentType: z.string().optional().describe('MIME type. When omitted it is detected from the filename extension (e.g. .pdf → application/pdf); unknown extensions fall back to application/octet-stream.'),
   contentDisposition: z.enum(['attachment', 'inline']).optional().describe(
     'How the attachment is presented. Use "inline" for images referenced from the HTML body via cid: (e.g. a signature/footer banner); omit or use "attachment" for regular downloadable files.'
@@ -243,7 +263,7 @@ const sentSaveSuffix = (outcome: SentSaveOutcome) => {
   return '';
 };
 
-const DOWNLOAD_DIR = process.env.IMAP_DOWNLOAD_DIR || join(homedir(), 'Downloads', 'imap-attachments');
+const getDownloadDir = () => resolveDownloadRoot();
 const MAX_UPLOAD_SIZE = parseInt(process.env.IMAP_MAX_UPLOAD_SIZE ?? '', 10) || 25 * 1024 * 1024;
 const UPLOAD_TTL_MS = parseInt(process.env.IMAP_UPLOAD_TTL_MS ?? '', 10) || 24 * 60 * 60 * 1000;
 
@@ -434,7 +454,7 @@ export function emailTools(
     const fs = await import('fs');
     const path = await import('path');
 
-    const uploadDir = path.join(DOWNLOAD_DIR, 'uploads');
+    const uploadDir = path.join(getDownloadDir(), 'uploads');
     fs.mkdirSync(uploadDir, { recursive: true });
 
     // TTL cleanup: remove stale uploads on each call
@@ -490,7 +510,7 @@ export function emailTools(
       folder: z.string().default('INBOX').describe('Folder name'),
       uid: z.coerce.number().describe('Email UID'),
       filename: z.string().describe('Attachment filename or contentId as listed by imap_get_email. Matched exactly first, then Unicode-normalized (NFC/NFD spellings of umlauts and accents are treated as equal); a contentId may be given with or without its angle brackets'),
-      savePath: z.string().optional().describe('Optional file path to save the attachment to. If not provided, files are saved to the shared downloads directory.'),
+      savePath: z.string().optional().describe('Optional path under IMAP_DOWNLOAD_DIR to save the attachment. Absolute paths outside the download jail are rejected. Relative paths are resolved under the download directory. Defaults to the shared downloads directory.'),
       extractText: z.boolean().default(true).describe('For PDFs, extract and return text content inline'),
     }
   }, async ({ accountId: rawAccountId, accountName, folder, uid, filename, savePath, extractText }) => {
@@ -532,15 +552,15 @@ export function emailTools(
           await pdfParser.destroy();
         }
 
-        // Also save the file for binary access
+        // Also save the file for binary access — always under the download jail.
         const fs = await import('fs');
         const path = await import('path');
-        const downloadDir = savePath ? path.dirname(savePath) : DOWNLOAD_DIR;
-        fs.mkdirSync(downloadDir, { recursive: true });
-        // resolvedFilename comes from the (sender-controlled) MIME headers, so it
-        // may contain path-traversal segments like "../../". Confine the default
-        // save to DOWNLOAD_DIR via basename; an explicit savePath is caller-chosen.
-        const targetPath = savePath || path.join(DOWNLOAD_DIR, path.basename(resolvedFilename));
+        const targetPath = resolveJailedSavePath(
+          savePath,
+          getDownloadDir(),
+          path.basename(resolvedFilename),
+        );
+        fs.mkdirSync(path.dirname(targetPath), { recursive: true });
         fs.writeFileSync(targetPath, content);
 
         return {
@@ -563,14 +583,15 @@ export function emailTools(
       }
     }
 
-    // Save to shared downloads directory
+    // Save under the download jail (default download root or jailed savePath).
     const fs = await import('fs');
     const path = await import('path');
-    const downloadDir = savePath ? path.dirname(savePath) : DOWNLOAD_DIR;
-    fs.mkdirSync(downloadDir, { recursive: true });
-    // Confine the default save to DOWNLOAD_DIR: resolvedFilename is sender-
-    // controlled and may contain "../" traversal (savePath is caller-chosen).
-    const targetPath = savePath || path.join(DOWNLOAD_DIR, path.basename(resolvedFilename));
+    const targetPath = resolveJailedSavePath(
+      savePath,
+      getDownloadDir(),
+      path.basename(resolvedFilename),
+    );
+    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
     fs.writeFileSync(targetPath, content);
 
     return {
