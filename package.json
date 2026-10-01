@@ -100,5 +100,8 @@
     "string-width": "^7.2.0",
     "nanoid": "^3.3.18",
     "html-to-text": "^10.0.1"
+  },
+  "optionalDependencies": {
+    "@napi-rs/keyring": "^2.1.0"
   }
 }

@@ -36,6 +36,7 @@ imapService.setAccountManager(accountManager);
 registerTools(server, imapService, accountManager, smtpService, spamService);
 
 async function main() {
+  await accountManager.hydrateExternalCredentials();
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error('IMAP MCP Server started');

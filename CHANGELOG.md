@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Security
+- Prefer env → Vault/OpenBao → OS keyring → AES-256-GCM file store for credentials.
+- Replace AES-256-CBC writes with AES-256-GCM (AAD-bound); keep CBC decrypt for migration.
+- Optional `@napi-rs/keyring` dependency (soft-fail); DEK prefers keyring over co-located `.key`.
+- Minimal Vault/OpenBao KV v2 reader (`VAULT_*` / `BAO_*`, TLS verify by default).
+- Skip post-quantum KEM wrapping (theater for this threat model); document residual risks.
+- `IMAP_MCP_MIGRATE_CREDENTIALS=1` / `migrateLegacyCiphertext()`; do not auto-delete `.key`.
+
 ## [Unreleased]
 
 ## [2.1.0] - 2026-09-26
