@@ -30,6 +30,8 @@ export interface ImapAccount {
    * and draft. Merged with any per-call `bcc` (call-site values win for
    * ordering; duplicates are removed case-insensitively). */
   defaultBcc?: string | string[];
+  /** Additional sender identities accepted by outbound tools. */
+  allowedFrom?: string[];
 }
 
 export interface SmtpConfig {
