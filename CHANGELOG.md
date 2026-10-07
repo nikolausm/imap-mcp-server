@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `imap_save_reply_draft` tool — save a reply to an existing email as a draft without sending (IMAP only, no SMTP required). Supports reply/reply-all, proper threading (In-Reply-To/References), quoted original content, and all standard reply parameters.
+- `imap_save_forward_draft` tool — save a forward of an existing email as a draft without sending (IMAP only, no SMTP required). Supports forwarding with header block, original content quoting, and optional HTML content.
+- Shared helper module `src/utils/reply-forward-helpers.ts` for message preparation logic reused by both new draft tools.
+- Comprehensive test suite for the new draft tools in `tests/reply-forward-draft-tools.test.ts`.
+
+Both new tools enable **draft-only workflows** where users can compose replies and forwards without requiring SMTP configuration, allowing fine-grained capability control through `IMAP_MCP_ENABLED_TOOLS`.
+
 ## [2.1.0] - 2026-09-26
 
 No tool was renamed, and no existing input or output shape changed. The new

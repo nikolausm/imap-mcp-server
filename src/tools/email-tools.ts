@@ -5,7 +5,16 @@ import { SmtpService } from '../services/smtp-service.js';
 import { selectSearchFolders } from '../utils/search-folders.js';
 import { parseSerializedArray } from '../utils/array-input.js';
 import { mergeBcc } from '../utils/default-bcc.js';
-import type { EmailAttachment, EmailMessage, ImapAccount, SentSaveResult } from '../types/index.js';
+import {
+  generateReplySubject,
+  generateForwardSubject,
+  extractReplyRecipients,
+  buildReplyThreadingHeaders,
+  composeReplyBody,
+  composeForwardBody,
+  resolveReplyForwardBcc
+} from '../utils/reply-forward-helpers.js';
+import type { EmailAttachment, EmailContent, EmailMessage, ImapAccount, SentSaveResult } from '../types/index.js';
 import { z } from 'zod';
 import { basename, join } from 'path';
 import { homedir } from 'os';
@@ -1282,6 +1291,152 @@ export function emailTools(
           messageId,
           ...sentSaveFields(sentSave),
           message: `Email forwarded successfully${sentSaveSuffix(sentSave)}`,
+        }, null, 2)
+      }]
+    };
+  });
+
+  // Save reply draft tool
+  server.registerTool('imap_save_reply_draft', {
+    description: 'Save a reply to an existing email as a draft in the Drafts folder (no send, IMAP only). Automatically sets recipients based on the original sender (and all recipients if replyAll), prefixes the subject with "Re:", and preserves threading (In-Reply-To/References). Use this when the user wants to compose a reply as a draft without sending. Account defaultBcc addresses are applied when configured. New content appears first, followed by quoted original when includeQuotedOriginal is true.',
+    inputSchema: {
+      ...accountSelector,
+      folder: z.string().default('INBOX').describe('Folder containing the original email'),
+      uid: z.coerce.number().describe('UID of the email to reply to'),
+      text: z.string().optional().describe('Plain text reply content'),
+      html: z.string().optional().describe('HTML reply content'),
+      body: z.string().optional().describe("Alias for 'text' (backward-compat)"),
+      replyAll: z.boolean().default(false).describe('Reply to all recipients'),
+      bcc: bccSchema,
+      includeQuotedOriginal: z.boolean().default(true).describe('Include quoted original message content'),
+      attachments: z.array(attachmentSchema).optional().describe('Additional email attachments'),
+      draftFolder: z.string().optional().describe('Override the Drafts folder name (defaults to auto-detected Drafts folder)'),
+    }
+  }, async ({ accountId: rawAccountId, accountName, folder, uid, text, html, body, replyAll, bcc, includeQuotedOriginal, attachments, draftFolder }) => {
+    const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
+    const account = await accountManager.getAccount(accountId);
+    if (!account) {
+      throw new Error(`Account ${accountId} not found`);
+    }
+
+    const normalizedAttachments = await normalizeAttachments(attachments as AttachmentInput[] | undefined);
+
+    const accountEmail = account.email || account.user;
+    const originalEmail = await imapService.getEmailContent(accountId, folder, uid, { bodyFormat: 'html' });
+    const recipients = extractReplyRecipients(originalEmail, accountEmail, replyAll);
+    const { inReplyTo, references } = buildReplyThreadingHeaders(originalEmail);
+    const { text: replyText, html: replyHtml } = composeReplyBody(
+      text ?? body,
+      html,
+      originalEmail,
+      includeQuotedOriginal
+    );
+
+    const emailComposer = {
+      from: account.email || account.user,
+      to: recipients.to,
+      subject: generateReplySubject(originalEmail.subject),
+      text: replyText,
+      html: replyHtml,
+      cc: recipients.cc.length > 0 ? recipients.cc : undefined,
+      bcc: resolveReplyForwardBcc(account, bcc),
+      replyTo: undefined, // Let From header handle replies
+      inReplyTo,
+      references,
+      attachments: normalizedAttachments.attachments,
+    };
+
+    const rawMessage = await smtpService.composeRaw(account, emailComposer);
+    const destinationFolder = draftFolder ?? await imapService.findDraftsFolder(accountId);
+    if (!destinationFolder) {
+      throw new Error('No Drafts folder found. Tried: Drafts, Draft, INBOX.Drafts, INBOX.Draft, [Gmail]/Drafts. Pass `draftFolder` to override.');
+    }
+
+    const appended = await imapService.appendMessage(accountId, destinationFolder, rawMessage, ['\\Draft', '\\Seen']);
+    if (!appended) {
+      throw new Error(`Failed to append reply draft to folder "${destinationFolder}"`);
+    }
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: true,
+          folder: destinationFolder,
+          attachmentCount: normalizedAttachments.diagnostics.length,
+          attachmentDiagnostics: normalizedAttachments.diagnostics,
+          message: `Reply draft saved to "${destinationFolder}"`,
+        }, null, 2)
+      }]
+    };
+  });
+
+  // Save forward draft tool
+  server.registerTool('imap_save_forward_draft', {
+    description: 'Save a forward of an existing email as a draft in the Drafts folder (no send, IMAP only). Forwards the message to specified recipients with conventional forwarded-message header block. Optionally includes original attachments and quoted content. Account defaultBcc addresses are applied when configured. Use this when the user wants to compose a forward as a draft without sending.',
+    inputSchema: {
+      ...accountSelector,
+      folder: z.string().default('INBOX').describe('Folder containing the original email'),
+      uid: z.coerce.number().describe('UID of the email to forward'),
+      to: addressList('to', 'Forward to email address(es). Either an array of addresses or a single comma-separated string.').nonoptional(),
+      text: z.string().optional().describe('Additional text to include'),
+      html: z.string().optional().describe('HTML additional content'),
+      body: z.string().optional().describe("Alias for 'text' (backward-compat)"),
+      bcc: bccSchema,
+      includeQuotedOriginal: z.boolean().default(true).describe('Include quoted original message content'),
+      attachments: z.array(attachmentSchema).optional().describe('Additional email attachments'),
+      draftFolder: z.string().optional().describe('Override the Drafts folder name (defaults to auto-detected Drafts folder)'),
+    }
+  }, async ({ accountId: rawAccountId, accountName, folder, uid, to, text, html, body, bcc, includeQuotedOriginal, draftFolder, attachments }) => {
+    const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
+    const account = await accountManager.getAccount(accountId);
+    if (!account) {
+      throw new Error(`Account ${accountId} not found`);
+    }
+
+    const originalEmail = await imapService.getEmailContent(accountId, folder, uid, { bodyFormat: 'html' });
+    const normalizedAttachments = await normalizeAttachments(attachments as AttachmentInput[] | undefined);
+    const { text: forwardText, html: forwardHtml } = composeForwardBody(
+      text ?? body,
+      html,
+      originalEmail,
+      includeQuotedOriginal
+    );
+
+    const emailComposer = {
+      from: account.email || account.user,
+      to,
+      subject: generateForwardSubject(originalEmail.subject),
+      text: forwardText,
+      html: forwardHtml,
+      cc: undefined,
+      bcc: resolveReplyForwardBcc(account, bcc),
+      replyTo: undefined,
+      inReplyTo: undefined, // Forward typically doesn't use In-Reply-To
+      references: undefined, // Forward typically doesn't use References to avoid threading
+      attachments: normalizedAttachments.attachments,
+    };
+
+    const rawMessage = await smtpService.composeRaw(account, emailComposer);
+    const destinationFolder = draftFolder ?? await imapService.findDraftsFolder(accountId);
+    if (!destinationFolder) {
+      throw new Error('No Drafts folder found. Tried: Drafts, Draft, INBOX.Drafts, INBOX.Draft, [Gmail]/Drafts. Pass `draftFolder` to override.');
+    }
+
+    const appended = await imapService.appendMessage(accountId, destinationFolder, rawMessage, ['\\Draft', '\\Seen']);
+    if (!appended) {
+      throw new Error(`Failed to append forward draft to folder "${destinationFolder}"`);
+    }
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: true,
+          folder: destinationFolder,
+          attachmentCount: normalizedAttachments.diagnostics.length,
+          attachmentDiagnostics: normalizedAttachments.diagnostics,
+          message: `Forward draft saved to "${destinationFolder}"`,
         }, null, 2)
       }]
     };

@@ -612,8 +612,45 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
   - to: Forward to email address(es)
   - text: Additional text to include (optional)
   - bcc: BCC recipients (optional; merged with account defaultBcc)
-  - includeAttachments: Include original attachments (default: true)
   ```
+
+- **imap_save_reply_draft**: Save a reply to an existing email as a draft in the Drafts folder (IMAP only, no SMTP required). Automatically sets recipients based on the original sender (and all recipients if replyAll), prefixes the subject with "Re:", and preserves threading (In-Reply-To/References). New content appears first, followed by quoted original when `includeQuotedOriginal` is true.
+  ```
+  Parameters:
+  - accountId: Account ID
+  - folder: Folder containing the original email (default: INBOX)
+  - uid: UID of the email to reply to
+  - text: Plain text reply content (optional)
+  - html: HTML reply content (optional)
+  - body: Alias for 'text' (backward-compat)
+  - replyAll: Reply to all recipients (default: false)
+  - bcc: BCC recipients (optional; merged with account defaultBcc)
+  - includeQuotedOriginal: Include quoted original message content (default: true)
+  - attachments: Array of additional attachments (optional, same shape as imap_send_email)
+  - draftFolder: Override the Drafts folder name (optional)
+  ```
+
+- **imap_save_forward_draft**: Save a forward of an existing email as a draft in the Drafts folder (IMAP only, no SMTP required). Forwards the message to specified recipients with conventional forwarded-message header block. New content appears first, followed by forwarded message header and original content when `includeQuotedOriginal` is true.
+  ```
+  Parameters:
+  - accountId: Account ID
+  - folder: Folder containing the original email (default: INBOX)
+  - uid: UID of the email to forward
+  - to: Forward to email address(es)
+  - text: Additional text to include (optional)
+  - html: HTML additional content (optional)
+  - body: Alias for 'text' (backward-compat)
+  - bcc: BCC recipients (optional; merged with account defaultBcc)
+  - includeQuotedOriginal: Include quoted original message content (default: true)
+  - draftFolder: Override the Drafts folder name (optional)
+  ```
+
+Both draft tools are **IMAP-only** and do not require SMTP configuration. They work with accounts that have no SMTP server configured, making them ideal for draft-only workflows where you want to compose replies and forwards but not send them automatically.
+
+Example allowlist configuration for draft-only access (excludes all send functionality):
+```
+imap_search_emails,imap_get_email,imap_get_latest_emails,imap_save_reply_draft,imap_save_forward_draft,imap_save_draft
+```
 
 ### Folder Operations
 
