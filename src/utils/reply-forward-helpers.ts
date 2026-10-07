@@ -2,6 +2,33 @@ import type { EmailContent, ImapAccount } from '../types/index.js';
 import { extractMessageIds } from './client-side-search.js';
 import { mergeBcc } from './default-bcc.js';
 import { parseSerializedArray } from './array-input.js';
+import { htmlToText } from 'html-to-text';
+
+/**
+ * HTML-to-text options for clean plain-text conversion.
+ * Keeps anchor text but omits hrefs, skips images, preserves structure.
+ */
+import type { HtmlToTextOptions } from 'html-to-text';
+
+const HTML_TO_TEXT_OPTIONS: HtmlToTextOptions = {
+  wordwrap: false,
+  selectors: [
+    { selector: "a", options: { ignoreHref: true } },
+    { selector: "img", format: "skip" },
+  ],
+};
+
+/**
+ * Get clean plain text for quoting from EmailContent.
+ * Uses html-to-text for HTML content to avoid mailparser artifacts.
+ * Falls back to textContent if no HTML is available.
+ */
+function getCleanTextForQuoting(originalEmail: EmailContent): string {
+  if (originalEmail.htmlContent) {
+    return htmlToText(originalEmail.htmlContent, HTML_TO_TEXT_OPTIONS);
+  }
+  return originalEmail.textContent || "";
+}
 
 /**
  * Normalize a Message-ID for comparison: strip angle brackets, trim, lowercase.
