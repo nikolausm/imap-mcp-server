@@ -1,4 +1,4 @@
-# IMAP MCP Server
+# IMAP MCP Server (forked)
 
 A powerful Model Context Protocol (MCP) server that provides seamless IMAP email integration with secure account management and connection pooling.
 
