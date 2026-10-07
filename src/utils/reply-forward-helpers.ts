@@ -198,12 +198,14 @@ export function composeReplyBody(
     };
   }
 
-  // Build quoted text content
-  const originalText = originalEmail.textContent || '';
-  const attributionLine = `\n---\nOn ${originalEmail.date.toLocaleString()}, ${originalEmail.from} wrote:`;
+  // Get clean text for quoting, using html-to-text for HTML content to avoid mailparser artifacts
+  const originalTextForQuoting = getCleanTextForQuoting(originalEmail);
+
+  // Attribution with no artificial separator
+  const attributionLine = `\n\nOn ${originalEmail.date.toLocaleString()}, ${originalEmail.from} wrote:`;
   
   // Quote each line of original content with "> " prefix
-  const quotedOriginalText = originalText
+  const quotedOriginalText = originalTextForQuoting
     .split('\n')
     .map(line => (line.trim() ? `> ${line}` : '>'))
     .join('\n');
@@ -212,16 +214,21 @@ export function composeReplyBody(
 
   // Build HTML content if HTML was provided or if we have HTML original
   let fullHtml: string | undefined;
+  const originalHtml = originalEmail.htmlContent || '';
+
   if (newContentHtml) {
-    const originalHtml = originalEmail.htmlContent || '';
-    const attributionHtml = `<p>--=<br>On ${originalEmail.date.toLocaleString()}, ${originalEmail.from} wrote:</p>`;
-    const quotedHtml = originalHtml ? `<blockquote type="cite">${originalHtml}</blockquote>` : '';
+    // Attribution with no artificial separator
+    const attributionHtml = `<p>On ${originalEmail.date.toLocaleString()}, ${originalEmail.from} wrote:</p>`;
+    const quotedHtml = originalHtml
+      ? `<blockquote type="cite">${originalHtml}</blockquote>`
+      : '';
     fullHtml = `${newContentHtml}${attributionHtml}${quotedHtml}`;
-  } else if (originalEmail.htmlContent && newContentText) {
+  } else if (originalHtml && newContentText) {
     // If no HTML provided but we have HTML original, create basic HTML
-    const attributionHtml = `<p>--=<br>On ${originalEmail.date.toLocaleString()}, ${originalEmail.from} wrote:</p>`;
-    const quotedHtml = `<blockquote type="cite"><pre>${originalEmail.htmlContent}</pre></blockquote>`;
-    const escapedText = newContentText.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const attributionHtml = `<p>On ${originalEmail.date.toLocaleString()}, ${originalEmail.from} wrote:</p>`;
+    const quotedHtml = `<blockquote type="cite">${originalHtml}</blockquote>`;
+    const escapedText = newContentText
+      .replace(/</g, '&lt;').replace(/>/g, '&gt;');
     fullHtml = `<p>${escapedText}</p>${attributionHtml}${quotedHtml}`;
   }
 
@@ -262,12 +269,15 @@ To: ${originalEmail.to.join(',')}
 
 `;
 
-  const originalText = originalEmail.textContent || '';
-  const fullText = newContentText + forwardHeaderText + originalText;
+  // Get clean text for quoting
+  const originalTextForQuoting = getCleanTextForQuoting(originalEmail);
+  const fullText = newContentText + forwardHeaderText + originalTextForQuoting;
 
   // Build HTML if requested
   let fullHtml: string | undefined;
-  if (newContentHtml || originalEmail.htmlContent) {
+  const originalHtml = originalEmail.htmlContent || '';
+
+  if (newContentHtml || originalHtml) {
     const forwardHeaderHtml = `
 <div>---------- Forwarded message ----------</div>
 <div><strong>From:</strong> ${originalEmail.from}</div>
@@ -276,7 +286,6 @@ To: ${originalEmail.to.join(',')}
 <div><strong>To:</strong> ${originalEmail.to.join(',')}</div>
 <br>
 `;
-    const originalHtml = originalEmail.htmlContent || '';
     fullHtml = (newContentHtml || '') + forwardHeaderHtml + originalHtml;
   }
 

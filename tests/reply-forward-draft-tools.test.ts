@@ -308,12 +308,14 @@ describe('Reply/Forward Draft Helpers', () => {
       const result = composeReplyBody('My reply', undefined, mockOriginalEmail, true);
       
       expect(result.text).toContain('My reply');
-      expect(result.text).toContain('--');
       expect(result.text).toContain('On');
       expect(result.text).toContain('sender@example.com');
       expect(result.text).toContain('Original message');
       // Should have quoted lines
       expect(result.text).toContain('> Original message');
+      // Should NOT have artificial separator
+      expect(result.text).not.toContain('--=');
+      expect(result.text).not.toContain('---');
     });
 
     it('should compose reply body without quoted original', () => {
