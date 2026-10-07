@@ -114,9 +114,6 @@ interface EmailContentOptions {
   bodyFormat?: EmailBodyFormat;
   // Minimum length of a text/plain part to treat it as the substantive body (markdown/auto).
   markdownThreshold?: number;
-  // Draft composition: use skipHtmlToText:true to preserve genuine text/plain
-  // and get clean textAsHtml. Internal only, not exposed as MCP parameter.
-  skipHtmlToText?: boolean;
 }
 
 /**
@@ -728,8 +725,8 @@ export class ImapService {
   }
 
   /**
-   * Get email content for draft composition with skipHtmlToText: true parsing.
-   * This preserves genuine text/plain parts and provides clean textAsHtml for quoting.
+   * Get email content for draft composition using default parsing.
+   * This preserves clean textAsHtml for quoting while providing access to genuine text/plain when available.
    * Internal only — not exposed as MCP parameter.
    */
   async getEmailContentForDraft(
@@ -737,7 +734,7 @@ export class ImapService {
     folderName: string,
     uid: number
   ): Promise<EmailContent> {
-    return this.getEmailContent(accountId, folderName, uid, { skipHtmlToText: true });
+    return this.getEmailContent(accountId, folderName, uid);
   }
 
   /**
@@ -765,10 +762,9 @@ export class ImapService {
       bodyFormat = 'markdown',
       markdownThreshold = 200,
       bodyMaxLength,
-      skipHtmlToText = false,
     } = options;
 
-    const parsed = await simpleParser(source, { skipHtmlToText });
+    const parsed = await simpleParser(source);
     const flagArray = Array.from(flags || []) as string[];
 
     const cap = (s: string | undefined): string | undefined => {

@@ -370,6 +370,185 @@ describe('Reply/Forward Draft Helpers', () => {
     });
   });
 
+  describe('MIME structure handling for HTML-only detection', () => {
+    // Test the isHtmlOnlyMessage helper with various MIME structures
+    // to ensure it correctly detects whether a genuine text/plain part exists
+
+    // Helper to create EmailContent from parsed source
+    function createEmailContentFromSource(source: string): Promise<any> {
+      const { simpleParser } = require('mailparser');
+      return simpleParser(source).then((parsed: any) => {
+        const headers: Record<string, string | string[]> = {};
+        const headerToString = (v: unknown): string => {
+          if (typeof v === 'string') return v;
+          if (v && typeof v === 'object' && 'text' in v) return String((v as { text: string }).text);
+          if (v && typeof v === 'object' && 'value' in v) return String((v as { value: string }).value);
+          if (v && typeof v === 'object') return JSON.stringify(v);
+          return String(v);
+        };
+
+        if (parsed.headers) {
+          for (const [key, value] of parsed.headers) {
+            if (typeof value === 'string') {
+              headers[key] = value;
+            } else if (Array.isArray(value)) {
+              headers[key] = value.map(headerToString);
+            } else {
+              headers[key] = headerToString(value);
+            }
+          }
+        }
+
+        return {
+          from: parsed.from?.text || '',
+          to: parsed.to ? (Array.isArray(parsed.to) ? parsed.to.map((t: any) => t.text || '') : [parsed.to.text || '']) : [],
+          subject: parsed.subject || '',
+          date: parsed.date || new Date(),
+          messageId: parsed.messageId || '',
+          headers,
+          textContent: parsed.text || undefined,
+          htmlContent: parsed.html || undefined,
+          textAsHtml: parsed.textAsHtml || undefined
+        };
+      });
+    }
+
+    it('should detect HTML-only for text/html top-level', async () => {
+      const source = 'Content-Type: text/html\n\n<p>HTML only content</p>';
+      const email = await createEmailContentFromSource(source);
+
+      expect(email.textContent).toBeDefined();
+      expect(email.textContent).toContain('HTML only content');
+      expect(email.htmlContent).toBeDefined();
+
+      const result = composeReplyBody('Reply', undefined, email, true);
+      expect(result.text).toContain('Reply');
+      expect(result.text).toContain('HTML only content');
+    });
+
+    it('should detect genuine text/plain in multipart/alternative', async () => {
+      const source = `MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="b"
+
+--b
+Content-Type: text/plain
+
+Plain text version
+
+--b
+Content-Type: text/html
+
+<p>HTML version</p>
+
+--b--`;
+      const email = await createEmailContentFromSource(source);
+
+      expect(email.textContent).toBeDefined();
+      expect(email.textContent).toContain('Plain text version');
+      expect(email.htmlContent).toBeDefined();
+
+      const result = composeReplyBody('Reply', undefined, email, true);
+      expect(result.text).toContain('Reply');
+      expect(result.text).toContain('Plain text version');
+    });
+
+    it('should detect HTML-only for multipart/related with text/html + inline image', async () => {
+      const source = `MIME-Version: 1.0
+Content-Type: multipart/related; boundary="b"; type="text/html"
+
+--b
+Content-Type: text/html
+
+<p>HTML with image: <img src="cid:logo"></p>
+
+--b
+Content-Type: image/png
+Content-ID: <logo>
+Content-Disposition: inline
+Content-Transfer-Encoding: base64
+
+iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==
+
+--b--`;
+      const email = await createEmailContentFromSource(source);
+
+      expect(email.textContent).toBeUndefined();
+      expect(email.htmlContent).toBeDefined();
+      expect(email.textAsHtml).toBeUndefined();
+
+      const result = composeReplyBody('Reply', undefined, email, true);
+      expect(result.text).toContain('Reply');
+      expect(result.text).not.toContain('HTML with image');
+    });
+
+    it('should detect HTML-only for multipart/mixed with text/html + attachment', async () => {
+      const source = `MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="b"
+
+--b
+Content-Type: text/html
+
+<p>HTML content only</p>
+
+--b
+Content-Type: application/pdf
+Content-Disposition: attachment; filename="doc.pdf"
+Content-Transfer-Encoding: base64
+
+JVBERi0xLjQKJcOkw0zrBEY:
+
+--b--`;
+      const email = await createEmailContentFromSource(source);
+
+      expect(email.textContent).toBeUndefined();
+      expect(email.htmlContent).toBeDefined();
+      expect(email.textAsHtml).toBeUndefined();
+
+      const result = composeReplyBody('Reply', undefined, email, true);
+      expect(result.text).toContain('Reply');
+      expect(result.text).not.toContain('HTML content only');
+    });
+
+    it('should detect genuine text/plain in nested multipart/alternative', async () => {
+      const source = `MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="b"
+
+--b
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="c"
+
+--c
+Content-Type: text/plain
+
+Nested plain text content.
+
+--c
+Content-Type: text/html
+
+<p>Nested HTML content.</p>
+
+--c--
+
+--b
+Content-Type: application/pdf
+Content-Disposition: attachment; filename="doc.pdf"
+Content-Transfer-Encoding: base64
+
+JVBERi0xLjQKJcOkw0zrBEY:
+
+--b--`;
+      const email = await createEmailContentFromSource(source);
+
+      expect(email.textContent).toBeDefined();
+      expect(email.textContent).toContain('Nested plain text content');
+      expect(email.htmlContent).toBeDefined();
+
+      const result = composeReplyBody('Reply', undefined, email, true);
+      expect(result.text).toContain('Reply');
+      expect(result.text).toContain('Nested plain text content');
+    });
+  });
+
   describe('BCC resolution', () => {
     it('should return undefined when no BCC specified', () => {
       const result = resolveReplyForwardBcc({}, undefined);

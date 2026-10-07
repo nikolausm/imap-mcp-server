@@ -5,6 +5,39 @@ import { parseSerializedArray } from './array-input.js';
 import { htmlToText } from 'html-to-text';
 
 /**
+ * Check if an email is HTML-only (no genuine text/plain part).
+ * Uses Content-Type header and textContent presence:
+ * - top-level text/html => HTML-only (mailparser synthesizes text from HTML)
+ * - top-level multipart/* => HTML-only iff textContent is empty/undefined (no genuine text/plain found)
+ */
+function isHtmlOnlyMessage(email: EmailContent): boolean {
+  const contentType = email.headers['content-type'] || email.headers['Content-Type'];
+  if (!contentType) return false;
+
+  // Handle both string and object formats
+  const contentTypeStr = Array.isArray(contentType)
+    ? contentType[0]
+    : (typeof contentType === 'string'
+       ? contentType
+       : (contentType as any).value || String(contentType));
+
+  if (typeof contentTypeStr !== 'string') return false;
+
+  // If top-level is text/html, mailparser synthesizes text from HTML, so no genuine text/plain
+  if (contentTypeStr.includes('text/html') && !contentTypeStr.includes('multipart')) {
+    return true;
+  }
+
+  // For multipart messages: HTML-only if no textContent exists (no genuine text/plain found)
+  if (contentTypeStr.includes('multipart')) {
+    return !email.textContent;
+  }
+
+  // Fallback: assume not HTML-only if we can't determine
+  return false;
+}
+
+/**
  * Normalize a Message-ID for comparison: strip angle brackets, trim, lowercase.
  * Used only for detecting duplicates, not for serialization.
  */
@@ -173,11 +206,11 @@ export function composeReplyBody(
   }
 
   // Get clean text for quoting
-  // With skipHtmlToText: true parsing:
-  // - textContent is genuine text/plain for multipart, empty/undefined for HTML-only
-  // - textAsHtml is clean HTML representation for both cases
-  const originalTextForQuoting = originalEmail.textContent
-    || (originalEmail.textAsHtml ? htmlToText(originalEmail.textAsHtml, { wordwrap: false }) : "");
+  // - For multipart messages with genuine text/plain: use textContent directly
+  // - For HTML-only messages: derive clean text from textAsHtml to avoid synthesized artifacts
+  const originalTextForQuoting = isHtmlOnlyMessage(originalEmail)
+    ? (originalEmail.textAsHtml ? htmlToText(originalEmail.textAsHtml, { wordwrap: false }) : "")
+    : (originalEmail.textContent || "");
 
   // Attribution with no artificial separator
   const attributionLine = `\n\nOn ${originalEmail.date.toLocaleString()}, ${originalEmail.from} wrote:`;
@@ -260,11 +293,11 @@ To: ${originalEmail.to.join(',')}
 `;
 
   // Get clean text for quoting
-  // With skipHtmlToText: true parsing:
-  // - textContent is genuine text/plain for multipart, empty/undefined for HTML-only
-  // - textAsHtml is clean HTML representation for both cases
-  const originalTextForQuoting = originalEmail.textContent
-    || (originalEmail.textAsHtml ? htmlToText(originalEmail.textAsHtml, { wordwrap: false }) : "");
+  // - For multipart messages with genuine text/plain: use textContent directly
+  // - For HTML-only messages: derive clean text from textAsHtml to avoid synthesized artifacts
+  const originalTextForQuoting = isHtmlOnlyMessage(originalEmail)
+    ? (originalEmail.textAsHtml ? htmlToText(originalEmail.textAsHtml, { wordwrap: false }) : "")
+    : (originalEmail.textContent || "");
   const fullText = newContentText + forwardHeaderText + originalTextForQuoting;
 
   // Build HTML if requested
