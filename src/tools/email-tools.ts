@@ -1322,7 +1322,7 @@ export function emailTools(
     const normalizedAttachments = await normalizeAttachments(attachments as AttachmentInput[] | undefined);
 
     const accountEmail = account.email || account.user;
-    const originalEmail = await imapService.getEmailContent(accountId, folder, uid, { bodyFormat: 'html' });
+    const originalEmail = await imapService.getEmailContentForDraft(accountId, folder, uid);
     const recipients = extractReplyRecipients(originalEmail, accountEmail, replyAll);
     const { inReplyTo, references } = buildReplyThreadingHeaders(originalEmail);
     const { text: replyText, html: replyHtml } = composeReplyBody(
@@ -1394,7 +1394,7 @@ export function emailTools(
       throw new Error(`Account ${accountId} not found`);
     }
 
-    const originalEmail = await imapService.getEmailContent(accountId, folder, uid, { bodyFormat: 'html' });
+    const originalEmail = await imapService.getEmailContentForDraft(accountId, folder, uid);
     const normalizedAttachments = await normalizeAttachments(attachments as AttachmentInput[] | undefined);
     const { text: forwardText, html: forwardHtml } = composeForwardBody(
       text ?? body,

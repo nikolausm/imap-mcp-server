@@ -114,6 +114,9 @@ interface EmailContentOptions {
   bodyFormat?: EmailBodyFormat;
   // Minimum length of a text/plain part to treat it as the substantive body (markdown/auto).
   markdownThreshold?: number;
+  // Draft composition: use skipHtmlToText:true to preserve genuine text/plain
+  // and get clean textAsHtml. Internal only, not exposed as MCP parameter.
+  skipHtmlToText?: boolean;
 }
 
 /**
@@ -725,6 +728,19 @@ export class ImapService {
   }
 
   /**
+   * Get email content for draft composition with skipHtmlToText: true parsing.
+   * This preserves genuine text/plain parts and provides clean textAsHtml for quoting.
+   * Internal only — not exposed as MCP parameter.
+   */
+  async getEmailContentForDraft(
+    accountId: string,
+    folderName: string,
+    uid: number
+  ): Promise<EmailContent> {
+    return this.getEmailContent(accountId, folderName, uid, { skipHtmlToText: true });
+  }
+
+  /**
    * Parse a raw RFC822 source Buffer with mailparser and render body/header
    * fields according to `options`. Used by both `getEmailContent` (single
    * message) and the includeBody paths in `searchEmails`/`getLatestEmails`/
@@ -749,9 +765,10 @@ export class ImapService {
       bodyFormat = 'markdown',
       markdownThreshold = 200,
       bodyMaxLength,
+      skipHtmlToText = false,
     } = options;
 
-    const parsed = await simpleParser(source);
+    const parsed = await simpleParser(source, { skipHtmlToText });
     const flagArray = Array.from(flags || []) as string[];
 
     const cap = (s: string | undefined): string | undefined => {
@@ -816,6 +833,10 @@ export class ImapService {
       }
     }
 
+    // textAsHtml is populated by mailparser with skipHtmlToText option
+    // Contains clean HTML representation without Outlook/Word markup
+    const textAsHtml = parsed.textAsHtml;
+
     return {
       uid,
       date: parsed.date || new Date(),
@@ -830,6 +851,7 @@ export class ImapService {
       textContent,
       htmlContent,
       markdownContent,
+      textAsHtml,
       bodyFormat,
       attachments: await Promise.all((parsed.attachments || []).map(async (att: any) => {
         const filename = att.filename || 'unknown';

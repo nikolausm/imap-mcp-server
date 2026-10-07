@@ -5,32 +5,6 @@ import { parseSerializedArray } from './array-input.js';
 import { htmlToText } from 'html-to-text';
 
 /**
- * HTML-to-text options for clean plain-text conversion.
- * Keeps anchor text but omits hrefs, skips images, preserves structure.
- */
-import type { HtmlToTextOptions } from 'html-to-text';
-
-const HTML_TO_TEXT_OPTIONS: HtmlToTextOptions = {
-  wordwrap: false,
-  selectors: [
-    { selector: "a", options: { ignoreHref: true } },
-    { selector: "img", format: "skip" },
-  ],
-};
-
-/**
- * Get clean plain text for quoting from EmailContent.
- * Uses html-to-text for HTML content to avoid mailparser artifacts.
- * Falls back to textContent if no HTML is available.
- */
-function getCleanTextForQuoting(originalEmail: EmailContent): string {
-  if (originalEmail.htmlContent) {
-    return htmlToText(originalEmail.htmlContent, HTML_TO_TEXT_OPTIONS);
-  }
-  return originalEmail.textContent || "";
-}
-
-/**
  * Normalize a Message-ID for comparison: strip angle brackets, trim, lowercase.
  * Used only for detecting duplicates, not for serialization.
  */
@@ -198,8 +172,12 @@ export function composeReplyBody(
     };
   }
 
-  // Get clean text for quoting, using html-to-text for HTML content to avoid mailparser artifacts
-  const originalTextForQuoting = getCleanTextForQuoting(originalEmail);
+  // Get clean text for quoting
+  // With skipHtmlToText: true parsing:
+  // - textContent is genuine text/plain for multipart, empty/undefined for HTML-only
+  // - textAsHtml is clean HTML representation for both cases
+  const originalTextForQuoting = originalEmail.textContent
+    || (originalEmail.textAsHtml ? htmlToText(originalEmail.textAsHtml, { wordwrap: false }) : "");
 
   // Attribution with no artificial separator
   const attributionLine = `\n\nOn ${originalEmail.date.toLocaleString()}, ${originalEmail.from} wrote:`;
@@ -212,24 +190,36 @@ export function composeReplyBody(
 
   const fullText = newContentText + attributionLine + '\n' + quotedOriginalText;
 
-  // Build HTML content if HTML was provided or if we have HTML original
+  // Build HTML content if HTML was provided or if we have clean HTML to quote
   let fullHtml: string | undefined;
-  const originalHtml = originalEmail.htmlContent || '';
 
   if (newContentHtml) {
     // Attribution with no artificial separator
     const attributionHtml = `<p>On ${originalEmail.date.toLocaleString()}, ${originalEmail.from} wrote:</p>`;
-    const quotedHtml = originalHtml
-      ? `<blockquote type="cite">${originalHtml}</blockquote>`
-      : '';
+    // Use textAsHtml for clean quoting (no Outlook markup)
+    // Fallback: textContent -> simple escaped HTML, omit if neither available
+    const quotedHtml = originalEmail.textAsHtml
+      ? `<blockquote type="cite">${originalEmail.textAsHtml}</blockquote>`
+      : (originalEmail.textContent
+         ? `<blockquote type="cite">${originalEmail.textContent.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br/>')}</blockquote>`
+         : '');
     fullHtml = `${newContentHtml}${attributionHtml}${quotedHtml}`;
-  } else if (originalHtml && newContentText) {
-    // If no HTML provided but we have HTML original, create basic HTML
+  } else if (newContentText) {
+    // If no HTML provided, create basic HTML with paragraph preservation
     const attributionHtml = `<p>On ${originalEmail.date.toLocaleString()}, ${originalEmail.from} wrote:</p>`;
-    const quotedHtml = `<blockquote type="cite">${originalHtml}</blockquote>`;
-    const escapedText = newContentText
-      .replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    fullHtml = `<p>${escapedText}</p>${attributionHtml}${quotedHtml}`;
+    // Use textAsHtml for clean quoting (no Outlook markup)
+    // Fallback: textContent -> simple escaped HTML, omit if neither available
+    const quotedHtml = originalEmail.textAsHtml
+      ? `<blockquote type="cite">${originalEmail.textAsHtml}</blockquote>`
+      : (originalEmail.textContent
+         ? `<blockquote type="cite">${originalEmail.textContent.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br/>')}</blockquote>`
+         : '');
+    // Preserve paragraphs from newContentText: double newlines -> separate <p>
+    const paragraphs = newContentText
+      .split('\n\n')
+      .map(p => `<p>${p.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br/>')}</p>`)
+      .join('');
+    fullHtml = `${paragraphs}${attributionHtml}${quotedHtml}`;
   }
 
   return {
@@ -270,14 +260,17 @@ To: ${originalEmail.to.join(',')}
 `;
 
   // Get clean text for quoting
-  const originalTextForQuoting = getCleanTextForQuoting(originalEmail);
+  // With skipHtmlToText: true parsing:
+  // - textContent is genuine text/plain for multipart, empty/undefined for HTML-only
+  // - textAsHtml is clean HTML representation for both cases
+  const originalTextForQuoting = originalEmail.textContent
+    || (originalEmail.textAsHtml ? htmlToText(originalEmail.textAsHtml, { wordwrap: false }) : "");
   const fullText = newContentText + forwardHeaderText + originalTextForQuoting;
 
   // Build HTML if requested
   let fullHtml: string | undefined;
-  const originalHtml = originalEmail.htmlContent || '';
 
-  if (newContentHtml || originalHtml) {
+  if (newContentHtml || originalEmail.textAsHtml || originalEmail.textContent) {
     const forwardHeaderHtml = `
 <div>---------- Forwarded message ----------</div>
 <div><strong>From:</strong> ${originalEmail.from}</div>
@@ -286,7 +279,14 @@ To: ${originalEmail.to.join(',')}
 <div><strong>To:</strong> ${originalEmail.to.join(',')}</div>
 <br>
 `;
-    fullHtml = (newContentHtml || '') + forwardHeaderHtml + originalHtml;
+    // Use textAsHtml for clean quoting (no Outlook markup)
+    // Fallback: textContent -> simple escaped HTML, omit if neither available
+    const quotedContent = originalEmail.textAsHtml
+      ? originalEmail.textAsHtml
+      : (originalEmail.textContent
+         ? originalEmail.textContent.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br/>')
+         : '');
+    fullHtml = (newContentHtml || '') + forwardHeaderHtml + (quotedContent ? `<blockquote type="cite">${quotedContent}</blockquote>` : '');
   }
 
   return {
