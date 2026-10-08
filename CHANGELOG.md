@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- The MCP handshake (`serverInfo.version`) and the setup wizard's `/api/health` endpoint reported a hard-coded `1.0.0` for every release. Both now read the version from `package.json` at runtime. Tests in `tests/package-version.test.ts`.
+
 ## [2.1.0] - 2026-09-26
 
 No tool was renamed, and no existing input or output shape changed. The new
