@@ -694,6 +694,34 @@ export class ImapService {
     }
   }
 
+  /**
+   * Flatten a mailparser AddressObject (or array of them) into one string per
+   * address. `AddressObject.text` joins every address of the header into a
+   * single "A <a>, B <b>" string, which breaks per-address handling such as
+   * the reply-all self/duplicate filter. Group members are flattened in.
+   */
+  private addressList(value: any): string[] {
+    const objects = Array.isArray(value) ? value : value ? [value] : [];
+    const out: string[] = [];
+    const walk = (entries: any[]) => {
+      for (const entry of entries || []) {
+        if (entry?.group) {
+          walk(entry.group);
+        } else if (entry?.address) {
+          out.push(this.formatAddress(entry));
+        }
+      }
+    };
+    for (const obj of objects) {
+      if (Array.isArray(obj?.value)) {
+        walk(obj.value);
+      } else if (obj?.text) {
+        out.push(obj.text);
+      }
+    }
+    return out;
+  }
+
   private formatAddress(addr: any): string {
     if (!addr) return '';
     if (addr.name) {
@@ -824,10 +852,15 @@ export class ImapService {
       uid,
       date: parsed.date || new Date(),
       from: parsed.from?.text || '',
-      to: parsed.to ? (Array.isArray(parsed.to) ? parsed.to.map((t: any) => t.text || '') : [parsed.to.text || '']) : [],
+      to: this.addressList(parsed.to),
+      cc: this.addressList(parsed.cc),
+      replyTo: this.addressList(parsed.replyTo),
       subject: parsed.subject || '',
       messageId: parsed.messageId || '',
       inReplyTo: parsed.inReplyTo as string | undefined,
+      references: parsed.references
+        ? (Array.isArray(parsed.references) ? parsed.references : parsed.references.split(/\s+/)).filter(Boolean)
+        : [],
       flags: flagArray,
       customKeywords: flagArray.filter(f => !isSystemFlag(f)),
       headers,
