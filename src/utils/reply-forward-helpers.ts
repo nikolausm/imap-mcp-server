@@ -38,6 +38,43 @@ function isHtmlOnlyMessage(email: EmailContent): boolean {
 }
 
 /**
+ * Clean up Outlook SafeLinks in HTML for quoting.
+ * Replaces links to *.safelinks.protection.outlook.com with their original destination.
+ * Preserves human-readable anchor text when present.
+ */
+function cleanSafeLinks(html: string): string {
+  const SAFELINKS_HOST = '.safelinks.protection.outlook.com';
+
+  return html.replace(/<a\s+([^>]*?)href="([^"]*)"([^>]*?)>([^<]*)<\/a>/g, (match, beforeHref, href, afterHref, textContent) => {
+    try {
+      const url = new URL(href);
+      if (!url.hostname.endsWith(SAFELINKS_HOST)) {
+        return match;
+      }
+
+      const originalUrl = url.searchParams.get('url');
+      if (!originalUrl) {
+        return match;
+      }
+
+      const decodedUrl = decodeURIComponent(originalUrl);
+      try {
+        new URL(decodedUrl);
+      } catch {
+        return match;
+      }
+
+      // If visible text is the SafeLink URL itself (allowing &amp; vs &), replace with original
+      const unescapedText = textContent.replace(/&amp;/g, '&');
+      const cleanText = unescapedText.trim() === href ? decodedUrl : textContent;
+      return `<a href="${decodedUrl}"${beforeHref}${afterHref}>${cleanText}</a>`;
+    } catch {
+      return match;
+    }
+  });
+}
+
+/**
  * Normalize a Message-ID for comparison: strip angle brackets, trim, lowercase.
  * Used only for detecting duplicates, not for serialization.
  */
@@ -208,8 +245,9 @@ export function composeReplyBody(
   // Get clean text for quoting
   // - For multipart messages with genuine text/plain: use textContent directly
   // - For HTML-only messages: derive clean text from textAsHtml to avoid synthesized artifacts
+  const cleanTextAsHtml = originalEmail.textAsHtml ? cleanSafeLinks(originalEmail.textAsHtml) : undefined;
   const originalTextForQuoting = isHtmlOnlyMessage(originalEmail)
-    ? (originalEmail.textAsHtml ? htmlToText(originalEmail.textAsHtml, { wordwrap: false }) : "")
+    ? (cleanTextAsHtml ? htmlToText(cleanTextAsHtml, { wordwrap: false }) : "")
     : (originalEmail.textContent || "");
 
   // Attribution with no artificial separator
@@ -230,9 +268,11 @@ export function composeReplyBody(
     // Attribution with no artificial separator
     const attributionHtml = `<p>On ${originalEmail.date.toLocaleString()}, ${originalEmail.from} wrote:</p>`;
     // Use textAsHtml for clean quoting (no Outlook markup)
+    // Clean SafeLinks before quoting
+    const cleanHtml = originalEmail.textAsHtml ? cleanSafeLinks(originalEmail.textAsHtml) : undefined;
     // Fallback: textContent -> simple escaped HTML, omit if neither available
-    const quotedHtml = originalEmail.textAsHtml
-      ? `<blockquote type="cite">${originalEmail.textAsHtml}</blockquote>`
+    const quotedHtml = cleanHtml
+      ? `<blockquote type="cite">${cleanHtml}</blockquote>`
       : (originalEmail.textContent
          ? `<blockquote type="cite">${originalEmail.textContent.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br/>')}</blockquote>`
          : '');
@@ -241,9 +281,11 @@ export function composeReplyBody(
     // If no HTML provided, create basic HTML with paragraph preservation
     const attributionHtml = `<p>On ${originalEmail.date.toLocaleString()}, ${originalEmail.from} wrote:</p>`;
     // Use textAsHtml for clean quoting (no Outlook markup)
+    // Clean SafeLinks before quoting
+    const cleanHtml = originalEmail.textAsHtml ? cleanSafeLinks(originalEmail.textAsHtml) : undefined;
     // Fallback: textContent -> simple escaped HTML, omit if neither available
-    const quotedHtml = originalEmail.textAsHtml
-      ? `<blockquote type="cite">${originalEmail.textAsHtml}</blockquote>`
+    const quotedHtml = cleanHtml
+      ? `<blockquote type="cite">${cleanHtml}</blockquote>`
       : (originalEmail.textContent
          ? `<blockquote type="cite">${originalEmail.textContent.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br/>')}</blockquote>`
          : '');
@@ -295,8 +337,9 @@ To: ${originalEmail.to.join(',')}
   // Get clean text for quoting
   // - For multipart messages with genuine text/plain: use textContent directly
   // - For HTML-only messages: derive clean text from textAsHtml to avoid synthesized artifacts
+  const cleanTextAsHtml = originalEmail.textAsHtml ? cleanSafeLinks(originalEmail.textAsHtml) : undefined;
   const originalTextForQuoting = isHtmlOnlyMessage(originalEmail)
-    ? (originalEmail.textAsHtml ? htmlToText(originalEmail.textAsHtml, { wordwrap: false }) : "")
+    ? (cleanTextAsHtml ? htmlToText(cleanTextAsHtml, { wordwrap: false }) : "")
     : (originalEmail.textContent || "");
   const fullText = newContentText + forwardHeaderText + originalTextForQuoting;
 
@@ -313,9 +356,11 @@ To: ${originalEmail.to.join(',')}
 <br>
 `;
     // Use textAsHtml for clean quoting (no Outlook markup)
+    // Clean SafeLinks before quoting
+    const cleanHtml = originalEmail.textAsHtml ? cleanSafeLinks(originalEmail.textAsHtml) : undefined;
     // Fallback: textContent -> simple escaped HTML, omit if neither available
-    const quotedContent = originalEmail.textAsHtml
-      ? originalEmail.textAsHtml
+    const quotedContent = cleanHtml
+      ? cleanHtml
       : (originalEmail.textContent
          ? originalEmail.textContent.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br/>')
          : '');

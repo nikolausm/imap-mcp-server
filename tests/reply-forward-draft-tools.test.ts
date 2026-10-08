@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import fs from 'fs';
+import path from 'path';
 import {
   extractEmail,
   generateReplySubject,
@@ -546,6 +548,76 @@ JVBERi0xLjQKJcOkw0zrBEY:
       const result = composeReplyBody('Reply', undefined, email, true);
       expect(result.text).toContain('Reply');
       expect(result.text).toContain('Nested plain text content');
+    });
+
+    describe('SafeLinks cleanup in quoted HTML', () => {
+      it('should unwrap SafeLink to original destination', async () => {
+        const source = `Content-Type: text/html
+
+<p><a href="https://eur02.safelinks.protection.outlook.com/?url=http%3A%2F%2Fwww.example.com%2F&data=test">Example</a></p>`;
+        const email = await createEmailContentFromSource(source);
+
+        const result = composeReplyBody('Reply', undefined, email, true);
+        expect(result.html).toBeDefined();
+        // Should contain the original URL, not the SafeLink domain
+        expect(result.html).toContain('http://www.example.com/');
+        expect(result.html).not.toContain('safelinks.protection.outlook.com');
+      });
+
+      it('should preserve human-readable text with SafeLink href', async () => {
+        const source = `Content-Type: text/html
+
+<p><a href="https://eur02.safelinks.protection.outlook.com/?url=https%3A%2F%2Ffacebook.com&data=test">Visit our Facebook page</a></p>`;
+        const email = await createEmailContentFromSource(source);
+
+        const result = composeReplyBody('Reply', undefined, email, true);
+        expect(result.html).toBeDefined();
+        // Should have the original URL
+        expect(result.html).toContain('facebook.com');
+        // Should preserve human-readable text
+        expect(result.html).toContain('Visit our Facebook page');
+        // Should not contain SafeLink domain
+        expect(result.html).not.toContain('safelinks.protection.outlook.com');
+      });
+
+      it('should leave ordinary URLs unchanged', async () => {
+        const source = `Content-Type: text/html
+
+<p><a href="https://www.example.com">Example Website</a></p>`;
+        const email = await createEmailContentFromSource(source);
+
+        const result = composeReplyBody('Reply', undefined, email, true);
+        expect(result.html).toBeDefined();
+        // Ordinary links should remain unchanged
+        expect(result.html).toContain('https://www.example.com');
+        expect(result.html).toContain('Example Website');
+        expect(result.html).not.toContain('safelinks.protection.outlook.com');
+      });
+
+      it('should leave malformed SafeLinks unchanged', async () => {
+        const source = `Content-Type: text/html
+
+<p><a href="https://eur02.safelinks.protection.outlook.com/?invalid=no-url-param">Broken SafeLink</a></p>`;
+        const email = await createEmailContentFromSource(source);
+
+        const result = composeReplyBody('Reply', undefined, email, true);
+        expect(result.html).toBeDefined();
+        // Should preserve the original since it has no url parameter
+        expect(result.html).toContain('safelinks.protection.outlook.com');
+      });
+
+      it('should handle SafeLinks in real Camping Vrijhaven email', async () => {
+        const source = fs.readFileSync(path.join(process.env.HOME, 'Downloads', 'camping-vrijhaven.eml'), 'utf8');
+        const email = await createEmailContentFromSource(source);
+
+        const result = composeReplyBody('Test reply', undefined, email, true);
+        expect(result.html).toBeDefined();
+        // Should have unwrapped SafeLinks to original URLs
+        expect(result.html).toContain('http://www.campingvrijhaven.nl/');
+        expect(result.html).toContain('www.facebook.com/campingvrijhaven');
+        // Should not contain SafeLink domains
+        expect(result.html).not.toContain('safelinks.protection.outlook.com');
+      });
     });
   });
 
