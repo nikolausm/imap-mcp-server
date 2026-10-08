@@ -365,6 +365,10 @@ export class ImapService {
       uidNext: true,
       uidValidity: true,
     });
+    // imapflow >= 2.2 returns false when STATUS fails for a reason other than a missing mailbox
+    if (!status) {
+      throw new Error(`STATUS failed for folder "${folderName}"`);
+    }
     return {
       messages: Number(status.messages ?? 0),
       recent: Number(status.recent ?? 0),
@@ -1786,7 +1790,7 @@ export class ImapService {
       let messageCount = 0;
       try {
         const inbox = await testClient.status('INBOX', { messages: true });
-        messageCount = inbox.messages || 0;
+        messageCount = (inbox && inbox.messages) || 0;
       } catch {
         // INBOX might not exist or have different name
       }
