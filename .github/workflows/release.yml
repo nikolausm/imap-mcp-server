@@ -24,7 +24,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write   # create the GitHub Release for the tag
   id-token: write   # required for npm Trusted Publishing AND mcp-publisher's GitHub OIDC login
 
 jobs:
@@ -91,6 +91,25 @@ jobs:
           else
             npm publish   # no token: OIDC authenticates, provenance is automatic
           fi
+
+      - name: Create GitHub Release
+        # Notes are the matching CHANGELOG section. Skipped when the release
+        # already exists, so the workflow stays safely re-runnable.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="v$VERSION"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists — skipping."
+            exit 0
+          fi
+          awk -v v="$VERSION" '$0 ~ "^## \\[" v "\\]" {f=1; next} f && /^## \[/ {exit} f' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "::error::No CHANGELOG section for $VERSION"
+            exit 1
+          fi
+          gh release create "$TAG" --verify-tag --title "$TAG" --notes-file release-notes.md --latest
 
       - name: Install mcp-publisher
         run: |
