@@ -17,6 +17,12 @@ No tool was renamed, and no existing input or output shape changed. The new `fro
 
 ### Added
 - Send-as aliases (#192). `imap_send_email`, `imap_save_draft`, `imap_reply_to_email` and `imap_forward_email` accept an optional `from`. Accepted senders are the account's email, its login (if that is an email address), and addresses configured in the new optional `allowedFrom` account field (set via `imap_add_account` / `imap_update_account`). The value must parse to exactly one mailbox, so multiple addresses, groups and CR/LF header injection are rejected. Addresses are matched case-insensitively, and the display name is kept. Reply-all also leaves out configured aliases. `allowedFrom` is an application-level guardrail, not a security boundary: the SMTP server enforces the real sender policy.
+- `imap_save_reply_draft` tool — save a reply to an existing email as a draft without sending (IMAP only, no SMTP required). Supports reply/reply-all, proper threading (In-Reply-To/References), quoted original content, and all standard reply parameters.
+- `imap_save_forward_draft` tool — save a forward of an existing email as a draft without sending (IMAP only, no SMTP required). Supports forwarding with header block, original content quoting, and optional HTML content.
+- Shared helper module `src/utils/reply-forward-helpers.ts` for message preparation logic reused by both new draft tools.
+- Comprehensive test suite for the new draft tools in `tests/reply-forward-draft-tools.test.ts`.
+
+Both new tools enable **draft-only workflows** where users can compose replies and forwards without requiring SMTP configuration, allowing fine-grained capability control through `IMAP_MCP_ENABLED_TOOLS`.
 
 ### Changed
 - Runtime dependencies: `imapflow` 2.2.1, `nodemailer` 10.0.13, `mailparser` 3.9.33, `@modelcontextprotocol/sdk` 1.31, `dotenv` 18.0.5, `chalk` 6.0.1 (#193).
