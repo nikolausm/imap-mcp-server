@@ -298,7 +298,7 @@ Content-Type: multipart/mixed; boundary="b"
 --b
 Content-Type: text/html
 
-<p>Here is the Velux proposal that I wrote on the topic earlier</p>
+<p>Here is the proposal that I wrote on the topic earlier</p>
 
 --b
 Content-Type: application/pdf
@@ -316,9 +316,9 @@ JVBERi0xLjQKJcOkw0zrBEY:
 
       const result = composeForwardBody('Please see this', undefined, email, true);
       expect(result.text).toContain('Please see this');
-      expect(result.text).toContain('Here is the Velux proposal that I wrote on the topic earlier');
+      expect(result.text).toContain('Here is the proposal that I wrote on the topic earlier');
       expect(result.html).toBeDefined();
-      expect(result.html).toContain('Here is the Velux proposal that I wrote on the topic earlier');
+      expect(result.html).toContain('Here is the proposal that I wrote on the topic earlier');
     });
 
     it('should detect genuine text/plain in nested multipart/alternative', async () => {
