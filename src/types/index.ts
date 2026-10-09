@@ -41,6 +41,8 @@ export interface ImapAccount {
   credentialSource?: 'keyring' | 'vault' | 'file' | 'env';
   /** Optional per-account KV v2 path (`mount/path`) overriding IMAP_MCP_VAULT_PATH. */
   vaultPath?: string;
+  /** Additional sender identities accepted by outbound tools. */
+  allowedFrom?: string[];
 }
 
 export interface SmtpConfig {

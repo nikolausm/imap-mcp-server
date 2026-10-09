@@ -5,6 +5,7 @@ import { SmtpService } from '../services/smtp-service.js';
 import { selectSearchFolders } from '../utils/search-folders.js';
 import { parseSerializedArray } from '../utils/array-input.js';
 import { mergeBcc } from '../utils/default-bcc.js';
+import { allowedFromAddresses, resolveFrom } from '../utils/send-as.js';
 import { buildReferences, buildReplyRecipients } from '../utils/reply-headers.js';
 import type { EmailAttachment, EmailMessage, ImapAccount, SentSaveResult } from '../types/index.js';
 import { z } from 'zod';
@@ -1019,6 +1020,7 @@ export function emailTools(
     description: 'Compose and send a NEW email via the account\'s SMTP server (a copy is saved to Sent unless disabled; account defaultBcc addresses are always BCC\'d when configured). Use for fresh outbound messages. To respond to an existing message use imap_reply_to_email (keeps threading); to pass a message on use imap_forward_email; to store without sending use imap_save_draft. Supports to/cc/bcc, text and/or HTML, and attachments by base64 content or by file path (see imap_upload_file for large files).',
     inputSchema: {
       ...accountSelector,
+      from: z.string().optional().describe('Sender identity. Must match the account email/login or an address configured in allowedFrom.'),
       to: addressList('to', 'Recipient email address(es). Either an array of addresses or a single comma-separated string; both accept "Name <addr@example.com>" form.').nonoptional(),
       subject: z.string().describe('Email subject'),
       text: z.string().optional().describe('Plain text content'),
@@ -1030,7 +1032,7 @@ export function emailTools(
       attachments: z.array(attachmentSchema).optional().describe('Email attachments'),
       dryRun: z.boolean().default(false).describe('Validate attachments and compose MIME without sending SMTP mail or saving a Sent copy. Use to diagnose attachment payloads safely before sending.'),
     }
-  }, async ({ accountId: rawAccountId, accountName, to, subject, text, html, body, cc, bcc, replyTo, attachments, dryRun }) => {
+  }, async ({ accountId: rawAccountId, accountName, from, to, subject, text, html, body, cc, bcc, replyTo, attachments, dryRun }) => {
     const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
     const account = await accountManager.getAccount(accountId);
     if (!account) {
@@ -1039,7 +1041,7 @@ export function emailTools(
     const normalizedAttachments = await normalizeAttachments(attachments as AttachmentInput[] | undefined);
 
     const emailComposer = {
-      from: account.email || account.user,
+      from: resolveFrom(account, from),
       to,
       subject,
       text: text ?? body,
@@ -1091,6 +1093,7 @@ export function emailTools(
     description: 'Save an email as a draft in the Drafts folder (no send). Takes the same fields as imap_send_email (including account defaultBcc when configured).',
     inputSchema: {
       ...accountSelector,
+      from: z.string().optional().describe('Sender identity. Must match the account email/login or an address configured in allowedFrom.'),
       to: addressList('to', 'Recipient email address(es). Either an array of addresses or a single comma-separated string.').optional(),
       subject: z.string().optional().describe('Email subject'),
       text: z.string().optional().describe('Plain text content'),
@@ -1104,7 +1107,7 @@ export function emailTools(
       attachments: z.array(attachmentSchema).optional().describe('Email attachments'),
       folder: z.string().optional().describe('Override the Drafts folder name (defaults to auto-detected Drafts folder)'),
     }
-  }, async ({ accountId: rawAccountId, accountName, to, subject, text, html, body, cc, bcc, replyTo, inReplyTo, references, attachments, folder }) => {
+  }, async ({ accountId: rawAccountId, accountName, from, to, subject, text, html, body, cc, bcc, replyTo, inReplyTo, references, attachments, folder }) => {
     const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
     const account = await accountManager.getAccount(accountId);
     if (!account) {
@@ -1113,7 +1116,7 @@ export function emailTools(
     const normalizedAttachments = await normalizeAttachments(attachments as AttachmentInput[] | undefined);
 
     const emailComposer = {
-      from: account.email || account.user,
+      from: resolveFrom(account, from),
       to: to ?? '',
       subject: subject ?? '',
       text: text ?? body,
@@ -1157,6 +1160,7 @@ export function emailTools(
     description: 'Reply to an existing email identified by folder + uid. Automatically sets the recipient to the original sender, prefixes the subject with "Re:", and preserves threading (In-Reply-To/References). Set replyAll to also include the original To (and Cc as Cc), excluding the account\'s own address; a Reply-To header on the original is honoured. Use this instead of imap_send_email whenever the user is responding to a message already in a mailbox. Account defaultBcc addresses are always BCC\'d when configured.',
     inputSchema: {
       ...accountSelector,
+      from: z.string().optional().describe('Sender identity. Must match the account email/login or an address configured in allowedFrom.'),
       folder: z.string().default('INBOX').describe('Folder containing the original email'),
       uid: z.coerce.number().describe('UID of the email to reply to'),
       text: z.string().optional().describe('Plain text reply content'),
@@ -1166,7 +1170,7 @@ export function emailTools(
       bcc: bccSchema,
       attachments: z.array(attachmentSchema).optional().describe('Email attachments'),
     }
-  }, async ({ accountId: rawAccountId, accountName, folder, uid, text, html, body, replyAll, bcc, attachments }) => {
+  }, async ({ accountId: rawAccountId, accountName, from, folder, uid, text, html, body, replyAll, bcc, attachments }) => {
     const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
     const account = await accountManager.getAccount(accountId);
     if (!account) {
@@ -1178,15 +1182,16 @@ export function emailTools(
     const originalEmail = await imapService.getEmailContent(accountId, folder, uid, { bodyFormat: 'text' });
 
     // Reply: To = Reply-To or From. replyAll: also the original To, and Cc =
-    // the original Cc, minus our own address(es) and duplicates.
+    // the original Cc, minus our own address(es) — including configured
+    // send-as aliases — and duplicates.
     const { to: replyRecipients, cc: replyCc } = buildReplyRecipients(
       originalEmail,
-      [account.email, account.user],
+      [...allowedFromAddresses(account)],
       replyAll,
     );
 
     const emailComposer = {
-      from: account.email || account.user,
+      from: resolveFrom(account, from),
       to: replyRecipients,
       cc: replyCc.length > 0 ? replyCc : undefined,
       subject: originalEmail.subject.startsWith('Re: ') ? originalEmail.subject : `Re: ${originalEmail.subject}`,
@@ -1223,6 +1228,7 @@ export function emailTools(
     description: 'Forward an existing email (folder + uid) to new recipients, quoting the original message and headers. Optionally include the original attachments. Use when the user wants to pass an existing message on to someone else; use imap_reply_to_email instead to respond to the sender. Account defaultBcc addresses are always BCC\'d when configured.',
     inputSchema: {
       ...accountSelector,
+      from: z.string().optional().describe('Sender identity. Must match the account email/login or an address configured in allowedFrom.'),
       folder: z.string().default('INBOX').describe('Folder containing the original email'),
       uid: z.coerce.number().describe('UID of the email to forward'),
       to: addressList('to', 'Forward to email address(es). Either an array of addresses or a single comma-separated string.').nonoptional(),
@@ -1231,7 +1237,7 @@ export function emailTools(
       bcc: bccSchema,
       includeAttachments: z.boolean().default(true).describe('Include original attachments'),
     }
-  }, async ({ accountId: rawAccountId, accountName, folder, uid, to, text, body, bcc, includeAttachments }) => {
+  }, async ({ accountId: rawAccountId, accountName, from, folder, uid, to, text, body, bcc, includeAttachments }) => {
     const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
     const account = await accountManager.getAccount(accountId);
     if (!account) {
@@ -1245,7 +1251,7 @@ export function emailTools(
     const forwardHeader = `\n\n---------- Forwarded message ----------\nFrom: ${originalEmail.from}\nDate: ${originalEmail.date.toLocaleString()}\nSubject: ${originalEmail.subject}\nTo: ${originalEmail.to.join(', ')}\n\n`;
     
     const emailComposer = {
-      from: account.email || account.user,
+      from: resolveFrom(account, from),
       to,
       subject: originalEmail.subject.startsWith('Fwd: ') ? originalEmail.subject : `Fwd: ${originalEmail.subject}`,
       text: (text ?? body ?? '') + forwardHeader + (originalEmail.textContent || ''),

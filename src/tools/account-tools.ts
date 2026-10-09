@@ -27,8 +27,9 @@ export function accountTools(
       smtpSecure: z.boolean().optional().describe('Use implicit TLS (SMTPS). Ignored for port 587/25 which always use STARTTLS, and for port 465 which always uses implicit TLS'),
       sentFolder: z.string().optional().describe('Explicit Sent-folder name for saving sent-mail copies (e.g. "Gesendet"). Only needed when auto-detection fails — the server must lack a \\Sent SPECIAL-USE folder. Check names with imap_list_folders'),
       defaultBcc: z.union([z.string(), z.array(z.string())]).optional().describe('Optional BCC address(es) applied automatically to every outbound send, reply, forward, and draft for this account. Merged with any per-call bcc'),
+      allowedFrom: z.array(z.string()).optional().describe('Additional sender identities allowed in the From header. The account email and login are always allowed.'),
     }
-  }, async ({ name, host, port, user, password, tls, allowStartTLS, email, smtpHost, smtpPort, smtpSecure, sentFolder, defaultBcc }) => {
+  }, async ({ name, host, port, user, password, tls, allowStartTLS, email, smtpHost, smtpPort, smtpSecure, sentFolder, defaultBcc, allowedFrom }) => {
     const smtp = (smtpHost || smtpPort !== undefined || smtpSecure !== undefined)
       ? {
           host: smtpHost || host,
@@ -51,6 +52,7 @@ export function accountTools(
       ...(defaultBcc !== undefined && defaultBcc !== '' && !(Array.isArray(defaultBcc) && defaultBcc.length === 0)
         ? { defaultBcc }
         : {}),
+      ...(allowedFrom?.length ? { allowedFrom } : {}),
     });
 
     return {
@@ -86,8 +88,9 @@ export function accountTools(
       saveToSent: z.boolean().optional().describe('Save sent emails to the Sent folder'),
       sentFolder: z.string().optional().describe('Explicit Sent-folder name for saving sent-mail copies (e.g. "Gesendet"). Overrides auto-detection; pass an empty string to clear the override and re-enable auto-detection. Check names with imap_list_folders'),
       defaultBcc: z.union([z.string(), z.array(z.string())]).optional().describe('Optional BCC address(es) applied automatically to every outbound message for this account. Pass an empty string to clear'),
+      allowedFrom: z.array(z.string()).optional().describe('Additional sender identities allowed in the From header. Pass an empty array to clear.'),
     }
-  }, async ({ accountId, name, host, port, user, password, tls, allowStartTLS, email, smtpHost, smtpPort, smtpSecure, smtpUser, smtpPassword, saveToSent, sentFolder, defaultBcc }) => {
+  }, async ({ accountId, name, host, port, user, password, tls, allowStartTLS, email, smtpHost, smtpPort, smtpSecure, smtpUser, smtpPassword, saveToSent, sentFolder, defaultBcc, allowedFrom }) => {
     const existing = accountManager.getAccount(accountId);
     if (!existing) {
       throw new Error(`Account ${accountId} not found`);
@@ -112,6 +115,9 @@ export function accountTools(
       } else {
         updates.defaultBcc = defaultBcc;
       }
+    }
+    if (allowedFrom !== undefined) {
+      updates.allowedFrom = allowedFrom.length === 0 ? undefined : allowedFrom;
     }
 
     const smtpTouched = [smtpHost, smtpPort, smtpSecure, smtpUser, smtpPassword].some(v => v !== undefined);
