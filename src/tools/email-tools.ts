@@ -13,7 +13,7 @@ import {
 } from '../utils/reply-forward-helpers.js';
 import { allowedFromAddresses, resolveFrom } from '../utils/send-as.js';
 import { buildReferences, buildReplyRecipients } from '../utils/reply-headers.js';
-import type { EmailAttachment, EmailContent, EmailMessage, ImapAccount, SentSaveResult } from '../types/index.js';
+import type { EmailAttachment, EmailComposer, EmailContent, EmailMessage, ImapAccount, SentSaveResult } from '../types/index.js';
 import { z } from 'zod';
 import { basename, join } from 'path';
 import { homedir } from 'os';
@@ -74,7 +74,7 @@ type AttachmentDiagnostic = {
   filename: string;
   contentType: string;
   size: number;
-  source: 'content' | 'path';
+  source: 'content' | 'path' | 'original';
   contentDisposition: 'attachment' | 'inline';
   cid?: string;
 };
@@ -99,6 +99,48 @@ function decodeStrictBase64(value: string, index: number): Buffer {
     throw new Error(`Invalid attachment at index ${index}: content is not valid base64`);
   }
   return Buffer.from(normalized, 'base64');
+}
+
+/**
+ * Convert mailparser attachment format (from getAllAttachments) to EmailAttachment
+ * format expected by MailComposer/nodemailer.
+ * Preserves contentDisposition (inline/attachment) and cid for CID references.
+ */
+export function toEmailAttachments(
+  attachments: Array<{
+    filename: string;
+    content: Buffer;
+    contentType: string;
+    contentDisposition?: string;
+    contentId?: string;
+    cid?: string;
+    size: number;
+  }>
+): EmailAttachment[] {
+  if (!attachments || attachments.length === 0) {
+    return [];
+  }
+
+  return attachments.map(att => {
+    const contentDisposition = att.contentDisposition === 'inline' ? 'inline' : 'attachment';
+    const cid = att.cid || (att.contentId ? att.contentId.replace(/^<|>$/g, '') : undefined);
+
+    const result: EmailAttachment = {
+      filename: att.filename,
+      content: att.content,
+      contentType: att.contentType,
+    };
+
+    // Only include optional fields if they have meaningful values
+    if (contentDisposition === 'inline') {
+      result.contentDisposition = 'inline';
+    }
+    if (cid) {
+      result.cid = cid;
+    }
+
+    return result;
+  });
 }
 
 export async function normalizeAttachments(atts?: AttachmentInput[]): Promise<NormalizedAttachments> {
@@ -1255,8 +1297,15 @@ export function emailTools(
 
     // Prepare forwarded content
     const forwardHeader = `\n\n---------- Forwarded message ----------\nFrom: ${originalEmail.from}\nDate: ${originalEmail.date.toLocaleString()}\nSubject: ${originalEmail.subject}\nTo: ${originalEmail.to.join(', ')}\n\n`;
-    
-    const emailComposer = {
+
+    // Handle original attachments if requested
+    let allAttachments: EmailAttachment[] | undefined;
+    if (includeAttachments && originalEmail.attachments?.length) {
+      const originalAttachments = await imapService.getAllAttachments(accountId, folder, uid);
+      allAttachments = toEmailAttachments(originalAttachments);
+    }
+
+    const emailComposer: EmailComposer = {
       from: resolveFrom(account, from),
       to,
       subject: originalEmail.subject.startsWith('Fwd: ') ? originalEmail.subject : `Fwd: ${originalEmail.subject}`,
@@ -1264,6 +1313,7 @@ export function emailTools(
       html: originalEmail.htmlContent,
       bcc: resolveBcc(account, bcc),
       references: originalEmail.messageId,
+      attachments: allAttachments,
     };
 
     const { messageId, rawMessage } = await smtpService.sendEmail(accountId, account, emailComposer);
@@ -1366,7 +1416,7 @@ export function emailTools(
 
   // Save forward draft tool
   server.registerTool('imap_save_forward_draft', {
-    description: 'Save a forward of an existing email as a draft in the Drafts folder (no send, IMAP only). Forwards the message to specified recipients with conventional forwarded-message header block and optionally includes quoted content. Additional attachments can be supplied. Account defaultBcc addresses are applied when configured. Use this when the user wants to compose a forward as a draft without sending. Note: original attachments are NOT automatically forwarded.',
+    description: 'Save a forward of an existing email as a draft in the Drafts folder (no send, IMAP only). Forwards the message to specified recipients with conventional forwarded-message header block, optionally includes quoted original content, and optionally includes original message attachments. Additional attachments can also be supplied. Account defaultBcc addresses are applied when configured. Use this when the user wants to compose a forward as a draft without sending.',
     inputSchema: {
       ...accountSelector,
       from: z.string().optional().describe('Sender identity. Must match the account email/login or an address configured in allowedFrom.'),
@@ -1378,10 +1428,11 @@ export function emailTools(
       body: z.string().optional().describe("Alias for 'text' (backward-compat)"),
       bcc: bccSchema,
       includeQuotedOriginal: z.boolean().default(true).describe('Include quoted original message content'),
+      includeAttachments: z.boolean().default(true).describe('Include attachments from the original message in the forward draft.'),
       attachments: z.array(attachmentSchema).optional().describe('Additional email attachments'),
       draftFolder: z.string().optional().describe('Override the Drafts folder name (defaults to auto-detected Drafts folder)'),
     }
-  }, async ({ accountId: rawAccountId, accountName, from, folder, uid, to, text, html, body, bcc, includeQuotedOriginal, draftFolder, attachments }) => {
+  }, async ({ accountId: rawAccountId, accountName, from, folder, uid, to, text, html, body, bcc, includeQuotedOriginal, includeAttachments, draftFolder, attachments }) => {
     const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
     const account = await accountManager.getAccount(accountId);
     if (!account) {
@@ -1398,7 +1449,31 @@ export function emailTools(
       includeQuotedOriginal
     );
 
-    const emailComposer = {
+    // Handle original attachments if requested
+    let allAttachments: EmailAttachment[] = [...(normalizedAttachments.attachments || [])];
+    let allDiagnostics: AttachmentDiagnostic[] = [...(normalizedAttachments.diagnostics || [])];
+
+    if (includeAttachments && originalEmail.attachments?.length) {
+      const originalAttachments = await imapService.getAllAttachments(accountId, folder, uid);
+      const forwardedOriginalAttachments = toEmailAttachments(originalAttachments);
+      allAttachments = [...forwardedOriginalAttachments, ...allAttachments];
+
+      // Add diagnostics for original attachments
+      originalAttachments.forEach((att, index) => {
+        const baseIndex = normalizedAttachments.diagnostics.length + index;
+        allDiagnostics.push({
+          index: baseIndex,
+          filename: att.filename,
+          contentType: att.contentType,
+          size: att.size,
+          source: 'original' as const,
+          contentDisposition: att.contentDisposition === 'inline' ? 'inline' : 'attachment',
+          cid: att.cid,
+        });
+      });
+    }
+
+    const emailComposer: EmailComposer = {
       from: resolvedFrom,
       to,
       subject: generateForwardSubject(originalEmail.subject),
@@ -1409,7 +1484,7 @@ export function emailTools(
       replyTo: undefined,
       inReplyTo: undefined, // Forward typically doesn't use In-Reply-To
       references: undefined, // Forward typically doesn't use References to avoid threading
-      attachments: normalizedAttachments.attachments,
+      attachments: allAttachments.length > 0 ? allAttachments : undefined,
     };
 
     const rawMessage = await smtpService.composeRaw(account, emailComposer);
@@ -1423,14 +1498,15 @@ export function emailTools(
       throw new Error(`Failed to append forward draft to folder "${destinationFolder}"`);
     }
 
+    // Return combined diagnostics
     return {
       content: [{
         type: 'text',
         text: JSON.stringify({
           success: true,
           folder: destinationFolder,
-          attachmentCount: normalizedAttachments.diagnostics.length,
-          attachmentDiagnostics: normalizedAttachments.diagnostics,
+          attachmentCount: allDiagnostics.length,
+          attachmentDiagnostics: allDiagnostics,
           message: `Forward draft saved to "${destinationFolder}"`,
         }, null, 2)
       }]

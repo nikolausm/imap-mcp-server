@@ -163,6 +163,10 @@ describe('Reply/Forward Draft Helpers', () => {
           }
         }
 
+        // Normalize contentId: mailparser may include angle brackets
+        const normalizeCid = (value: string | undefined): string | undefined =>
+          value ? value.trim().replace(/^<|>$/g, '') : undefined;
+
         return {
           from: parsed.from?.text || '',
           to: parsed.to ? (Array.isArray(parsed.to) ? parsed.to.map((t: any) => t.text || '') : [parsed.to.text || '']) : [],
@@ -172,7 +176,15 @@ describe('Reply/Forward Draft Helpers', () => {
           headers,
           textContent: parsed.text || undefined,
           htmlContent: parsed.html || undefined,
-          textAsHtml: parsed.textAsHtml || undefined
+          textAsHtml: parsed.textAsHtml || undefined,
+          attachments: (parsed.attachments || []).map((att: any) => ({
+            filename: att.filename || 'unknown',
+            contentType: att.contentType || 'application/octet-stream',
+            size: att.size || 0,
+            contentId: att.contentId,
+            contentDisposition: att.contentDisposition,
+            cid: normalizeCid(att.cid || att.contentId),
+          }))
         };
       });
     }
@@ -242,7 +254,10 @@ iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAA
 
       const result = composeReplyBody('Reply', undefined, email, true);
       expect(result.text).toContain('Reply');
-      expect(result.text).not.toContain('HTML with image');
+      // Body should be included via htmlContent fallback
+      expect(result.text).toContain('HTML with image');
+      expect(result.html).toBeDefined();
+      expect(result.html).toContain('HTML with image');
     });
 
     it('should detect HTML-only for multipart/mixed with text/html + attachment', async () => {
@@ -270,7 +285,40 @@ JVBERi0xLjQKJcOkw0zrBEY:
 
       const result = composeReplyBody('Reply', undefined, email, true);
       expect(result.text).toContain('Reply');
-      expect(result.text).not.toContain('HTML content only');
+      // Body should be included via htmlContent fallback
+      expect(result.text).toContain('HTML content only');
+      expect(result.html).toBeDefined();
+      expect(result.html).toContain('HTML content only');
+    });
+
+    it('should handle multipart/mixed HTML-only in forward drafts', async () => {
+      const source = `MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="b"
+
+--b
+Content-Type: text/html
+
+<p>Here is the Velux proposal that I wrote on the topic earlier</p>
+
+--b
+Content-Type: application/pdf
+Content-Disposition: attachment; filename="proposal.pdf"
+Content-Transfer-Encoding: base64
+
+JVBERi0xLjQKJcOkw0zrBEY:
+
+--b--`;
+      const email = await createEmailContentFromSource(source);
+
+      expect(email.textContent).toBeUndefined();
+      expect(email.htmlContent).toBeDefined();
+      expect(email.textAsHtml).toBeUndefined();
+
+      const result = composeForwardBody('Please see this', undefined, email, true);
+      expect(result.text).toContain('Please see this');
+      expect(result.text).toContain('Here is the Velux proposal that I wrote on the topic earlier');
+      expect(result.html).toBeDefined();
+      expect(result.html).toContain('Here is the Velux proposal that I wrote on the topic earlier');
     });
 
     it('should detect genuine text/plain in nested multipart/alternative', async () => {
@@ -310,6 +358,98 @@ JVBERi0xLjQKJcOkw0zrBEY:
       const result = composeReplyBody('Reply', undefined, email, true);
       expect(result.text).toContain('Reply');
       expect(result.text).toContain('Nested plain text content');
+    });
+
+    describe('Attachment metadata preservation in EmailContent', () => {
+      it('should include attachment metadata from parsed message', async () => {
+        const source = `MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="b"
+
+--b
+Content-Type: text/html
+
+<p>HTML body</p>
+
+--b
+Content-Type: application/pdf
+Content-Disposition: attachment; filename="document.pdf"
+Content-Transfer-Encoding: base64
+
+JVBERi0xLjQKJcOkw0zrBEY:
+
+--b--`;
+        const email = await createEmailContentFromSource(source);
+
+        expect(email.attachments).toBeDefined();
+        expect(email.attachments.length).toBe(1);
+        expect(email.attachments[0].filename).toBe('document.pdf');
+        expect(email.attachments[0].contentType).toBe('application/pdf');
+        expect(email.attachments[0].size).toBeGreaterThan(0);
+        expect(email.attachments[0].contentDisposition).toBe('attachment');
+      });
+
+      it('should include inline attachment metadata with cid', async () => {
+        const source = `MIME-Version: 1.0
+Content-Type: multipart/related; boundary="b"; type="text/html"
+
+--b
+Content-Type: text/html
+
+<p><img src="cid:logo123"></p>
+
+--b
+Content-Type: image/png
+Content-ID: <logo123>
+Content-Disposition: inline
+Content-Transfer-Encoding: base64
+
+iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==
+
+--b--`;
+        const email = await createEmailContentFromSource(source);
+
+        expect(email.attachments).toBeDefined();
+        expect(email.attachments.length).toBe(1);
+        expect(email.attachments[0].contentDisposition).toBe('inline');
+        expect(email.attachments[0].contentId).toBe('<logo123>');
+        expect(email.attachments[0].cid).toBe('logo123');
+      });
+
+      it('should preserve duplicate filenames from original message', async () => {
+        // Create a message with two attachments having the same filename but different content
+        const source = `MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="b"
+
+--b
+Content-Type: text/plain
+
+Body text
+
+--b
+Content-Type: application/pdf
+Content-Disposition: attachment; filename="document.pdf"
+Content-Transfer-Encoding: base64
+
+JVBERi0xLjQKJcOkw0zrBEY1
+
+--b
+Content-Type: application/pdf
+Content-Disposition: attachment; filename="document.pdf"
+Content-Transfer-Encoding: base64
+
+JVBERi0xLjQKJcOkw0zrBEY2
+
+--b--`;
+        const email = await createEmailContentFromSource(source);
+
+        // Both attachments should be present with same filename but distinct metadata
+        expect(email.attachments).toHaveLength(2);
+        expect(email.attachments[0].filename).toBe('document.pdf');
+        expect(email.attachments[1].filename).toBe('document.pdf');
+        // Both should have 'attachment' disposition
+        expect(email.attachments[0].contentDisposition).toBe('attachment');
+        expect(email.attachments[1].contentDisposition).toBe('attachment');
+      });
     });
 
     describe('SafeLinks cleanup in quoted HTML', () => {
@@ -478,7 +618,8 @@ JVBERi0xLjQKJcOkw0zrBEY:
       const emailWithSpecialChars = {
         ...mockOriginalEmail,
         textContent: 'A & B < C > D',
-        textAsHtml: undefined
+        textAsHtml: undefined,
+        htmlContent: undefined
       };
 
       const result = composeReplyBody('My reply', undefined, emailWithSpecialChars, true);
@@ -515,6 +656,84 @@ JVBERi0xLjQKJcOkw0zrBEY:
       expect(result.html).toContain('&amp;');
       expect(result.html).toContain('&lt;script&gt;');
       expect(result.html).not.toContain('<script>');
+    });
+  });
+
+  describe('toEmailAttachments helper', () => {
+    // Import the helper directly for unit testing - use dynamic import in beforeEach
+    let toEmailAttachments: any;
+
+    beforeEach(async () => {
+      ({ toEmailAttachments } = await import('../src/tools/email-tools.js'));
+    });
+
+    it('should convert mailparser attachments, preserving inline and cid, and handle edge cases', () => {
+      // Happy path: ordinary attachment
+      const ordinaryAttachments = [
+        {
+          filename: 'document.pdf',
+          content: Buffer.from('PDF content'),
+          contentType: 'application/pdf',
+          contentDisposition: 'attachment',
+          contentId: undefined,
+          cid: undefined,
+          size: 12
+        }
+      ];
+      let result = toEmailAttachments(ordinaryAttachments);
+      expect(result).toHaveLength(1);
+      expect(result[0].filename).toBe('document.pdf');
+      expect(result[0].content).toEqual(Buffer.from('PDF content'));
+      expect(result[0].contentType).toBe('application/pdf');
+      expect(result[0].contentDisposition).toBeUndefined();
+      expect(result[0].cid).toBeUndefined();
+
+      // Inline with CID preservation
+      const inlineAttachments = [
+        {
+          filename: 'logo.png',
+          content: Buffer.from('PNG content'),
+          contentType: 'image/png',
+          contentDisposition: 'inline',
+          contentId: '<logo123>',
+          cid: 'logo123',
+          size: 20
+        }
+      ];
+      result = toEmailAttachments(inlineAttachments);
+      expect(result).toHaveLength(1);
+      expect(result[0].contentDisposition).toBe('inline');
+      expect(result[0].cid).toBe('logo123');
+
+      // Edge cases
+      expect(toEmailAttachments([])).toHaveLength(0);
+      expect(toEmailAttachments(undefined as any)).toHaveLength(0);
+    });
+
+    it('should support merging original and caller-supplied attachments', () => {
+      const originalAttachments = [
+        {
+          filename: 'original.pdf',
+          content: Buffer.from('original content'),
+          contentType: 'application/pdf',
+          contentDisposition: 'attachment',
+          size: 100
+        }
+      ];
+      const callerSuppliedAttachments: any[] = [
+        {
+          filename: 'new.txt',
+          content: Buffer.from('new content'),
+          contentType: 'text/plain'
+        }
+      ];
+
+      const convertedOriginals = toEmailAttachments(originalAttachments);
+      const allAttachments = [...convertedOriginals, ...callerSuppliedAttachments];
+
+      expect(allAttachments).toHaveLength(2);
+      expect(allAttachments[0].filename).toBe('original.pdf');
+      expect(allAttachments[1].filename).toBe('new.txt');
     });
   });
 });

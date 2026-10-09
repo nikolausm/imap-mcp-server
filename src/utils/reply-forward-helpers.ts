@@ -148,10 +148,14 @@ export function composeReplyBody(
   // Get clean text for quoting
   // - For multipart messages with genuine text/plain: use textContent directly
   // - For HTML-only messages: derive clean text from textAsHtml to avoid synthesized artifacts
+  // - Fallback to htmlContent (raw HTML) when textAsHtml is unavailable (e.g., multipart/mixed with text/html + attachment)
   const cleanTextAsHtml = originalEmail.textAsHtml ? cleanSafeLinks(originalEmail.textAsHtml) : undefined;
-  const cleanHtml = cleanTextAsHtml; // Reuse for HTML quoting
+  const cleanHtmlContent = originalEmail.htmlContent ? cleanSafeLinks(originalEmail.htmlContent) : undefined;
+  const cleanHtml = cleanTextAsHtml || cleanHtmlContent; // Reuse for HTML quoting
   const originalTextForQuoting = isHtmlOnlyMessage(originalEmail)
-    ? (cleanTextAsHtml ? htmlToText(cleanTextAsHtml, { wordwrap: false }) : "")
+    ? (cleanTextAsHtml ? htmlToText(cleanTextAsHtml, { wordwrap: false })
+       : (cleanHtmlContent ? htmlToText(cleanHtmlContent, { wordwrap: false })
+          : ""))
     : (originalEmail.textContent || "");
 
   // Attribution with no artificial separator - use escaped values
@@ -172,7 +176,7 @@ export function composeReplyBody(
   if (newContentHtml) {
     // Attribution with no artificial separator - use escaped values
     const attributionHtml = `<p>On ${escapeHtmlText(originalEmail.date.toLocaleString())}, ${escapedFrom} wrote:</p>`;
-    // Fallback: textContent -> simple escaped HTML, omit if neither available
+    // Use cleanHtml (textAsHtml preferred, htmlContent as fallback)
     const quotedHtml = cleanHtml
       ? `<blockquote type="cite">${cleanHtml}</blockquote>`
       : (originalEmail.textContent
@@ -182,7 +186,7 @@ export function composeReplyBody(
   } else if (newContentText) {
     // If no HTML provided, create basic HTML with paragraph preservation
     const attributionHtml = `<p>On ${escapeHtmlText(originalEmail.date.toLocaleString())}, ${escapedFrom} wrote:</p>`;
-    // Fallback: textContent -> simple escaped HTML, omit if neither available
+    // Use cleanHtml (textAsHtml preferred, htmlContent as fallback)
     const quotedHtml = cleanHtml
       ? `<blockquote type="cite">${cleanHtml}</blockquote>`
       : (originalEmail.textContent
@@ -236,17 +240,22 @@ To: ${originalEmail.to.join(',')}
   // Get clean text for quoting
   // - For multipart messages with genuine text/plain: use textContent directly
   // - For HTML-only messages: derive clean text from textAsHtml to avoid synthesized artifacts
+  // - Fallback to htmlContent (raw HTML) when textAsHtml is unavailable (e.g., multipart/mixed with text/html + attachment)
   const cleanTextAsHtml = originalEmail.textAsHtml ? cleanSafeLinks(originalEmail.textAsHtml) : undefined;
-  const cleanHtml = cleanTextAsHtml; // Reuse for HTML quoting
+  const cleanHtmlContent = originalEmail.htmlContent ? cleanSafeLinks(originalEmail.htmlContent) : undefined;
+  const cleanHtml = cleanTextAsHtml || cleanHtmlContent; // Reuse for HTML quoting
   const originalTextForQuoting = isHtmlOnlyMessage(originalEmail)
-    ? (cleanTextAsHtml ? htmlToText(cleanTextAsHtml, { wordwrap: false }) : "")
+    ? (cleanTextAsHtml ? htmlToText(cleanTextAsHtml, { wordwrap: false })
+       : (cleanHtmlContent ? htmlToText(cleanHtmlContent, { wordwrap: false })
+          : ""))
     : (originalEmail.textContent || "");
   const fullText = newContentText + forwardHeaderText + originalTextForQuoting;
 
   // Build HTML if requested
   let fullHtml: string | undefined;
 
-  if (newContentHtml || originalEmail.textAsHtml || originalEmail.textContent) {
+  // Also check cleanHtml (which may come from htmlContent fallback)
+  if (newContentHtml || cleanHtml || originalEmail.textContent) {
     const forwardHeaderHtml = `
 <div>---------- Forwarded message ----------</div>
 <div><strong>From:</strong> ${escapeHtmlText(originalEmail.from)}</div>
@@ -255,7 +264,7 @@ To: ${originalEmail.to.join(',')}
 <div><strong>To:</strong> ${escapeHtmlText(originalEmail.to.join(','))}</div>
 <br>
 `;
-    // Fallback: textContent -> simple escaped HTML, omit if neither available
+    // Use cleanHtml (textAsHtml preferred, htmlContent as fallback)
     const quotedContent = cleanHtml
       ? cleanHtml
       : (originalEmail.textContent

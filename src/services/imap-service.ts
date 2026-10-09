@@ -114,6 +114,9 @@ interface EmailContentOptions {
   bodyFormat?: EmailBodyFormat;
   // Minimum length of a text/plain part to treat it as the substantive body (markdown/auto).
   markdownThreshold?: number;
+  // Draft composition: use skipHtmlToText:true to preserve genuine text/plain
+  // and get clean textAsHtml. Internal only, not exposed as MCP parameter.
+  skipHtmlToText?: boolean;
 }
 
 /**
@@ -757,8 +760,8 @@ export class ImapService {
   }
 
   /**
-   * Get email content for draft composition using default parsing.
-   * This preserves clean textAsHtml for quoting while providing access to genuine text/plain when available.
+   * Get email content for draft composition with skipHtmlToText: true parsing.
+   * This preserves genuine text/plain parts and provides clean textAsHtml for quoting.
    * Internal only — not exposed as MCP parameter.
    */
   async getEmailContentForDraft(
@@ -766,7 +769,7 @@ export class ImapService {
     folderName: string,
     uid: number
   ): Promise<EmailContent> {
-    return this.getEmailContent(accountId, folderName, uid);
+    return this.getEmailContent(accountId, folderName, uid, { skipHtmlToText: true });
   }
 
   /**
@@ -794,9 +797,10 @@ export class ImapService {
       bodyFormat = 'markdown',
       markdownThreshold = 200,
       bodyMaxLength,
+      skipHtmlToText = false,
     } = options;
 
-    const parsed = await simpleParser(source);
+    const parsed = await simpleParser(source, { skipHtmlToText });
     const flagArray = Array.from(flags || []) as string[];
 
     const cap = (s: string | undefined): string | undefined => {
@@ -1041,6 +1045,63 @@ export class ImapService {
         contentType: attachment.contentType || 'application/octet-stream',
         filename: attachment.filename || 'unknown',
       };
+    } finally {
+      if (lock) {
+        lock.release();
+      }
+    }
+  }
+
+  /**
+   * Get all attachments from a message in a single fetch/parse pass.
+   * Preserves all mailparser attachment metadata including contentDisposition
+   * and contentId/cid for inline attachments.
+   *
+   * Used internally for forward-draft and forward-send to safely copy original
+   * attachments without filename-based ambiguity.
+   */
+  async getAllAttachments(
+    accountId: string,
+    folderName: string,
+    uid: number
+  ): Promise<
+    Array<{
+      filename: string;
+      content: Buffer;
+      contentType: string;
+      contentDisposition?: string;
+      contentId?: string;
+      cid?: string;
+      size: number;
+    }>
+  > {
+    const client = await this.ensureConnected(accountId);
+
+    let lock;
+    try {
+      lock = await client.getMailboxLock(folderName);
+
+      const source = await client.fetchOne(uid, { source: true }, { uid: true });
+
+      if (!source || !source.source) {
+        throw new Error(`Email with UID ${uid} not found`);
+      }
+
+      const parsed = await simpleParser(source.source);
+
+      // Normalize contentId: mailparser may include angle brackets
+      const normalizeCid = (value: string | undefined): string | undefined =>
+        value ? value.trim().replace(/^<|>$/g, '') : undefined;
+
+      return (parsed.attachments || []).map((att: any) => ({
+        filename: att.filename || 'unknown',
+        content: att.content,
+        contentType: att.contentType || 'application/octet-stream',
+        contentDisposition: att.contentDisposition,
+        contentId: att.contentId,
+        cid: normalizeCid(att.cid || att.contentId),
+        size: att.size || 0,
+      }));
     } finally {
       if (lock) {
         lock.release();
