@@ -73,6 +73,11 @@ describe('web wizard bind address', () => {
     expect(wizard.getAccessUrl()).toBe('http://192.168.1.5:4321/');
   });
 
+  it('refuses a fixed token that is too short for a network-facing wizard', () => {
+    vi.stubEnv('IMAP_MCP_WIZARD_TOKEN', 'short');
+    expect(() => new WebUIServer(4321, { ...deps, bindHost: '0.0.0.0' })).toThrow(/at least 16/);
+  });
+
   it('treats ::1 and localhost as loopback', () => {
     expect(new WebUIServer(1, { ...deps, bindHost: '::1' }).isRemote()).toBe(false);
     expect(new WebUIServer(1, { ...deps, bindHost: 'localhost' }).isRemote()).toBe(false);
@@ -135,6 +140,17 @@ describe('web wizard in remote mode', () => {
     expect(cookie).toContain(`imap_wizard_token=${TOKEN}`);
     expect(cookie).toContain('HttpOnly');
     expect(cookie).toContain('SameSite=Strict');
+  });
+
+  it('never redirects off-site after the token exchange', async () => {
+    const res = await request(port, `/x/..//evil.example/?token=${TOKEN}`, { Host: host });
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe('/evil.example/');
+  });
+
+  it('answers a malformed cookie with 401, not a 500 stack trace', async () => {
+    const res = await request(port, '/api/accounts', { Host: host, Cookie: 'imap_wizard_token=%E0' });
+    expect(res.status).toBe(401);
   });
 
   it('accepts the cookie on a non-loopback Host', async () => {

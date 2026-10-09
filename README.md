@@ -138,7 +138,7 @@ The wizard then requires an access token and prints a URL containing it, e.g.
 session cookie and removed from the address bar. Requests without the token are
 refused, and so are cross-origin requests. Scripts can send
 `Authorization: Bearer <token>` instead. To use a fixed token rather than a
-random one per start, set `IMAP_MCP_WIZARD_TOKEN`; it is then not printed.
+random one per start, set `IMAP_MCP_WIZARD_TOKEN` (at least 16 characters); it is then not printed.
 
 The connection is plain HTTP, so anyone who can read your network traffic can
 see the token and the passwords you enter. Use this only on networks you trust,

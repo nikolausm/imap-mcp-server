@@ -15,13 +15,18 @@ import { PACKAGE_VERSION } from '../utils/version.js';
 
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
 const TOKEN_COOKIE = 'imap_wizard_token';
+const MIN_TOKEN_LENGTH = 16;
 
 /** Read one cookie value from a raw `Cookie` header. */
 function readCookie(header: string | undefined, name: string): string | undefined {
   for (const part of (header ?? '').split(';')) {
     const idx = part.indexOf('=');
     if (idx !== -1 && part.slice(0, idx).trim() === name) {
-      return decodeURIComponent(part.slice(idx + 1).trim());
+      try {
+        return decodeURIComponent(part.slice(idx + 1).trim());
+      } catch {
+        return undefined; // malformed %-escape: treat as no cookie
+      }
     }
   }
   return undefined;
@@ -66,6 +71,11 @@ export class WebUIServer {
     this.bindHost = deps.bindHost?.trim() || process.env.IMAP_MCP_BIND?.trim() || '127.0.0.1';
     if (this.isRemote()) {
       this.accessToken = deps.accessToken?.trim() || process.env.IMAP_MCP_WIZARD_TOKEN?.trim();
+      if (this.accessToken && this.accessToken.length < MIN_TOKEN_LENGTH) {
+        throw new Error(
+          `IMAP_MCP_WIZARD_TOKEN must be at least ${MIN_TOKEN_LENGTH} characters when the wizard is reachable from the network.`,
+        );
+      }
       if (!this.accessToken) {
         this.accessToken = randomBytes(24).toString('base64url');
         this.accessTokenGenerated = true;
@@ -204,7 +214,9 @@ export class WebUIServer {
         // Drop the token from the address bar and browser history.
         const url = new URL(req.originalUrl, 'http://wizard.invalid');
         url.searchParams.delete('token');
-        res.redirect(302, url.pathname + url.search);
+        // Collapse leading slashes so the target can never become a
+        // protocol-relative URL ("//evil.example/").
+        res.redirect(302, '/' + url.pathname.replace(/^\/+/, '') + url.search);
         return;
       }
 
