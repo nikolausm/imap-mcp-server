@@ -354,6 +354,7 @@ export class WebUIServer {
   }
 
   async start(autoOpen: boolean = true): Promise<void> {
+    await this.accountManager.hydrateExternalCredentials();
     return new Promise((resolve) => {
       const server = this.app.listen(this.port, () => {
         console.log(`🌐 Web UI server running at http://localhost:${this.port}`);

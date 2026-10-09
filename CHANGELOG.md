@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Security
+- Prefer env → Vault/OpenBao → OS keyring → AES-256-GCM file store for credentials.
+- Replace AES-256-CBC writes with AES-256-GCM (AAD-bound); keep CBC decrypt for migration.
+- Optional `@napi-rs/keyring` dependency (soft-fail); DEK prefers keyring over co-located `.key`.
+- Minimal Vault/OpenBao KV v2 reader (`VAULT_*` / `BAO_*`, TLS verify by default).
+- Skip post-quantum KEM wrapping (theater for this threat model); document residual risks.
+- `IMAP_MCP_MIGRATE_CREDENTIALS=1` / `migrateLegacyCiphertext()`; do not auto-delete `.key`.
+
 ## [Unreleased]
 
 ### Added
@@ -32,6 +42,7 @@ No tool was renamed, and no existing input or output shape changed. The new
 fields below are optional.
 
 ### Added
+- OS keyring setup guide for Windows, macOS, and Ubuntu 24.04 / 26.04 (`docs/KEYRING.md`).
 - `allowStartTLS` account option (#158). Setting `tls: false` only turns off implicit TLS. imapflow still upgrades via STARTTLS whenever the server advertises it, and checks the certificate against the host you connected to. Shared hosts such as DreamHost advertise STARTTLS behind a wildcard certificate that does not match, so plain accounts failed there. Set `allowStartTLS: false` to stay on the plain connection. Available in `imap_add_account`, `imap_update_account` and `imap_list_accounts`. Defaults to `true`, so existing behavior is unchanged.
 - Outgoing attachments are validated before SMTP is contacted (#161). Invalid base64, unreadable paths, missing filenames, ambiguous sources, and inline attachments without `cid` now fail with a clear error. Base64 wrapped at 76 columns is accepted. `imap_send_email` gains an optional `dryRun` that validates attachments and builds the MIME without sending anything. Successful sends and dry runs report `attachmentCount` and `attachmentDiagnostics`: filename, type, size, source, disposition and cid, but no content and no local paths.
 
