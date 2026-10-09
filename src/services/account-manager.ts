@@ -18,6 +18,15 @@ export class AccountManager {
   constructor() {
     this.configPath = path.join(os.homedir(), '.imap-mcp', 'accounts.json');
     this.encryptionKey = this.getOrCreateEncryptionKey();
+    // Honest posture: key beside ciphertext is obfuscation at rest, not vault-grade.
+    // Prefer IMAP_MCP_ACCOUNT_* env overrides or an OS keyring for real secrecy.
+    if (!process.env.IMAP_MCP_SILENCE_CRYPTO_NOTICE && !process.env.VITEST) {
+      console.error(
+        '[imap-mcp] Credential store uses AES-256-CBC with a key co-located in ~/.imap-mcp/. ' +
+          'Treat this as obfuscation at rest; prefer env-injected credentials or an OS keyring. ' +
+          'Set IMAP_MCP_SILENCE_CRYPTO_NOTICE=1 to hide this notice.',
+      );
+    }
     this.captureEnvOverrides();
     this.loadAccountsSync();
   }
@@ -317,13 +326,15 @@ export class AccountManager {
 
   /**
    * Defence in depth for the credential store. `~/.imap-mcp/` holds the raw
-   * AES-256 key and the (encrypted) accounts, so anyone able to read the key
-   * plus the store can recover every password. The `mode` options above only
-   * apply when a file is *created*; a store written before this hardening — or
-   * under a permissive umask — could still be world-readable. Re-assert
-   * owner-only permissions on the directory, the accounts file, and the key.
-   * Best effort: silently ignored on platforms without POSIX modes (Windows)
-   * or when a path does not exist yet.
+   * AES-256-CBC key and the ciphertext side-by-side, so anyone able to read
+   * both recovers every password — this is local obfuscation, not a security
+   * boundary against a co-resident attacker. Prefer OS keyring / env-injected
+   * credentials (`IMAP_MCP_ACCOUNT_*`) for real secret management. The `mode`
+   * options above only apply when a file is *created*; a store written before
+   * this hardening — or under a permissive umask — could still be
+   * world-readable. Re-assert owner-only permissions on the directory, the
+   * accounts file, and the key. Best effort: silently ignored on platforms
+   * without POSIX modes (Windows) or when a path does not exist yet.
    */
   private async enforceStorePermissions(): Promise<void> {
     if (process.platform === 'win32') return;

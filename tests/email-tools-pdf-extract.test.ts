@@ -1,8 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { emailTools } from '../src/tools/email-tools.js';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { existsSync, rmSync, readFileSync } from 'fs';
+import { existsSync, mkdirSync, rmSync, readFileSync } from 'fs';
+
+const DOWNLOAD_ROOT = join(tmpdir(), `imap-pdf-extract-root-${process.pid}`);
+process.env.IMAP_DOWNLOAD_DIR = DOWNLOAD_ROOT;
+mkdirSync(DOWNLOAD_ROOT, { recursive: true });
+
+const { emailTools } = await import('../src/tools/email-tools.js');
 
 // Build a minimal, valid single-page PDF whose page renders `text`.
 // pdf.js reconstructs the xref table when missing, so a hand-written body is enough.
@@ -47,7 +52,7 @@ const mockSmtpService = {};
 
 describe('imap_download_attachment PDF text extraction (pdf-parse v2)', () => {
   // Keep writes inside the temp dir so the test has no side effects on the real downloads folder.
-  const savePath = join(tmpdir(), `imap-pdf-extract-${process.pid}.pdf`);
+  const savePath = join(DOWNLOAD_ROOT, `imap-pdf-extract-${process.pid}.pdf`);
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -62,6 +67,8 @@ describe('imap_download_attachment PDF text extraction (pdf-parse v2)', () => {
   afterEach(() => {
     if (existsSync(savePath)) rmSync(savePath);
   });
+
+  // DOWNLOAD_ROOT is process-scoped; leave it for the worker lifetime.
 
   it('should be registered', () => {
     expect(downloadHandler).toBeDefined();

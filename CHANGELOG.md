@@ -10,6 +10,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Send-as aliases (#192). `imap_send_email`, `imap_save_draft`, `imap_reply_to_email` and `imap_forward_email` accept an optional `from`. Accepted senders are the account's email, its login (if that is an email address), and addresses configured in the new optional `allowedFrom` account field (set via `imap_add_account` / `imap_update_account`). The value must parse to exactly one mailbox, so multiple addresses, groups and CR/LF header injection are rejected. Addresses are matched case-insensitively, and the display name is kept. Reply-all also leaves out configured aliases. `allowedFrom` is an application-level guardrail, not a security boundary: the SMTP server enforces the real sender policy.
 
+### Security
+- **Path jail for attachments and downloads** — `attachments[].path` and
+  `imap_download_attachment` `savePath` must resolve under `IMAP_DOWNLOAD_DIR`
+  (default `~/Downloads/imap-attachments`) and optional `IMAP_ATTACHMENT_DIRS`.
+  Absolute paths outside the jail are rejected; the credential store
+  (`~/.imap-mcp`) cannot be read via attachment paths. Closes arbitrary local
+  file read/exfil and arbitrary write via MCP tools.
+- **Read-only tools by default** — mutating tools (send/delete/move/flag/account)
+  require `IMAP_MCP_READ_ONLY=false`, `IMAP_MCP_ALLOW_MUTATING=true`, or an
+  explicit `IMAP_MCP_ENABLED_TOOLS` allowlist. Reduces prompt-injection blast
+  radius. **Breaking change** for configs that relied on the full surface with
+  no env flags — set `IMAP_MCP_READ_ONLY=false` to restore prior behavior.
+- **Web wizard binds 127.0.0.1 by default** — set `IMAP_MCP_BIND=0.0.0.0` only
+  on trusted networks. Host/Origin loopback checks unchanged.
+- **Credential crypto messaging** — document AES-256-CBC + co-located key as
+  obfuscation at rest (not a vault); prefer env overrides / OS keyring. Startup
+  notice on stderr (suppress with `IMAP_MCP_SILENCE_CRYPTO_NOTICE=1`).
+
+### Documentation
+- README / SECURITY.md updated for safe defaults, path jail env vars, TLS
+  guidance, and honest credential-store posture.
+- `RELEASE.md` documents how to cut versions from the maintained fork.
+
+### Tests
+- `tests/path-jail.test.ts`, extended download `savePath` jail cases, updated
+  `tool-access` expectations for the new default.
+
 ## [2.1.1] - 2026-10-08
 
 No tool was renamed, and no input or output shape changed. `imap_get_email` returns three additional fields.
