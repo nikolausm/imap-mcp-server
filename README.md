@@ -346,6 +346,8 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
   - defaultBcc: Optional BCC address(es) applied automatically to every
       outbound send, reply, forward, and draft for this account. Merged with
       any per-call `bcc` (duplicates removed case-insensitively)
+  - allowedFrom: Optional list of additional sender identities permitted in
+      outbound `From` headers. The account email and login are always allowed
   ```
 
 - **imap_update_account**: Update an existing account (fix SMTP settings, rename, etc.)
@@ -359,7 +361,16 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
       to clear the override and re-enable auto-detection
   - defaultBcc: Optional default BCC address(es) (optional). Pass an empty
       string to clear
+  - allowedFrom: Optional list of additional sender identities. Pass an empty
+      array to clear
   ```
+
+`allowedFrom` is an application-level guardrail, not a hard security boundary:
+an agent with access to `imap_update_account` can change the allowed identities.
+The SMTP server must enforce the actual sender authorization policy. Sender
+mailbox addresses are matched case-insensitively; the supplied display name and
+address casing are preserved in the outbound `From` header. This applies to
+sending, drafts, replies, and forwards.
 
 - **imap_list_accounts**: List all configured accounts
 
@@ -555,6 +566,8 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
   ```
   Parameters:
   - accountId: Account ID to send from
+  - from: Sender identity (optional). Must match the account email/login or an
+      address configured in `allowedFrom`
   - to: Recipient email address(es) — an array, or a single comma-separated string
   - subject: Email subject
   - text: Plain text content (optional)
