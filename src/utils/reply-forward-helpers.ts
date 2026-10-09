@@ -1,7 +1,4 @@
 import type { EmailContent, ImapAccount } from '../types/index.js';
-import { extractMessageIds } from './client-side-search.js';
-import { mergeBcc } from './default-bcc.js';
-import { parseSerializedArray } from './array-input.js';
 import { htmlToText } from 'html-to-text';
 
 /**
@@ -38,6 +35,22 @@ function isHtmlOnlyMessage(email: EmailContent): boolean {
 }
 
 /**
+ * Escape a string for safe insertion into HTML text content. */
+function escapeHtmlText(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/**
+ * Escape a string for safe insertion into an HTML attribute value. */
+function escapeHtmlAttribute(s: string): string {
+  return s.replace(/&/g, '&amp;')
+           .replace(/</g, '&lt;')
+           .replace(/>/g, '&gt;')
+           .replace(/"/g, '&quot;')
+           .replace(/'/g, '&#x27;');
+}
+
+/**
  * Clean up Outlook SafeLinks in HTML for quoting.
  * Replaces links to *.safelinks.protection.outlook.com with their original destination.
  * Preserves human-readable anchor text when present.
@@ -52,58 +65,40 @@ function cleanSafeLinks(html: string): string {
         return match;
       }
 
+      // URLSearchParams.get() already percent-decodes, so no need for decodeURIComponent
       const originalUrl = url.searchParams.get('url');
       if (!originalUrl) {
         return match;
       }
 
-      const decodedUrl = decodeURIComponent(originalUrl);
+      // Validate the destination URL and check protocol
       try {
-        new URL(decodedUrl);
+        const decodedUrlObj = new URL(originalUrl);
+        // Only unwrap SafeLinks with http: or https: destinations
+        if (!['http:', 'https:'].includes(decodedUrlObj.protocol)) {
+          return match;
+        }
+        // Reconstruct the anchor with cleaned href
+        // Use originalUrl directly as it's already decoded by URLSearchParams.get()
+        const escapedHref = escapeHtmlAttribute(originalUrl);
+
+        // If visible text is the SafeLink URL itself (allowing &amp; vs &), replace with original
+        const unescapedText = textContent.replace(/&amp;/g, '&');
+        const cleanText = unescapedText.trim() === href ? originalUrl : textContent;
+
+        // Only escape the replacement text; preserve existing human-readable text unchanged
+        const escapedText = cleanText === originalUrl ? escapeHtmlText(cleanText) : cleanText;
+
+        // Reconstruct: ensure proper spacing around href attribute
+        const normalizedBeforeHref = beforeHref.trim() ? beforeHref.trim() + ' ' : '';
+        return `<a ${normalizedBeforeHref}href="${escapedHref}"${afterHref}>${escapedText}</a>`;
       } catch {
         return match;
       }
-
-      // If visible text is the SafeLink URL itself (allowing &amp; vs &), replace with original
-      const unescapedText = textContent.replace(/&amp;/g, '&');
-      const cleanText = unescapedText.trim() === href ? decodedUrl : textContent;
-      return `<a href="${decodedUrl}"${beforeHref}${afterHref}>${cleanText}</a>`;
     } catch {
       return match;
     }
   });
-}
-
-/**
- * Normalize a Message-ID for comparison: strip angle brackets, trim, lowercase.
- * Used only for detecting duplicates, not for serialization.
- */
-function normalizeMessageIdForComparison(messageId: string | undefined): string {
-  if (!messageId) return '';
-  return messageId.replace(/^<+|>+$/g, '').trim().toLowerCase();
-}
-
-/**
- * Format a Message-ID in canonical RFC 5322 form: <...>.
- * If already in angle brackets, preserve as-is.
- */
-function canonicalMessageId(messageId: string): string {
-  if (!messageId) return '';
-  const trimmed = messageId.trim();
-  if (trimmed.startsWith('<') && trimmed.endsWith('>')) {
-    return trimmed;
-  }
-  return `<${trimmed.replace(/^<+|>+$/g, '').trim()}>`;
-}
-
-/**
- * Extract the bare email address from a potentially formatted address.
- * Handles: 'Alice <alice@example.com>' -> 'alice@example.com'
- * Returns lowercase for case-insensitive comparison.
- */
-export function extractEmail(addr: string): string {
-  const match = addr.match(/<([^>]+)>/);
-  return (match ? match[1] : addr).trim().toLowerCase();
 }
 
 /**
@@ -131,98 +126,6 @@ export function generateForwardSubject(originalSubject: string): string {
 }
 
 /**
- * Extract reply recipients based on original email and replyAll flag.
- * Respects Reply-To header over From per RFC 5322.
- * Excludes the user's own email address to avoid self-delivery.
- * Returns separate to and cc arrays to preserve semantic distinction.
- */
-export function extractReplyRecipients(
-  originalEmail: EmailContent,
-  accountEmail: string,
-  replyAll: boolean
-): { to: string[], cc: string[] } {
-  const normalizedAccountEmail = extractEmail(accountEmail);
-  
-  // Respect Reply-To header over From per RFC 5322
-  const headers = originalEmail.headers || {};
-  const replyToHeader = headers['reply-to'] || headers['Reply-To'];
-  const replyToAddresses = Array.isArray(replyToHeader) ? replyToHeader : replyToHeader ? [replyToHeader] : [];
-  const primaryRecipient = replyToAddresses.length > 0 ? replyToAddresses[0] : originalEmail.from;
-
-  // For normal reply, just use the primary recipient
-  if (!replyAll) {
-    return {
-      to: [primaryRecipient],
-      cc: []
-    };
-  }
-
-  // For reply-all, preserve To and Cc semantics
-  const to: string[] = [];
-  const cc: string[] = [];
-  const seen = new Set<string>([normalizedAccountEmail]);
-  
-  // Add primary recipient to To
-  const primaryNormalized = extractEmail(primaryRecipient);
-  if (!seen.has(primaryNormalized)) {
-    to.push(primaryRecipient);
-    seen.add(primaryNormalized);
-  }
-
-  // Add original To recipients to To (excluding self)
-  for (const addr of originalEmail.to) {
-    const normalized = extractEmail(addr);
-    if (!seen.has(normalized)) {
-      to.push(addr);
-      seen.add(normalized);
-    }
-  }
-
-  // Add original Cc recipients to Cc (excluding self)
-  // Check if original email has Cc in headers
-  const ccHeader = headers['cc'] || headers['Cc'];
-  const ccAddresses = Array.isArray(ccHeader) ? ccHeader : ccHeader ? [ccHeader] : [];
-  
-  for (const addr of ccAddresses) {
-    const normalized = extractEmail(addr);
-    if (!seen.has(normalized)) {
-      cc.push(addr);
-      seen.add(normalized);
-    }
-  }
-
-  return { to, cc };
-}
-
-/**
- * Build proper threading headers for a reply.
- * Preserves existing References chain and appends the original message's Message-ID.
- * Uses canonical RFC 5322 formatting and avoids rewriting existing tokens.
- */
-export function buildReplyThreadingHeaders(originalEmail: EmailContent): {
-  inReplyTo: string;
-  references: string;
-} {
-  const originalMessageId = originalEmail.messageId;
-  const rawReferences = (originalEmail.headers['references'] as string) ?? '';
-
-  // Detect duplicate using normalized comparison
-  const normalizedOriginal = normalizeMessageIdForComparison(originalMessageId);
-  const existingNormalized = extractMessageIds(rawReferences);
-  const hasDuplicate = existingNormalized.some(id => id === normalizedOriginal);
-
-  // Preserve original formatting of existing References
-  const references = hasDuplicate
-    ? rawReferences.trim()
-    : `${rawReferences.trim()}${rawReferences.trim() ? ' ' : ''}${canonicalMessageId(originalMessageId)}`;
-
-  return {
-    inReplyTo: canonicalMessageId(originalMessageId),
-    references: references || canonicalMessageId(originalMessageId)
-  };
-}
-
-/**
  * Compose reply body with conventional attribution and quoting.
  * New content appears first, followed by quoted original when requested.
  */
@@ -246,11 +149,13 @@ export function composeReplyBody(
   // - For multipart messages with genuine text/plain: use textContent directly
   // - For HTML-only messages: derive clean text from textAsHtml to avoid synthesized artifacts
   const cleanTextAsHtml = originalEmail.textAsHtml ? cleanSafeLinks(originalEmail.textAsHtml) : undefined;
+  const cleanHtml = cleanTextAsHtml; // Reuse for HTML quoting
   const originalTextForQuoting = isHtmlOnlyMessage(originalEmail)
     ? (cleanTextAsHtml ? htmlToText(cleanTextAsHtml, { wordwrap: false }) : "")
     : (originalEmail.textContent || "");
 
-  // Attribution with no artificial separator
+  // Attribution with no artificial separator - use escaped values
+  const escapedFrom = escapeHtmlText(originalEmail.from);
   const attributionLine = `\n\nOn ${originalEmail.date.toLocaleString()}, ${originalEmail.from} wrote:`;
   
   // Quote each line of original content with "> " prefix
@@ -265,34 +170,28 @@ export function composeReplyBody(
   let fullHtml: string | undefined;
 
   if (newContentHtml) {
-    // Attribution with no artificial separator
-    const attributionHtml = `<p>On ${originalEmail.date.toLocaleString()}, ${originalEmail.from} wrote:</p>`;
-    // Use textAsHtml for clean quoting (no Outlook markup)
-    // Clean SafeLinks before quoting
-    const cleanHtml = originalEmail.textAsHtml ? cleanSafeLinks(originalEmail.textAsHtml) : undefined;
+    // Attribution with no artificial separator - use escaped values
+    const attributionHtml = `<p>On ${escapeHtmlText(originalEmail.date.toLocaleString())}, ${escapedFrom} wrote:</p>`;
     // Fallback: textContent -> simple escaped HTML, omit if neither available
     const quotedHtml = cleanHtml
       ? `<blockquote type="cite">${cleanHtml}</blockquote>`
       : (originalEmail.textContent
-         ? `<blockquote type="cite">${originalEmail.textContent.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br/>')}</blockquote>`
+         ? `<blockquote type="cite">${escapeHtmlText(originalEmail.textContent).replace(/\n/g, '<br/>')}</blockquote>`
          : '');
     fullHtml = `${newContentHtml}${attributionHtml}${quotedHtml}`;
   } else if (newContentText) {
     // If no HTML provided, create basic HTML with paragraph preservation
-    const attributionHtml = `<p>On ${originalEmail.date.toLocaleString()}, ${originalEmail.from} wrote:</p>`;
-    // Use textAsHtml for clean quoting (no Outlook markup)
-    // Clean SafeLinks before quoting
-    const cleanHtml = originalEmail.textAsHtml ? cleanSafeLinks(originalEmail.textAsHtml) : undefined;
+    const attributionHtml = `<p>On ${escapeHtmlText(originalEmail.date.toLocaleString())}, ${escapedFrom} wrote:</p>`;
     // Fallback: textContent -> simple escaped HTML, omit if neither available
     const quotedHtml = cleanHtml
       ? `<blockquote type="cite">${cleanHtml}</blockquote>`
       : (originalEmail.textContent
-         ? `<blockquote type="cite">${originalEmail.textContent.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br/>')}</blockquote>`
+         ? `<blockquote type="cite">${escapeHtmlText(originalEmail.textContent).replace(/\n/g, '<br/>')}</blockquote>`
          : '');
     // Preserve paragraphs from newContentText: double newlines -> separate <p>
     const paragraphs = newContentText
       .split('\n\n')
-      .map(p => `<p>${p.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br/>')}</p>`)
+      .map(p => `<p>${escapeHtmlText(p).replace(/\n/g, '<br/>')}</p>`)
       .join('');
     fullHtml = `${paragraphs}${attributionHtml}${quotedHtml}`;
   }
@@ -338,6 +237,7 @@ To: ${originalEmail.to.join(',')}
   // - For multipart messages with genuine text/plain: use textContent directly
   // - For HTML-only messages: derive clean text from textAsHtml to avoid synthesized artifacts
   const cleanTextAsHtml = originalEmail.textAsHtml ? cleanSafeLinks(originalEmail.textAsHtml) : undefined;
+  const cleanHtml = cleanTextAsHtml; // Reuse for HTML quoting
   const originalTextForQuoting = isHtmlOnlyMessage(originalEmail)
     ? (cleanTextAsHtml ? htmlToText(cleanTextAsHtml, { wordwrap: false }) : "")
     : (originalEmail.textContent || "");
@@ -349,20 +249,17 @@ To: ${originalEmail.to.join(',')}
   if (newContentHtml || originalEmail.textAsHtml || originalEmail.textContent) {
     const forwardHeaderHtml = `
 <div>---------- Forwarded message ----------</div>
-<div><strong>From:</strong> ${originalEmail.from}</div>
-<div><strong>Date:</strong> ${originalEmail.date.toLocaleString()}</div>
-<div><strong>Subject:</strong> ${originalEmail.subject}</div>
-<div><strong>To:</strong> ${originalEmail.to.join(',')}</div>
+<div><strong>From:</strong> ${escapeHtmlText(originalEmail.from)}</div>
+<div><strong>Date:</strong> ${escapeHtmlText(originalEmail.date.toLocaleString())}</div>
+<div><strong>Subject:</strong> ${escapeHtmlText(originalEmail.subject)}</div>
+<div><strong>To:</strong> ${escapeHtmlText(originalEmail.to.join(','))}</div>
 <br>
 `;
-    // Use textAsHtml for clean quoting (no Outlook markup)
-    // Clean SafeLinks before quoting
-    const cleanHtml = originalEmail.textAsHtml ? cleanSafeLinks(originalEmail.textAsHtml) : undefined;
     // Fallback: textContent -> simple escaped HTML, omit if neither available
     const quotedContent = cleanHtml
       ? cleanHtml
       : (originalEmail.textContent
-         ? originalEmail.textContent.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br/>')
+         ? escapeHtmlText(originalEmail.textContent).replace(/\n/g, '<br/>')
          : '');
     fullHtml = (newContentHtml || '') + forwardHeaderHtml + (quotedContent ? `<blockquote type="cite">${quotedContent}</blockquote>` : '');
   }
@@ -371,26 +268,4 @@ To: ${originalEmail.to.join(',')}
     text: fullText,
     html: fullHtml
   };
-}
-
-/**
- * Resolve BCC merging account defaultBcc with explicit BCC.
- * Reuses the same logic as existing tools.
- */
-export function resolveReplyForwardBcc(
-  account: ImapAccount,
-  explicitBcc?: string | string[]
-): string | string[] | undefined {
-  return mergeBcc(account.defaultBcc, explicitBcc);
-}
-
-/**
- * Normalize addresses for array input, same as existing tools.
- * Handles stringified arrays from MCP clients.
- */
-export function normalizeAddresses(
-  value: string | string[] | undefined,
-  field: string
-): string | string[] | undefined {
-  return parseSerializedArray(value, field) as string | string[] | undefined;
 }

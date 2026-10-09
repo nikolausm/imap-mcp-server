@@ -2,14 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import {
-  extractEmail,
   generateReplySubject,
   generateForwardSubject,
-  extractReplyRecipients,
-  buildReplyThreadingHeaders,
   composeReplyBody,
-  composeForwardBody,
-  resolveReplyForwardBcc
+  composeForwardBody
 } from '../src/utils/reply-forward-helpers.js';
 
 const mockDate = new Date('2026-01-01T12:00:00Z');
@@ -22,6 +18,7 @@ const mockOriginalEmail = {
   date: mockDate,
   messageId: '<original@example.com>',
   inReplyTo: '<parent@example.com>',
+  references: ['<grandparent@example.com>', '<parent@example.com>'],
   textContent: 'Original message',
   htmlContent: '<p>Original message</p>',
   headers: {
@@ -66,249 +63,14 @@ describe('Reply/Forward Draft Helpers', () => {
     });
   });
 
-  describe('Email extraction', () => {
-    it('should extract email from formatted address', () => {
-      expect(extractEmail('Alice <alice@example.com>')).toBe('alice@example.com');
-      expect(extractEmail('alice@example.com')).toBe('alice@example.com');
-      expect(extractEmail('  Alice Bob <test@example.com>  ')).toBe('test@example.com');
-      expect(extractEmail('user@example.com')).toBe('user@example.com');
-    });
-
-    it('should return lowercase for comparison', () => {
-      expect(extractEmail('Alice <ALICE@EXAMPLE.COM>')).toBe('alice@example.com');
-      expect(extractEmail('TEST@EXAMPLE.COM')).toBe('test@example.com');
-    });
-  });
-
-  describe('Threading headers', () => {
-    it('should build reply threading headers with existing References', () => {
-      const result = buildReplyThreadingHeaders(mockOriginalEmail);
-      
-      expect(result.inReplyTo).toBe('<original@example.com>');
-      expect(result.references).toContain('<grandparent@example.com>');
-      expect(result.references).toContain('<parent@example.com>');
-      expect(result.references).toContain('<original@example.com>');
-      // Should preserve original formatting
-      expect(result.references).toMatch(/<grandparent@example\.com>.*<parent@example\.com>.*<original@example\.com>/);
-    });
-
-    it('should build reply threading headers with no existing References', () => {
-      const emailNoRefs = {
-        ...mockOriginalEmail,
-        headers: {},
-      };
-
-      const result = buildReplyThreadingHeaders(emailNoRefs);
-      
-      expect(result.inReplyTo).toBe('<original@example.com>');
-      expect(result.references).toBe('<original@example.com>');
-    });
-
-    it('should avoid duplicate Message-ID in References chain', () => {
-      // Original message ID already in References chain
-      const emailWithDup = {
-        ...mockOriginalEmail,
-        headers: {
-          'references': '<parent@example.com> <original@example.com>'
-        }
-      };
-
-      const result = buildReplyThreadingHeaders(emailWithDup);
-      
-      expect(result.inReplyTo).toBe('<original@example.com>');
-      // Should preserve existing References without adding duplicate
-      expect(result.references).toBe('<parent@example.com> <original@example.com>');
-    });
-
-    it('should handle malformed References header', () => {
-      const emailBadRefs = {
-        ...mockOriginalEmail,
-        headers: {
-          'references': '' // Empty references
-        }
-      };
-
-      const result = buildReplyThreadingHeaders(emailBadRefs);
-      
-      expect(result.inReplyTo).toBe('<original@example.com>');
-      expect(result.references).toBe('<original@example.com>');
-    });
-
-    it('should handle undefined References header', () => {
-      const emailNoRefs = {
-        ...mockOriginalEmail,
-        headers: {} // No references header at all
-      };
-
-      const result = buildReplyThreadingHeaders(emailNoRefs);
-      
-      expect(result.inReplyTo).toBe('<original@example.com>');
-      expect(result.references).toBe('<original@example.com>');
-    });
-  });
-
-  describe('Recipient extraction', () => {
-    it('should extract normal reply recipients (just sender)', () => {
-      const result = extractReplyRecipients(mockOriginalEmail, 'user@example.com', false);
-      
-      expect(result.to).toEqual(['sender@example.com']);
-      expect(result.cc).toEqual([]);
-    });
-
-    it('should extract reply-all recipients excluding self', () => {
-      const result = extractReplyRecipients(mockOriginalEmail, 'user@example.com', true);
-      
-      // Should include sender + all To recipients except user@example.com
-      expect(result.to).toContain('sender@example.com');
-      expect(result.to).toContain('recipient@example.com');
-      expect(result.to).not.toContain('user@example.com');
-      expect(result.to.length).toBe(2);
-      expect(result.cc).toEqual([]);
-    });
-
-    it('should handle sender with display name', () => {
-      const emailWithDisplayName = {
-        ...mockOriginalEmail,
-        from: 'Sender Name <sender@example.com>',
-        to: ['recipient@example.com']
-      };
-
-      const result = extractReplyRecipients(emailWithDisplayName, 'user@example.com', false);
-      
-      expect(result.to).toEqual(['Sender Name <sender@example.com>']);
-      expect(result.cc).toEqual([]);
-    });
-
-    it('should handle multiple recipients with display names', () => {
-      const emailWithDisplayNames = {
-        from: 'Sender <sender@example.com>',
-        to: ['Recipient One <recipient@example.com>', 'User <user@example.com>'],
-        headers: {}
-      };
-
-      const result = extractReplyRecipients(emailWithDisplayNames, 'user@example.com', true);
-      
-      expect(result.to).toContain('Sender <sender@example.com>');
-      expect(result.to).toContain('Recipient One <recipient@example.com>');
-      expect(result.to).not.toContain('User <user@example.com>');
-      expect(result.to.length).toBe(2);
-      expect(result.cc).toEqual([]);
-    });
-
-    it('should handle case-insensitive email comparison', () => {
-      const emailCaseDiff = {
-        from: 'SENDER@example.com',
-        to: ['RECIPIENT@example.com', 'USER@example.com'],
-        headers: {}
-      };
-
-      const result = extractReplyRecipients(emailCaseDiff, 'user@example.com', true);
-      
-      // Should exclude user@example.com even though case is different
-      expect(result.to).toContain('SENDER@example.com');
-      expect(result.to).toContain('RECIPIENT@example.com');
-      expect(result.to).not.toContain('USER@example.com');
-      expect(result.to.length).toBe(2);
-      expect(result.cc).toEqual([]);
-    });
-
-    it('should respect Reply-To header over From', () => {
-      const emailWithReplyTo = {
-        ...mockOriginalEmail,
-        from: 'sender@example.com',
-        headers: {
-          ...mockOriginalEmail.headers,
-          'Reply-To': 'reply-to@example.com'
-        }
-      };
-
-      const result = extractReplyRecipients(emailWithReplyTo, 'user@example.com', false);
-      
-      expect(result.to).toEqual(['reply-to@example.com']);
-      expect(result.cc).toEqual([]);
-    });
-
-    it('should respect reply-to header (lowercase) over From', () => {
-      const emailWithReplyTo = {
-        ...mockOriginalEmail,
-        from: 'sender@example.com',
-        headers: {
-          ...mockOriginalEmail.headers,
-          'reply-to': 'reply-to@example.com'
-        }
-      };
-
-      const result = extractReplyRecipients(emailWithReplyTo, 'user@example.com', false);
-      
-      expect(result.to).toEqual(['reply-to@example.com']);
-      expect(result.cc).toEqual([]);
-    });
-
-    it('should preserve Cc recipients in reply-all', () => {
-      const emailWithCc = {
-        ...mockOriginalEmail,
-        headers: {
-          ...mockOriginalEmail.headers,
-          'Cc': ['cc1@example.com', 'cc2@example.com']
-        }
-      };
-
-      const result = extractReplyRecipients(emailWithCc, 'user@example.com', true);
-      
-      // Should have sender and To recipients in To
-      expect(result.to).toContain('sender@example.com');
-      expect(result.to).toContain('recipient@example.com');
-      expect(result.to).not.toContain('user@example.com');
-      // Should have Cc recipients in Cc
-      expect(result.cc).toContain('cc1@example.com');
-      expect(result.cc).toContain('cc2@example.com');
-      expect(result.cc.length).toBe(2);
-    });
-
-    it('should exclude own address from Cc in reply-all', () => {
-      const emailWithCc = {
-        ...mockOriginalEmail,
-        headers: {
-          ...mockOriginalEmail.headers,
-          'Cc': ['cc1@example.com', 'user@example.com', 'cc2@example.com']
-        }
-      };
-
-      const result = extractReplyRecipients(emailWithCc, 'user@example.com', true);
-      
-      // Should not include user@example.com in Cc
-      expect(result.cc).toContain('cc1@example.com');
-      expect(result.cc).toContain('cc2@example.com');
-      expect(result.cc).not.toContain('user@example.com');
-      expect(result.cc.length).toBe(2);
-    });
-
-    it('should handle Reply-To with reply-all and preserve To/Cc semantics', () => {
-      const emailWithReplyToAndCc = {
-        ...mockOriginalEmail,
-        from: 'sender@example.com',
-        headers: {
-          'Reply-To': 'reply-to@example.com',
-          'Cc': ['cc1@example.com']
-        }
-      };
-
-      const result = extractReplyRecipients(emailWithReplyToAndCc, 'user@example.com', true);
-      
-      // Reply-To should be in To
-      expect(result.to).toContain('reply-to@example.com');
-      // Original To should also be in To (except self)
-      expect(result.to).toContain('recipient@example.com');
-      expect(result.to).not.toContain('user@example.com');
-      // Cc should be preserved
-      expect(result.cc).toContain('cc1@example.com');
-    });
-  });
+  // NOTE: buildReferences and buildReplyRecipients unit tests are covered upstream
+  // in tests/reply-all.test.ts. We keep only integration tests that verify our draft
+  // tools use these helpers correctly.
 
   describe('Body composition', () => {
     it('should compose reply body with quoted original', () => {
       const result = composeReplyBody('My reply', undefined, mockOriginalEmail, true);
-      
+
       expect(result.text).toContain('My reply');
       expect(result.text).toContain('On');
       expect(result.text).toContain('sender@example.com');
@@ -322,14 +84,14 @@ describe('Reply/Forward Draft Helpers', () => {
 
     it('should compose reply body without quoted original', () => {
       const result = composeReplyBody('My reply', undefined, mockOriginalEmail, false);
-      
+
       expect(result.text).toBe('My reply');
       expect(result.text).not.toContain('Original message');
     });
 
     it('should compose forward body with header block', () => {
       const result = composeForwardBody('Please see this', undefined, mockOriginalEmail, true);
-      
+
       expect(result.text).toContain('Please see this');
       expect(result.text).toContain('---------- Forwarded message ----------');
       expect(result.text).toContain('From: sender@example.com');
@@ -340,7 +102,7 @@ describe('Reply/Forward Draft Helpers', () => {
 
     it('should compose forward body without original content', () => {
       const result = composeForwardBody('Just the intro', undefined, mockOriginalEmail, false);
-      
+
       expect(result.text).toBe('Just the intro');
       expect(result.text).not.toContain('Forwarded message');
       expect(result.text).not.toContain('Original message');
@@ -348,7 +110,7 @@ describe('Reply/Forward Draft Helpers', () => {
 
     it('should handle HTML forward body', () => {
       const result = composeForwardBody('Intro', '<p>HTML intro</p>', mockOriginalEmail, true);
-      
+
       expect(result.html).toContain('HTML intro');
       expect(result.html).toContain('Forwarded message');
       expect(result.html).toContain('Original message');
@@ -357,7 +119,7 @@ describe('Reply/Forward Draft Helpers', () => {
     it('should handle empty new content', () => {
       const result1 = composeReplyBody('', undefined, mockOriginalEmail, true);
       const result2 = composeForwardBody('', undefined, mockOriginalEmail, true);
-      
+
       // Should still include quoted content even with empty new content
       expect(result1.text).toContain('Original message');
       expect(result2.text).toContain('Original message');
@@ -366,7 +128,7 @@ describe('Reply/Forward Draft Helpers', () => {
     it('should handle undefined new content', () => {
       const result1 = composeReplyBody(undefined, undefined, mockOriginalEmail, true);
       const result2 = composeForwardBody(undefined, undefined, mockOriginalEmail, true);
-      
+
       expect(result1.text).toContain('Original message');
       expect(result2.text).toContain('Original message');
     });
@@ -551,32 +313,69 @@ JVBERi0xLjQKJcOkw0zrBEY:
     });
 
     describe('SafeLinks cleanup in quoted HTML', () => {
-      it('should unwrap SafeLink to original destination', async () => {
+      // Test that http/https SafeLinks are unwrapped
+      it('should unwrap SafeLink with http destination', async () => {
         const source = `Content-Type: text/html
 
-<p><a href="https://eur02.safelinks.protection.outlook.com/?url=http%3A%2F%2Fwww.example.com%2F&data=test">Example</a></p>`;
+<p><a href="https://eur02.safelinks.protection.outlook.com/?url=http%3A%2F%2Fexample.com%2F&data=test">Example</a></p>`;
         const email = await createEmailContentFromSource(source);
 
         const result = composeReplyBody('Reply', undefined, email, true);
         expect(result.html).toBeDefined();
-        // Should contain the original URL, not the SafeLink domain
-        expect(result.html).toContain('http://www.example.com/');
+        expect(result.html).toContain('http://example.com/');
         expect(result.html).not.toContain('safelinks.protection.outlook.com');
       });
 
-      it('should preserve human-readable text with SafeLink href', async () => {
+      it('should unwrap SafeLink with https destination', async () => {
         const source = `Content-Type: text/html
 
-<p><a href="https://eur02.safelinks.protection.outlook.com/?url=https%3A%2F%2Ffacebook.com&data=test">Visit our Facebook page</a></p>`;
+<p><a href="https://eur02.safelinks.protection.outlook.com/?url=https%3A%2F%2Fsecure.example.com%2Fpage&data=test">Secure</a></p>`;
         const email = await createEmailContentFromSource(source);
 
         const result = composeReplyBody('Reply', undefined, email, true);
         expect(result.html).toBeDefined();
-        // Should have the original URL
-        expect(result.html).toContain('facebook.com');
-        // Should preserve human-readable text
-        expect(result.html).toContain('Visit our Facebook page');
-        // Should not contain SafeLink domain
+        expect(result.html).toContain('https://secure.example.com/page');
+        expect(result.html).not.toContain('safelinks.protection.outlook.com');
+      });
+
+      // Test that unsafe URL schemes are NOT unwrapped
+      it('should NOT unwrap SafeLink with javascript: destination', async () => {
+        const source = `Content-Type: text/html
+
+<p><a href="https://eur02.safelinks.protection.outlook.com/?url=javascript%3Aalert%281%29&data=test">Click</a></p>`;
+        const email = await createEmailContentFromSource(source);
+
+        const result = composeReplyBody('Reply', undefined, email, true);
+        expect(result.html).toBeDefined();
+        // Should NOT be unwrapped - still contains SafeLink domain
+        expect(result.html).toContain('safelinks.protection.outlook.com');
+        expect(result.html).not.toContain('javascript:alert(1)');
+      });
+
+      it('should NOT unwrap SafeLink with data: destination', async () => {
+        const source = `Content-Type: text/html
+
+<p><a href="https://eur02.safelinks.protection.outlook.com/?url=data%3Atext%2Fhtml%2C%3Cscript%3Ealert%281%29%3C%2Fscript%3E&data=test">Click</a></p>`;
+        const email = await createEmailContentFromSource(source);
+
+        const result = composeReplyBody('Reply', undefined, email, true);
+        expect(result.html).toBeDefined();
+        // Should NOT be unwrapped - still contains SafeLink domain
+        expect(result.html).toContain('safelinks.protection.outlook.com');
+        expect(result.html).not.toContain('data:text/html');
+      });
+
+      // Test edge cases
+      it('should preserve human-readable text with SafeLink href', async () => {
+        const source = `Content-Type: text/html
+
+<p><a href="https://eur02.safelinks.protection.outlook.com/?url=https%3A%2F%2Fsocial.example.com&data=test">Visit our social media page</a></p>`;
+        const email = await createEmailContentFromSource(source);
+
+        const result = composeReplyBody('Reply', undefined, email, true);
+        expect(result.html).toBeDefined();
+        expect(result.html).toContain('social.example.com');
+        expect(result.html).toContain('Visit our social media page');
         expect(result.html).not.toContain('safelinks.protection.outlook.com');
       });
 
@@ -588,10 +387,8 @@ JVBERi0xLjQKJcOkw0zrBEY:
 
         const result = composeReplyBody('Reply', undefined, email, true);
         expect(result.html).toBeDefined();
-        // Ordinary links should remain unchanged
         expect(result.html).toContain('https://www.example.com');
         expect(result.html).toContain('Example Website');
-        expect(result.html).not.toContain('safelinks.protection.outlook.com');
       });
 
       it('should leave malformed SafeLinks unchanged', async () => {
@@ -602,7 +399,6 @@ JVBERi0xLjQKJcOkw0zrBEY:
 
         const result = composeReplyBody('Reply', undefined, email, true);
         expect(result.html).toBeDefined();
-        // Should preserve the original since it has no url parameter
         expect(result.html).toContain('safelinks.protection.outlook.com');
       });
 
@@ -612,53 +408,113 @@ JVBERi0xLjQKJcOkw0zrBEY:
 
         const result = composeReplyBody('Test reply', undefined, email, true);
         expect(result.html).toBeDefined();
-        // Should have unwrapped SafeLinks to original URLs
         expect(result.html).toContain('http://www.example.com/page');
-        // Should not contain SafeLink domains
+        expect(result.html).not.toContain('safelinks.protection.outlook.com');
+      });
+
+      it('should handle SafeLink with & in query parameters', async () => {
+        const source = `Content-Type: text/html
+
+<p><a href="https://eur02.safelinks.protection.outlook.com/?url=https%3A%2F%2Fexample.com%2Fpage%3Ffoo%3D1%26bar%3D2&data=test">Link</a></p>`;
+        const email = await createEmailContentFromSource(source);
+
+        const result = composeReplyBody('Reply', undefined, email, true);
+        expect(result.html).toBeDefined();
+        expect(result.html).toContain('https://example.com/page?foo=1&amp;bar=2');
+        expect(result.html).not.toContain('safelinks.protection.outlook.com');
+      });
+
+      it('should preserve existing entity text in human-readable anchors', async () => {
+        const source = `Content-Type: text/html
+
+<p><a href="https://eur02.safelinks.protection.outlook.com/?url=https%3A%2F%2Fexample.com%2Fmenu&data=test">Fish &amp; Chips</a></p>`;
+        const email = await createEmailContentFromSource(source);
+
+        const result = composeReplyBody('Reply', undefined, email, true);
+        expect(result.html).toBeDefined();
+        expect(result.html).toContain('Fish &amp; Chips');
+        expect(result.html).not.toContain('Fish &amp;amp; Chips');
         expect(result.html).not.toContain('safelinks.protection.outlook.com');
       });
     });
   });
 
-  describe('BCC resolution', () => {
-    it('should return undefined when no BCC specified', () => {
-      const result = resolveReplyForwardBcc({}, undefined);
-      expect(result).toBeUndefined();
+  describe('HTML escaping', () => {
+    it('should escape hostile from address in reply HTML', () => {
+      const hostileEmail = {
+        ...mockOriginalEmail,
+        from: 'Evil <attacker@example.com> & <script>alert(1)</script>'
+      };
+
+      const result = composeReplyBody('My reply', undefined, hostileEmail, true);
+      expect(result.html).toBeDefined();
+
+      // Should escape hostile content
+      expect(result.html).toContain('&lt;attacker@example.com&gt;');
+      expect(result.html).toContain('&amp;');
+      expect(result.html).toContain('&lt;script&gt;');
+      expect(result.html).not.toContain('<script>');
+      expect(result.html).not.toContain('attacker@example.com> & <script');
     });
 
-    it('should return account defaultBcc when no explicit BCC', () => {
-      const result = resolveReplyForwardBcc(mockAccount, undefined);
-      // mergeBcc returns string for single recipient
-      expect(result).toBe('archive@example.com');
+    it('should escape hostile subject in forward HTML', () => {
+      const hostileEmail = {
+        ...mockOriginalEmail,
+        subject: 'Hello <script>alert(1)</script> & "test"'
+      };
+
+      const result = composeForwardBody('My forward', undefined, hostileEmail, true);
+      expect(result.html).toBeDefined();
+
+      // Should escape hostile content in subject (HTML text context: quotes don't need escaping)
+      expect(result.html).toContain('&lt;script&gt;');
+      expect(result.html).toContain('&amp;');
+      expect(result.html).toContain('"test"'); // Quotes in text content don't need HTML escaping
+      expect(result.html).not.toContain('<script>');
+      expect(result.html).not.toContain('& "test"');
     });
 
-    it('should merge account defaultBcc with explicit bcc', () => {
-      const result = resolveReplyForwardBcc(mockAccount, ['extra@example.com']);
-      
-      // Should contain both default and explicit
-      expect(result).toContain('archive@example.com');
-      expect(result).toContain('extra@example.com');
+    it('should escape textContent fallback with special characters', () => {
+      const emailWithSpecialChars = {
+        ...mockOriginalEmail,
+        textContent: 'A & B < C > D',
+        textAsHtml: undefined
+      };
+
+      const result = composeReplyBody('My reply', undefined, emailWithSpecialChars, true);
+      expect(result.html).toBeDefined();
+
+      // Should escape special characters in fallback text
+      expect(result.html).toContain('A &amp; B &lt; C &gt; D');
+      expect(result.html).not.toContain('A & B < C > D');
     });
 
-    it('should handle string BCC parameter', () => {
-      const result = resolveReplyForwardBcc(mockAccount, 'string@example.com');
-      expect(result).toBeDefined();
+    it('should escape newContentText with special characters', () => {
+      // Need includeQuotedOriginal=true and original content to trigger HTML generation
+      const result = composeReplyBody('A & B < C > D', undefined, mockOriginalEmail, true);
+      expect(result.html).toBeDefined();
+
+      // Should preserve paragraph structure and escape special characters
+      expect(result.html).toContain('&amp;');
+      expect(result.html).toContain('&lt;');
+      expect(result.html).toContain('&gt;');
+      expect(result.html).not.toContain('A & B < C > D');
     });
 
-    describe('Forward draft threading behavior', () => {
-      it('should verify that forward drafts do not set threading headers', () => {
-        // This is a conceptual test - the actual tool implementation
-        // should set inReplyTo: undefined and references: undefined
-        // This ensures forwarded messages don't get threaded with the original conversation
-        
-        // We can't directly test the tool here without mocking the entire infrastructure,
-        // but we can verify that the composeForwardBody function doesn't add threading info
-        const result = composeForwardBody('Test', undefined, mockOriginalEmail, true);
-        
-        // The body composition should not contain In-Reply-To or References headers
-        expect(result.text).not.toContain('In-Reply-To:');
-        expect(result.text).not.toContain('References:');
-      });
+    it('should escape hostile to addresses in forward HTML', () => {
+      const hostileEmail = {
+        ...mockOriginalEmail,
+        to: ['Attacker <evil@example.com> & <script>alert(1)</script>']
+      };
+
+      const result = composeForwardBody('My forward', undefined, hostileEmail, true);
+      expect(result.html).toBeDefined();
+
+      // Should escape hostile content in To field
+      expect(result.html).toContain('&lt;evil@example.com&gt;');
+      expect(result.html).toContain('&amp;');
+      expect(result.html).toContain('&lt;script&gt;');
+      expect(result.html).not.toContain('<script>');
     });
   });
 });
@@ -667,17 +523,17 @@ describe('Tool Registration', () => {
   it('should have READ_ONLY_TOOLS exported', async () => {
     // Import the tools registration to verify it exists
     const { READ_ONLY_TOOLS } = await import('../src/tools/index.js');
-    
+
     expect(typeof READ_ONLY_TOOLS).toBe('object');
     expect(Array.isArray(READ_ONLY_TOOLS)).toBe(true);
   });
 
   it('should not include draft tools in read-only mode', async () => {
     const { READ_ONLY_TOOLS } = await import('../src/tools/index.js');
-    
+
     expect(READ_ONLY_TOOLS).not.toContain('imap_save_reply_draft');
     expect(READ_ONLY_TOOLS).not.toContain('imap_save_forward_draft');
-    
+
     // But should include read-only tools
     expect(READ_ONLY_TOOLS).toContain('imap_search_emails');
     expect(READ_ONLY_TOOLS).toContain('imap_get_email');

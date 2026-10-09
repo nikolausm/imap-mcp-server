@@ -8,11 +8,8 @@ import { mergeBcc } from '../utils/default-bcc.js';
 import {
   generateReplySubject,
   generateForwardSubject,
-  extractReplyRecipients,
-  buildReplyThreadingHeaders,
   composeReplyBody,
-  composeForwardBody,
-  resolveReplyForwardBcc
+  composeForwardBody
 } from '../utils/reply-forward-helpers.js';
 import { allowedFromAddresses, resolveFrom } from '../utils/send-as.js';
 import { buildReferences, buildReplyRecipients } from '../utils/reply-headers.js';
@@ -1292,6 +1289,7 @@ export function emailTools(
     description: 'Save a reply to an existing email as a draft in the Drafts folder (no send, IMAP only). Automatically sets recipients based on the original sender (and all recipients if replyAll), prefixes the subject with "Re:", and preserves threading (In-Reply-To/References). Use this when the user wants to compose a reply as a draft without sending. Account defaultBcc addresses are applied when configured. New content appears first, followed by quoted original when includeQuotedOriginal is true.',
     inputSchema: {
       ...accountSelector,
+      from: z.string().optional().describe('Sender identity. Must match the account email/login or an address configured in allowedFrom.'),
       folder: z.string().default('INBOX').describe('Folder containing the original email'),
       uid: z.coerce.number().describe('UID of the email to reply to'),
       text: z.string().optional().describe('Plain text reply content'),
@@ -1303,19 +1301,23 @@ export function emailTools(
       attachments: z.array(attachmentSchema).optional().describe('Additional email attachments'),
       draftFolder: z.string().optional().describe('Override the Drafts folder name (defaults to auto-detected Drafts folder)'),
     }
-  }, async ({ accountId: rawAccountId, accountName, folder, uid, text, html, body, replyAll, bcc, includeQuotedOriginal, attachments, draftFolder }) => {
+  }, async ({ accountId: rawAccountId, accountName, from, folder, uid, text, html, body, replyAll, bcc, includeQuotedOriginal, attachments, draftFolder }) => {
     const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
     const account = await accountManager.getAccount(accountId);
     if (!account) {
       throw new Error(`Account ${accountId} not found`);
     }
 
+    const resolvedFrom = resolveFrom(account, from);
     const normalizedAttachments = await normalizeAttachments(attachments as AttachmentInput[] | undefined);
 
-    const accountEmail = account.email || account.user;
     const originalEmail = await imapService.getEmailContentForDraft(accountId, folder, uid);
-    const recipients = extractReplyRecipients(originalEmail, accountEmail, replyAll);
-    const { inReplyTo, references } = buildReplyThreadingHeaders(originalEmail);
+    const recipients = buildReplyRecipients(
+      originalEmail,
+      [...allowedFromAddresses(account)],
+      replyAll,
+    );
+    const referencesChain = buildReferences(originalEmail);
     const { text: replyText, html: replyHtml } = composeReplyBody(
       text ?? body,
       html,
@@ -1324,16 +1326,16 @@ export function emailTools(
     );
 
     const emailComposer = {
-      from: account.email || account.user,
+      from: resolvedFrom,
       to: recipients.to,
       subject: generateReplySubject(originalEmail.subject),
       text: replyText,
       html: replyHtml,
       cc: recipients.cc.length > 0 ? recipients.cc : undefined,
-      bcc: resolveReplyForwardBcc(account, bcc),
+      bcc: resolveBcc(account, bcc),
       replyTo: undefined, // Let From header handle replies
-      inReplyTo,
-      references,
+      inReplyTo: originalEmail.messageId,
+      references: referencesChain,
       attachments: normalizedAttachments.attachments,
     };
 
@@ -1364,9 +1366,10 @@ export function emailTools(
 
   // Save forward draft tool
   server.registerTool('imap_save_forward_draft', {
-    description: 'Save a forward of an existing email as a draft in the Drafts folder (no send, IMAP only). Forwards the message to specified recipients with conventional forwarded-message header block. Optionally includes original attachments and quoted content. Account defaultBcc addresses are applied when configured. Use this when the user wants to compose a forward as a draft without sending.',
+    description: 'Save a forward of an existing email as a draft in the Drafts folder (no send, IMAP only). Forwards the message to specified recipients with conventional forwarded-message header block and optionally includes quoted content. Additional attachments can be supplied. Account defaultBcc addresses are applied when configured. Use this when the user wants to compose a forward as a draft without sending. Note: original attachments are NOT automatically forwarded.',
     inputSchema: {
       ...accountSelector,
+      from: z.string().optional().describe('Sender identity. Must match the account email/login or an address configured in allowedFrom.'),
       folder: z.string().default('INBOX').describe('Folder containing the original email'),
       uid: z.coerce.number().describe('UID of the email to forward'),
       to: addressList('to', 'Forward to email address(es). Either an array of addresses or a single comma-separated string.').nonoptional(),
@@ -1378,13 +1381,14 @@ export function emailTools(
       attachments: z.array(attachmentSchema).optional().describe('Additional email attachments'),
       draftFolder: z.string().optional().describe('Override the Drafts folder name (defaults to auto-detected Drafts folder)'),
     }
-  }, async ({ accountId: rawAccountId, accountName, folder, uid, to, text, html, body, bcc, includeQuotedOriginal, draftFolder, attachments }) => {
+  }, async ({ accountId: rawAccountId, accountName, from, folder, uid, to, text, html, body, bcc, includeQuotedOriginal, draftFolder, attachments }) => {
     const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
     const account = await accountManager.getAccount(accountId);
     if (!account) {
       throw new Error(`Account ${accountId} not found`);
     }
 
+    const resolvedFrom = resolveFrom(account, from);
     const originalEmail = await imapService.getEmailContentForDraft(accountId, folder, uid);
     const normalizedAttachments = await normalizeAttachments(attachments as AttachmentInput[] | undefined);
     const { text: forwardText, html: forwardHtml } = composeForwardBody(
@@ -1395,13 +1399,13 @@ export function emailTools(
     );
 
     const emailComposer = {
-      from: account.email || account.user,
+      from: resolvedFrom,
       to,
       subject: generateForwardSubject(originalEmail.subject),
       text: forwardText,
       html: forwardHtml,
       cc: undefined,
-      bcc: resolveReplyForwardBcc(account, bcc),
+      bcc: resolveBcc(account, bcc),
       replyTo: undefined,
       inReplyTo: undefined, // Forward typically doesn't use In-Reply-To
       references: undefined, // Forward typically doesn't use References to avoid threading
