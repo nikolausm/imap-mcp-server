@@ -1,5 +1,7 @@
 # IMAP MCP Server
 
+[![MCPVault: claimed](https://mcpvault.io/badge/imap-mcp-server.svg)](https://mcpvault.io/servers/imap-mcp-server/health?utm_source=external_badge&utm_medium=referral&utm_campaign=mcp_health_report)
+
 A powerful Model Context Protocol (MCP) server that provides seamless IMAP email integration with secure account management and connection pooling.
 
 ## Features
