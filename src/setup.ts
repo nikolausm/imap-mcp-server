@@ -17,6 +17,7 @@ program
   .name('imap-setup')
   .description('IMAP MCP Server Setup Wizard')
   .option('-p, --port <port>', 'Port for web UI', '3000')
+  .option('--host <host>', 'Address to bind the web UI to (default 127.0.0.1; e.g. 0.0.0.0 to reach it from another machine, protected by an access token)')
   .option('--no-open', 'Do not open browser automatically')
   .option('--claude-setup', 'Setup Claude Desktop integration')
   .option('--skip-claude', 'Skip Claude Desktop integration')
@@ -126,12 +127,12 @@ async function main() {
   const spinner = ora('Starting web interface...').start();
   
   try {
-    const server = new WebUIServer(parseInt(options.port));
+    const server = new WebUIServer(parseInt(options.port), { bindHost: options.host });
     await server.start(options.open);
     
     spinner.succeed('Web interface is running!');
     
-    console.log('\n' + chalk.green('✓') + ' Setup wizard available at: ' + chalk.cyan(`http://localhost:${options.port}`));
+    console.log('\n' + chalk.green('✓') + ' Setup wizard available at: ' + chalk.cyan(server.getAccessUrl()));
     console.log('\n' + chalk.yellow('ℹ') + ' Press Ctrl+C to stop the server\n');
     
     if (!options.open) {

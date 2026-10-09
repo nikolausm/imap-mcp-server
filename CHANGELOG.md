@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- The setup wizard (`imap-setup`) now listens on `127.0.0.1` only. It used to bind to all interfaces, and its loopback `Host` check only stopped browsers. Anyone on the same network could send `Host: localhost` with `curl` and reach the account API while the wizard was running, for example to point an account's IMAP host at their own server.
+- To use the wizard from another machine, either use an SSH tunnel or bind it to the network with `imap-setup --host 0.0.0.0` / `IMAP_MCP_BIND`. In that mode every request needs an access token, which is generated per start and printed as part of the URL (or fixed via `IMAP_MCP_WIZARD_TOKEN`). The token is exchanged for an HttpOnly, SameSite=Strict cookie, or sent as `Authorization: Bearer`. Cross-origin requests are refused. Remote access in a browser previously failed with 403 anyway. The loopback bind comes from #189 by @jmagly. Tests in `tests/web-server-remote-bind.test.ts`.
+
 ### Added
 - Send-as aliases (#192). `imap_send_email`, `imap_save_draft`, `imap_reply_to_email` and `imap_forward_email` accept an optional `from`. Accepted senders are the account's email, its login (if that is an email address), and addresses configured in the new optional `allowedFrom` account field (set via `imap_add_account` / `imap_update_account`). The value must parse to exactly one mailbox, so multiple addresses, groups and CR/LF header injection are rejected. Addresses are matched case-insensitively, and the display name is kept. Reply-all also leaves out configured aliases. `allowedFrom` is an application-level guardrail, not a security boundary: the SMTP server enforces the real sender policy.
 

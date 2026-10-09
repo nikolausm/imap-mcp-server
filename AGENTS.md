@@ -37,7 +37,10 @@ working in this repository.
   - `folder-tools.ts` — list, status, create, unread counts.
   - `spam-tools.ts` — spam analysis, domain stats, allow/deny lists.
 - **Web setup wizard** — `src/web/server.ts` (Express) serves `public/` for
-  account onboarding (`npm run setup` / `imap-setup`).
+  account onboarding (`npm run setup` / `imap-setup`). Binds `127.0.0.1` and
+  rejects non-loopback `Host`/`Origin`. With `--host` / `IMAP_MCP_BIND` beyond
+  loopback, every request needs the per-start access token instead (cookie or
+  `Authorization: Bearer`); keep both paths covered when touching middleware.
 - **Types** — `src/types/index.ts`.
 - All tools return **JSON-formatted text** content; errors are returned as
   structured JSON where practical rather than thrown for caller-facing failures.
@@ -55,7 +58,7 @@ npm run setup        # launch the web setup wizard
 ```
 
 Always run `npm run build` **and** `npm test` before committing changes that
-touch `src/`. Keep the suite green (currently 396 tests).
+touch `src/`. Keep the suite green (currently 448 tests).
 
 > Note: `npm run lint` (`tsc --noEmit`) is memory-hungry on this project — the
 > MCP SDK's `registerTool` generics are deep enough to surface a pre-existing
