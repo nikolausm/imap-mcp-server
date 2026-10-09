@@ -17,6 +17,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.1] - 2026-10-08
+
+No tool was renamed, and no input or output shape changed. `imap_get_email` returns three additional fields.
+
+### Fixed
+- `imap_reply_to_email` with `replyAll: true` replied to the sender only (#188). Cc recipients are kept now, `Reply-To` is honoured, the account's own addresses and duplicates are removed, and `References` carries the full parent chain (RFC 5322 §3.6.4) so threads no longer split. `imap_get_email` additionally returns `cc`, `replyTo` and `references`. Tests in `tests/reply-all.test.ts`.
+- `imap_send_email` stored the Sent copy with a different Message-ID from the delivered message (#187). The Message-ID and Date are now generated once and used for the SMTP send, the Sent copy and the return value.
+- The MCP handshake (`serverInfo.version`) and the setup wizard's `/api/health` endpoint reported a hard-coded `1.0.0` for every release. Both now read the version from `package.json` at runtime. Tests in `tests/package-version.test.ts`.
+
+### Security
+- Dependency advisories cleared — `npm audit` reports 0 vulnerabilities again. The ones on a **runtime** path: `@modelcontextprotocol/sdk` → `^1.32.1` (GHSA-6qxp-vccf-f47h; the affected code is the SDK's OAuth *client*, which this server does not use, but the floor is raised so installs never resolve a flagged version) and `proxy-addr` → 2.0.8 (critical, reached via `express` in the setup wizard's local web server). Dev-only: `source-map-js`, `fast-uri` (override → `^3.1.8`) and `brace-expansion` (override → `^5.0.12`).
+- Removed the unused `nodemon` dev dependency. Nothing referenced it, and it was the only path to the vulnerable `braces` via `chokidar` 3.
+
+### Changed
+- The release workflow now also creates the GitHub Release for the tag, with the matching CHANGELOG section as notes. v1.6.0 to v2.1.0 had been published to npm without one.
+
 ## [2.1.0] - 2026-09-26
 
 No tool was renamed, and no existing input or output shape changed. The new

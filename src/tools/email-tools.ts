@@ -5,6 +5,7 @@ import { SmtpService } from '../services/smtp-service.js';
 import { selectSearchFolders } from '../utils/search-folders.js';
 import { parseSerializedArray } from '../utils/array-input.js';
 import { mergeBcc } from '../utils/default-bcc.js';
+import { buildReferences, buildReplyRecipients } from '../utils/reply-headers.js';
 import type { EmailAttachment, EmailMessage, ImapAccount, SentSaveResult } from '../types/index.js';
 import { z } from 'zod';
 import { basename, join } from 'path';
@@ -1153,7 +1154,7 @@ export function emailTools(
 
   // Reply to email tool
   server.registerTool('imap_reply_to_email', {
-    description: 'Reply to an existing email identified by folder + uid. Automatically sets the recipient to the original sender, prefixes the subject with "Re:", and preserves threading (In-Reply-To/References). Set replyAll to also include the original recipients. Use this instead of imap_send_email whenever the user is responding to a message already in a mailbox. Account defaultBcc addresses are always BCC\'d when configured.',
+    description: 'Reply to an existing email identified by folder + uid. Automatically sets the recipient to the original sender, prefixes the subject with "Re:", and preserves threading (In-Reply-To/References). Set replyAll to also include the original To (and Cc as Cc), excluding the account\'s own address; a Reply-To header on the original is honoured. Use this instead of imap_send_email whenever the user is responding to a message already in a mailbox. Account defaultBcc addresses are always BCC\'d when configured.',
     inputSchema: {
       ...accountSelector,
       folder: z.string().default('INBOX').describe('Folder containing the original email'),
@@ -1176,40 +1177,24 @@ export function emailTools(
     // Get original email (envelope only is needed here; skip body conversion)
     const originalEmail = await imapService.getEmailContent(accountId, folder, uid, { bodyFormat: 'text' });
 
-    // Extract the bare email address from a header value that may include a
-    // display name (e.g. 'Alice <alice@example.com>' → 'alice@example.com').
-    // Returns lowercase for case-insensitive comparison per RFC 5321 §2.4.
-    const extractEmail = (addr: string): string => {
-      const match = addr.match(/<([^>]+)>/);
-      return (match ? match[1] : addr).trim().toLowerCase();
-    };
-
-    // Prepare reply. replyAll: include original To recipients but EXCLUDE
-    // our own address (otherwise the SMTP server delivers a copy back to
-    // our INBOX). Use extracted lowercase address for comparison so it works
-    // when the To header includes display names like 'Us <us@example.com>'.
-    const accountEmail = extractEmail(account.email || account.user);
-    const recipients = [originalEmail.from];
-    if (replyAll) {
-      const seen = new Set<string>([accountEmail, ...recipients.map(extractEmail)]);
-      for (const addr of originalEmail.to) {
-        const normalized = extractEmail(addr);
-        if (!seen.has(normalized)) {
-          recipients.push(addr);
-          seen.add(normalized);
-        }
-      }
-    }
+    // Reply: To = Reply-To or From. replyAll: also the original To, and Cc =
+    // the original Cc, minus our own address(es) and duplicates.
+    const { to: replyRecipients, cc: replyCc } = buildReplyRecipients(
+      originalEmail,
+      [account.email, account.user],
+      replyAll,
+    );
 
     const emailComposer = {
       from: account.email || account.user,
-      to: recipients,
+      to: replyRecipients,
+      cc: replyCc.length > 0 ? replyCc : undefined,
       subject: originalEmail.subject.startsWith('Re: ') ? originalEmail.subject : `Re: ${originalEmail.subject}`,
       text: text ?? body,
       html,
       bcc: resolveBcc(account, bcc),
       inReplyTo: originalEmail.messageId,
-      references: originalEmail.messageId,
+      references: buildReferences(originalEmail),
       attachments: normalizedAttachments.attachments,
     };
 

@@ -70,6 +70,12 @@ export interface EmailMessage {
 export type EmailBodyFormat = 'markdown' | 'text' | 'html' | 'auto';
 
 export interface EmailContent extends EmailMessage {
+  /** Cc recipients, one entry per address (display name kept). */
+  cc?: string[];
+  /** Reply-To addresses, one entry per address. Replies go here instead of From (RFC 5322 §3.6.2). */
+  replyTo?: string[];
+  /** Message-IDs from the References header, oldest first. */
+  references?: string[];
   textContent?: string;
   htmlContent?: string;
   markdownContent?: string;
