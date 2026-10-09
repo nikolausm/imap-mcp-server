@@ -606,15 +606,14 @@ JVBERi0xLjQKJcOkw0zrBEY:
         expect(result.html).toContain('safelinks.protection.outlook.com');
       });
 
-      it('should handle SafeLinks in real Camping Vrijhaven email', async () => {
-        const source = fs.readFileSync(path.join(process.env.HOME, 'Downloads', 'camping-vrijhaven.eml'), 'utf8');
+      it('should handle SafeLinks in HTML-only email', async () => {
+        const source = fs.readFileSync(path.join(__dirname, 'fixtures', 'outlook-safelinks-html-only.eml'), 'utf8');
         const email = await createEmailContentFromSource(source);
 
         const result = composeReplyBody('Test reply', undefined, email, true);
         expect(result.html).toBeDefined();
         // Should have unwrapped SafeLinks to original URLs
-        expect(result.html).toContain('http://www.campingvrijhaven.nl/');
-        expect(result.html).toContain('www.facebook.com/campingvrijhaven');
+        expect(result.html).toContain('http://www.example.com/page');
         // Should not contain SafeLink domains
         expect(result.html).not.toContain('safelinks.protection.outlook.com');
       });
