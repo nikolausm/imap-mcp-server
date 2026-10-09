@@ -360,6 +360,13 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
       array to clear
   ```
 
+`allowedFrom` is an application-level guardrail, not a hard security boundary:
+an agent with access to `imap_update_account` can change the allowed identities.
+The SMTP server must enforce the actual sender authorization policy. Sender
+mailbox addresses are matched case-insensitively; the supplied display name and
+address casing are preserved in the outbound `From` header. This applies to
+sending, drafts, replies, and forwards.
+
 - **imap_list_accounts**: List all configured accounts
 
 - **imap_remove_account**: Remove an account

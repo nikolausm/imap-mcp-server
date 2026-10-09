@@ -29,10 +29,23 @@ describe('resolveFrom', () => {
     );
   });
 
-  it('treats the mailbox local part as case-sensitive', () => {
-    expect(() => resolveFrom(account, 'ALIAS@example.com')).toThrow(
-      'Sender ALIAS@example.com is not allowed for account primary@example.com',
-    );
+  it.each([
+    'Primary <PRIMARY@EXAMPLE.COM>',
+    'LOGIN@EXAMPLE.COM',
+    'Alex <ALIAS@EXAMPLE.COM>',
+  ])('matches the entire sender mailbox case-insensitively: %s', (from) => {
+    expect(resolveFrom(account, from)).toBe(from);
+  });
+
+  it('normalizes mixed-case configured identities without changing the requested header', () => {
+    const mixedCaseAccount: any = {
+      email: 'Michael@X.DE',
+      user: 'Login@X.DE',
+      allowedFrom: ['Alias <Alias@X.DE>'],
+    };
+    for (const from of ['michael@x.de', 'login@x.de', 'Display Name <alias@x.de>']) {
+      expect(resolveFrom(mixedCaseAccount, from)).toBe(from);
+    }
   });
 
   it('rejects multiple mailboxes hidden in one from value', () => {
@@ -135,6 +148,23 @@ describe('outbound email tools send-as support', () => {
       ? mockSmtpService.composeRaw.mock.calls.at(-1)?.[1]
       : mockSmtpService.sendEmail.mock.calls.at(-1)?.[2];
     expect(composer.from).toBe('Alias <alias@example.com>');
+  });
+
+  it('excludes mixed-case own identities and aliases while preserving Reply-To and Cc', async () => {
+    mockImapService.getEmailContent.mockResolvedValueOnce({
+      ...originalEmail,
+      replyTo: ['Help <help@example.net>'],
+      to: ['PRIMARY@EXAMPLE.COM', 'ALIAS@EXAMPLE.COM', 'other@example.net'],
+      cc: ['LOGIN@EXAMPLE.COM', 'Alias <ALIAS@EXAMPLE.COM>', 'other@example.net', 'cc@example.net'],
+    });
+
+    await handlers.imap_reply_to_email({
+      accountId: 'acc1', folder: 'INBOX', uid: 1, text: 'Reply', replyAll: true,
+    });
+
+    const composer = mockSmtpService.sendEmail.mock.calls.at(-1)?.[2];
+    expect(composer.to).toEqual(['Help <help@example.net>', 'other@example.net']);
+    expect(composer.cc).toEqual(['cc@example.net']);
   });
 
   it('excludes configured aliases from reply-all recipients', async () => {

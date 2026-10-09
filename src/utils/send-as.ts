@@ -12,9 +12,7 @@ export function parseSingleMailbox(value: string): string {
   if (parsed.length !== 1 || !parsed[0].address || parsed[0].group) {
     throw new Error('Sender must contain exactly one mailbox');
   }
-  const address = parsed[0].address;
-  const at = address.lastIndexOf('@');
-  return `${address.slice(0, at)}@${address.slice(at + 1).toLowerCase()}`;
+  return parsed[0].address.toLowerCase();
 }
 
 export function allowedFromAddresses(account: ImapAccount): Set<string> {
