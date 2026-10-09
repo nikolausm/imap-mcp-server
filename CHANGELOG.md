@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Send-as aliases (#192). `imap_send_email`, `imap_save_draft`, `imap_reply_to_email` and `imap_forward_email` accept an optional `from`. Accepted senders are the account's email, its login (if that is an email address), and addresses configured in the new optional `allowedFrom` account field (set via `imap_add_account` / `imap_update_account`). The value must parse to exactly one mailbox, so multiple addresses, groups and CR/LF header injection are rejected. Addresses are matched case-insensitively, and the display name is kept. Reply-all also leaves out configured aliases. `allowedFrom` is an application-level guardrail, not a security boundary: the SMTP server enforces the real sender policy.
+
 ## [2.1.1] - 2026-10-08
 
 No tool was renamed, and no input or output shape changed. `imap_get_email` returns three additional fields.
