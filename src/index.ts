@@ -6,6 +6,7 @@ import { AccountManager } from './services/account-manager.js';
 import { SmtpService } from './services/smtp-service.js';
 import { SpamService } from './services/spam-service.js';
 import { registerTools } from './tools/index.js';
+import { PACKAGE_VERSION } from './utils/version.js';
 
 // Silence any package version output to stdout
 const originalWrite = process.stdout.write.bind(process.stdout);
@@ -21,7 +22,7 @@ dotenv.config();
 
 const server = new McpServer({
   name: 'imap-mcp-server',
-  version: '1.0.0',
+  version: PACKAGE_VERSION,
 });
 
 const imapService = new ImapService();

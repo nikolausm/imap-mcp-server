@@ -9,6 +9,7 @@ import { AccountManager } from '../services/account-manager.js';
 import { ImapService } from '../services/imap-service.js';
 import { emailProviders, getProviderByEmail } from '../providers/email-providers.js';
 import { ImapAccount } from '../types/index.js';
+import { PACKAGE_VERSION } from '../utils/version.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -352,7 +353,7 @@ export class WebUIServer {
 
     // Health check
     this.app.get('/api/health', (req, res) => {
-      res.json({ status: 'ok', version: '1.0.0' });
+      res.json({ status: 'ok', version: PACKAGE_VERSION });
     });
   }
 
