@@ -112,6 +112,44 @@ This will:
 2. Open your browser to the setup wizard
 3. Guide you through adding email accounts with pre-configured settings
 
+The wizard listens on `127.0.0.1` only, so nothing else on your network can
+reach it.
+
+#### Running the wizard on another machine (server, NAS, VM)
+
+**Recommended: SSH tunnel.** The wizard stays on loopback, and the connection is
+encrypted:
+
+```bash
+ssh -L 3000:localhost:3000 my-server      # then, on the server:
+imap-setup --no-open
+```
+
+Open `http://localhost:3000` in your local browser.
+
+**Alternative: bind to the network.** Pass `--host` (or set `IMAP_MCP_BIND`):
+
+```bash
+imap-setup --host 0.0.0.0 --no-open
+```
+
+The wizard then requires an access token and prints a URL containing it, e.g.
+`http://my-server:3000/?token=…`. Open that URL; the token is exchanged for a
+session cookie and removed from the address bar. Requests without the token are
+refused, and so are cross-origin requests. Scripts can send
+`Authorization: Bearer <token>` instead. To use a fixed token rather than a
+random one per start, set `IMAP_MCP_WIZARD_TOKEN` (at least 16 characters); it is then not printed.
+
+The connection is plain HTTP, so anyone who can read your network traffic can
+see the token and the passwords you enter. Use this only on networks you trust,
+and prefer the SSH tunnel otherwise.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `IMAP_MCP_BIND` | `127.0.0.1` | Address the wizard binds to (`--host` takes precedence) |
+| `IMAP_MCP_WIZARD_TOKEN` | random per start | Access token when bound beyond loopback |
+| `PORT` | `3000` | Port for `npm run web` (`imap-setup` uses `--port`) |
+
 ### Overriding Credentials via Environment Variables
 
 You can override the username and password of an already-configured account at

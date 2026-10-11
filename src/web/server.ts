@@ -3,6 +3,8 @@ import cors from 'cors';
 import bodyParser from 'body-parser';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
+import { randomBytes, timingSafeEqual } from 'crypto';
 import { fileURLToPath, pathToFileURL } from 'url';
 import open from 'open';
 import { AccountManager } from '../services/account-manager.js';
@@ -10,6 +12,25 @@ import { ImapService } from '../services/imap-service.js';
 import { emailProviders, getProviderByEmail } from '../providers/email-providers.js';
 import { ImapAccount } from '../types/index.js';
 import { PACKAGE_VERSION } from '../utils/version.js';
+
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
+const TOKEN_COOKIE = 'imap_wizard_token';
+const MIN_TOKEN_LENGTH = 16;
+
+/** Read one cookie value from a raw `Cookie` header. */
+function readCookie(header: string | undefined, name: string): string | undefined {
+  for (const part of (header ?? '').split(';')) {
+    const idx = part.indexOf('=');
+    if (idx !== -1 && part.slice(0, idx).trim() === name) {
+      try {
+        return decodeURIComponent(part.slice(idx + 1).trim());
+      } catch {
+        return undefined; // malformed %-escape: treat as no cookie
+      }
+    }
+  }
+  return undefined;
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -33,13 +54,33 @@ export class WebUIServer {
   private accountManager: AccountManager;
   private imapService: ImapService;
   private port: number;
+  private bindHost: string;
+  /** Set only when bound beyond loopback: required on every request then. */
+  private accessToken?: string;
+  private accessTokenGenerated = false;
 
   constructor(
     port: number = 3000,
-    deps: { accountManager?: AccountManager; imapService?: ImapService } = {},
+    deps: { accountManager?: AccountManager; imapService?: ImapService; bindHost?: string; accessToken?: string } = {},
   ) {
     this.app = express();
     this.port = port;
+    // Loopback by default: the wizard's API can rewrite account settings, so it
+    // must not be reachable from the network unless the user asks for it
+    // (IMAP_MCP_BIND / imap-setup --host). Remote mode then requires a token.
+    this.bindHost = deps.bindHost?.trim() || process.env.IMAP_MCP_BIND?.trim() || '127.0.0.1';
+    if (this.isRemote()) {
+      this.accessToken = deps.accessToken?.trim() || process.env.IMAP_MCP_WIZARD_TOKEN?.trim();
+      if (this.accessToken && this.accessToken.length < MIN_TOKEN_LENGTH) {
+        throw new Error(
+          `IMAP_MCP_WIZARD_TOKEN must be at least ${MIN_TOKEN_LENGTH} characters when the wizard is reachable from the network.`,
+        );
+      }
+      if (!this.accessToken) {
+        this.accessToken = randomBytes(24).toString('base64url');
+        this.accessTokenGenerated = true;
+      }
+    }
     this.accountManager = deps.accountManager ?? new AccountManager();
     this.imapService = deps.imapService ?? new ImapService();
 
@@ -52,6 +93,26 @@ export class WebUIServer {
     return this.app;
   }
 
+  /** True when bound to something other than a loopback address. */
+  isRemote(): boolean {
+    return !LOOPBACK_HOSTS.has(this.bindHost.toLowerCase());
+  }
+
+  /**
+   * URL to open the wizard. In remote mode it carries a generated access token
+   * so the user can paste it into a browser on another machine; a token taken
+   * from IMAP_MCP_WIZARD_TOKEN is not echoed, the user already knows it.
+   */
+  getAccessUrl(forLocalBrowser = false): string {
+    const wildcard = this.bindHost === '0.0.0.0' || this.bindHost === '::';
+    const host = !this.isRemote() || (wildcard && forLocalBrowser)
+      ? 'localhost'
+      : wildcard ? os.hostname() : this.bindHost;
+    const hostPart = host.includes(':') ? `[${host}]` : host;
+    const query = this.accessTokenGenerated ? `?token=${this.accessToken}` : '';
+    return `http://${hostPart}:${this.port}/${query}`;
+  }
+
   private setupMiddleware(): void {
     // The setup wizard is unauthenticated and CORS-open, so it must never be
     // reachable by anything other than the local user's own browser. Reject
@@ -60,8 +121,14 @@ export class WebUIServer {
     // browser request (Origin set to a non-loopback origin). Together with
     // stripAccountSecrets this closes the "any open page can read/modify the
     // local accounts API" vector.
-    this.app.use(this.loopbackOnly());
-    this.app.use(cors());
+    if (this.isRemote()) {
+      // Reachable from the network on purpose: Host is no longer a usable
+      // signal, so every request must carry the access token instead.
+      this.app.use(this.tokenRequired());
+    } else {
+      this.app.use(this.loopbackOnly());
+      this.app.use(cors());
+    }
     this.app.use(bodyParser.json());
     this.app.use(express.static(this.resolvePublicDir()));
   }
@@ -100,6 +167,67 @@ export class WebUIServer {
       }
 
       next();
+    };
+  }
+
+  private tokenMatches(candidate: string): boolean {
+    const expected = Buffer.from(this.accessToken ?? '');
+    const given = Buffer.from(candidate);
+    return expected.length > 0 && given.length === expected.length && timingSafeEqual(given, expected);
+  }
+
+  // Remote mode: accept the token once via ?token= (then kept in an HttpOnly,
+  // SameSite=Strict cookie so the wizard's own fetches carry it), or on every
+  // request as `Authorization: Bearer <token>` for scripted use. Cross-origin
+  // browser requests are refused as well.
+  private tokenRequired(): express.RequestHandler {
+    return (req, res, next) => {
+      const deny = (status: number, message: string) => {
+        if (req.path.startsWith('/api/')) {
+          res.status(status).json({ error: message });
+        } else {
+          res.status(status).type('text/plain').send(message);
+        }
+      };
+
+      const origin = req.headers.origin;
+      if (origin) {
+        let originHost: string | undefined;
+        try {
+          originHost = new URL(origin).host;
+        } catch {
+          // handled below
+        }
+        if (!originHost || originHost !== req.headers.host) {
+          deny(403, 'Forbidden: cross-origin requests are not allowed.');
+          return;
+        }
+      }
+
+      const queryToken = typeof req.query.token === 'string' ? req.query.token : undefined;
+      if (queryToken !== undefined) {
+        if (!this.tokenMatches(queryToken)) {
+          deny(401, 'Unauthorized: invalid access token.');
+          return;
+        }
+        res.setHeader('Set-Cookie', `${TOKEN_COOKIE}=${encodeURIComponent(queryToken)}; HttpOnly; SameSite=Strict; Path=/`);
+        // Drop the token from the address bar and browser history.
+        const url = new URL(req.originalUrl, 'http://wizard.invalid');
+        url.searchParams.delete('token');
+        // Collapse leading slashes so the target can never become a
+        // protocol-relative URL ("//evil.example/").
+        res.redirect(302, '/' + url.pathname.replace(/^\/+/, '') + url.search);
+        return;
+      }
+
+      const bearer = /^Bearer\s+(.+)$/i.exec(req.headers.authorization ?? '')?.[1];
+      const cookie = readCookie(req.headers.cookie, TOKEN_COOKIE);
+      if ((bearer && this.tokenMatches(bearer)) || (cookie && this.tokenMatches(cookie))) {
+        next();
+        return;
+      }
+
+      deny(401, 'Unauthorized: open the wizard with the URL (including ?token=…) printed when imap-setup started.');
     };
   }
 
@@ -355,13 +483,24 @@ export class WebUIServer {
 
   async start(autoOpen: boolean = true): Promise<void> {
     return new Promise((resolve) => {
-      const server = this.app.listen(this.port, () => {
-        console.log(`🌐 Web UI server running at http://localhost:${this.port}`);
-        
+      const server = this.app.listen(this.port, this.bindHost, () => {
+        // The URL may contain the generated one-time wizard token. Printing it is
+        // deliberate (like Jupyter): it is how the user gets into the wizard from
+        // another machine, it is not a mailbox credential, and it dies with the
+        // process.
+        console.log(`🌐 Web UI server running at ${this.getAccessUrl()}`);
+        if (this.isRemote()) {
+          console.warn(
+            `⚠️  The setup wizard is reachable from the network (bind ${this.bindHost}). ` +
+            'Access requires the token, but the connection is plain HTTP — use this only on ' +
+            'trusted networks, or prefer an SSH tunnel to a loopback-bound wizard.',
+          );
+        }
+
         if (autoOpen) {
           // Open browser after a short delay
           setTimeout(() => {
-            open(`http://localhost:${this.port}`);
+            open(this.getAccessUrl(true));
           }, 1000);
         }
         
