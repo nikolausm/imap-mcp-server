@@ -270,7 +270,16 @@ To: ${originalEmail.to.join(',')}
       : (originalEmail.textContent
          ? escapeHtmlText(originalEmail.textContent).replace(/\n/g, '<br/>')
          : '');
-    fullHtml = (newContentHtml || '') + forwardHeaderHtml + (quotedContent ? `<blockquote type="cite">${quotedContent}</blockquote>` : '');
+    // Convert newContentText to HTML if newContentHtml is not provided
+    const newContentHtmlFinal = newContentHtml
+      ? newContentHtml
+      : (newContentText
+         ? newContentText
+             .split('\n\n')
+             .map(p => `<p>${escapeHtmlText(p).replace(/\n/g, '<br/>')}</p>`)
+             .join('')
+         : '');
+    fullHtml = newContentHtmlFinal + forwardHeaderHtml + (quotedContent ? `<blockquote type="cite">${quotedContent}</blockquote>` : '');
   }
 
   return {

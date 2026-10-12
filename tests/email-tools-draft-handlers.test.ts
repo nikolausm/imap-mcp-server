@@ -216,3 +216,168 @@ describe('imap_save_forward_draft handler', () => {
     expect(mockSmtpService.sendEmail).not.toHaveBeenCalled();
   });
 });
+
+// Real MIME round-trip tests for content preservation
+// These use actual composeRaw + simpleParser to verify content survives correctly
+import { simpleParser } from 'mailparser';
+import { SmtpService } from '../src/services/smtp-service.js';
+import { ImapService } from '../src/services/imap-service.js';
+
+describe('Real MIME round-trip: content preservation', () => {
+  const realSmtpService = new SmtpService();
+  let realSaveReplyDraftHandler: Function;
+  let realSaveForwardDraftHandler: Function;
+
+  const realMockServer = {
+    registerTool: vi.fn((name: string, _schema: any, handler: Function) => {
+      if (name === 'imap_save_reply_draft') realSaveReplyDraftHandler = handler;
+      if (name === 'imap_save_forward_draft') realSaveForwardDraftHandler = handler;
+    }),
+  };
+
+  const realImapService = {
+    getEmailContentForDraft: vi.fn(),
+    getAllAttachments: vi.fn(async () => []),
+    appendMessage: vi.fn(async () => true),
+    findDraftsFolder: vi.fn(async () => 'Drafts'),
+  } as unknown as ImapService;
+
+  const realAccountManager = {
+    resolveAccountId: (id: string) => id,
+    getAccount: vi.fn(async () => ({ ...imapOnlyAccount })),
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    emailTools(
+      realMockServer as any,
+      realImapService as any,
+      realAccountManager as any,
+      realSmtpService as any,
+    );
+  });
+
+  it('reply draft round-trip: HTML-only original, Bcc, from alias, self-exclusion, References preserved', async () => {
+    const testEmail = {
+      uid: 1,
+      from: 'Alice <alice@example.org>',
+      to: ['Me <me@example.com>', 'Bob <bob@example.org>'],
+      cc: ['carol@example.org'],
+      subject: 'Test',
+      date: new Date('2026-01-01T12:00:00Z'),
+      messageId: '<test@example.com>',
+      inReplyTo: '<parent@example.com>',
+      references: ['<ref1@example.com>', '<ref2@example.com>'],
+      textContent: undefined,
+      htmlContent: '<p>ORIGINAL_HTML_MARKER</p>',
+      textAsHtml: '<p>ORIGINAL_HTML_MARKER</p>',
+      attachments: [],
+      customKeywords: [],
+      flags: [],
+      headers: { 'content-type': 'text/html' },
+    };
+    realImapService.getEmailContentForDraft.mockResolvedValue(testEmail);
+
+    const result = await realSaveReplyDraftHandler({
+      accountId: 'acc1',
+      folder: 'INBOX',
+      uid: 1,
+      text: 'My reply',
+      replyAll: true,
+      bcc: 'extra@example.com',
+      from: 'alias@example.com',
+      includeQuotedOriginal: true,
+    });
+
+    expect(realImapService.appendMessage).toHaveBeenCalled();
+    expect(mockSmtpService.sendEmail).not.toHaveBeenCalled();
+
+    const appendCall = realImapService.appendMessage.mock.calls[0];
+    const rawMessage = appendCall[2] as Buffer;
+    const rawString = rawMessage.toString();
+
+    // Verify HTML-only content survives
+    expect(rawString).toContain('ORIGINAL_HTML_MARKER');
+    expect(rawString).toContain('My reply');
+
+    // Verify metadata preserved
+    expect(rawString).toContain('From: alias@example.com');
+    expect(rawString).not.toContain('To: me@example.com');
+    expect(rawString).toContain('To: Alice');
+    expect(rawString).toContain('Bob');
+    expect(rawString).toContain('Bcc: extra@example.com');
+    expect(rawString).toContain('archive@example.com');
+    expect(rawString).toContain('References: <ref1@example.com> <ref2@example.com> <test@example.com>');
+
+    const parsed = await simpleParser(rawMessage);
+    expect(parsed.text).toContain('My reply');
+    expect(parsed.text).toContain('ORIGINAL_HTML_MARKER');
+  });
+
+  it('forward draft round-trip: multipart HTML-only + NEW_TEXT_MARKER + original + caller attachments', async () => {
+    const multipartEmail = {
+      uid: 1,
+      from: 'Alice <alice@example.org>',
+      to: ['Me <me@example.com>'],
+      cc: [],
+      subject: 'Test with attachment',
+      date: new Date('2026-01-01T12:00:00Z'),
+      messageId: '<test@example.com>',
+      inReplyTo: undefined,
+      references: [],
+      textContent: undefined,
+      htmlContent: '<p>ORIGINAL_HTML_MARKER</p>',
+      textAsHtml: '<p>ORIGINAL_HTML_MARKER</p>',
+      attachments: [{ filename: 'file.pdf', contentType: 'application/pdf', size: 1000 }],
+      customKeywords: [],
+      flags: [],
+      headers: { 'content-type': 'text/html' },
+    };
+    const testAttachment = {
+      filename: 'file.pdf',
+      content: Buffer.from('test content'),
+      contentType: 'application/pdf',
+      size: 1000,
+    };
+    realImapService.getEmailContentForDraft.mockResolvedValue(multipartEmail);
+    realImapService.getAllAttachments.mockResolvedValue([testAttachment]);
+
+    const result = await realSaveForwardDraftHandler({
+      accountId: 'acc1',
+      folder: 'INBOX',
+      uid: 1,
+      to: 'friend@example.com',
+      text: 'NEW_TEXT_MARKER',
+      bcc: 'extra@example.com',
+      includeQuotedOriginal: true,
+      includeAttachments: true,
+      attachments: [{ filename: 'new.txt', content: 'dmFuZ2Vy' }],
+    });
+
+    expect(realImapService.appendMessage).toHaveBeenCalled();
+    expect(realImapService.getAllAttachments).toHaveBeenCalledWith('acc1', 'INBOX', 1);
+    expect(mockSmtpService.sendEmail).not.toHaveBeenCalled();
+
+    const appendCall = realImapService.appendMessage.mock.calls[0];
+    const rawMessage = appendCall[2] as Buffer;
+    const rawString = rawMessage.toString();
+
+    // Verify NEW_TEXT_MARKER appears in both text and HTML
+    expect(rawString).toContain('NEW_TEXT_MARKER');
+    expect(rawString).toContain('ORIGINAL_HTML_MARKER');
+
+    const parsed = await simpleParser(rawMessage);
+    expect(parsed.text).toContain('NEW_TEXT_MARKER');
+    expect(parsed.text).toContain('ORIGINAL_HTML_MARKER');
+    expect(parsed.html).toContain('NEW_TEXT_MARKER');
+
+    // Verify attachments: original + caller
+    expect(parsed.attachments).toHaveLength(2);
+    const attachmentFilenames = parsed.attachments.map((a: any) => a.filename).sort();
+    expect(attachmentFilenames).toEqual(['file.pdf', 'new.txt']);
+
+    // Bcc should include both explicit and default
+    expect(rawString).toContain('Bcc: extra@example.com');
+    expect(rawString).toContain('archive@example.com');
+  });
+});

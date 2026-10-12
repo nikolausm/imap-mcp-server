@@ -660,17 +660,21 @@ sending, drafts, replies, and forwards.
   ```
   Parameters:
   - accountId: Account ID
+  - from: Sender identity (optional). Must match the account email/login or an address configured in `allowedFrom`.
   - folder: Folder containing the original email
   - uid: UID of the email to forward
   - to: Forward to email address(es)
   - text: Additional text to include (optional)
+  - body: Alias for 'text' (optional, backward-compat)
   - bcc: BCC recipients (optional; merged with account defaultBcc)
+  - includeAttachments: Include original message attachments (default: true; set to false to opt out)
   ```
 
 - **imap_save_reply_draft**: Save a reply to an existing email as a draft in the Drafts folder (IMAP only, no SMTP required). Automatically sets recipients based on the original sender (and all recipients if replyAll), prefixes the subject with "Re:", and preserves threading (In-Reply-To/References). New content appears first, followed by quoted original when `includeQuotedOriginal` is true.
   ```
   Parameters:
   - accountId: Account ID
+  - from: Sender identity (optional). Must match the account email/login or an address configured in `allowedFrom`.
   - folder: Folder containing the original email (default: INBOX)
   - uid: UID of the email to reply to
   - text: Plain text reply content (optional)
@@ -687,6 +691,7 @@ sending, drafts, replies, and forwards.
   ```
   Parameters:
   - accountId: Account ID
+  - from: Sender identity (optional). Must match the account email/login or an address configured in `allowedFrom`.
   - folder: Folder containing the original email (default: INBOX)
   - uid: UID of the email to forward
   - to: Forward to email address(es)
@@ -695,6 +700,8 @@ sending, drafts, replies, and forwards.
   - body: Alias for 'text' (backward-compat)
   - bcc: BCC recipients (optional; merged with account defaultBcc)
   - includeQuotedOriginal: Include quoted original message content (default: true)
+  - includeAttachments: Include attachments from the original message in the forward draft (default: true; set to false to opt out)
+  - attachments: Array of additional attachments (optional, same shape as imap_send_email, merged with original attachments when includeAttachments is true)
   - draftFolder: Override the Drafts folder name (optional)
   ```
 

@@ -769,7 +769,7 @@ export class ImapService {
     folderName: string,
     uid: number
   ): Promise<EmailContent> {
-    return this.getEmailContent(accountId, folderName, uid, { skipHtmlToText: true });
+    return this.getEmailContent(accountId, folderName, uid, { bodyFormat: 'html', skipHtmlToText: true });
   }
 
   /**
