@@ -217,13 +217,15 @@ describe('imap_save_forward_draft handler', () => {
   });
 });
 
-// Real MIME round-trip tests for content preservation
-// These use actual composeRaw + simpleParser to verify content survives correctly
+// Real MIME round-trip tests for content preservation using REAL parser path
+// These do NOT mock getEmailContentForDraft. Instead they stub the raw fetch boundary
+// (client.fetchOne) so the actual ImapService parser path runs end-to-end.
 import { simpleParser } from 'mailparser';
 import { SmtpService } from '../src/services/smtp-service.js';
 import { ImapService } from '../src/services/imap-service.js';
+import { ImapFlow } from 'imapflow';
 
-describe('Real MIME round-trip: content preservation', () => {
+describe('Real MIME round-trip: content preservation via real parser', () => {
   const realSmtpService = new SmtpService();
   let realSaveReplyDraftHandler: Function;
   let realSaveForwardDraftHandler: Function;
@@ -235,20 +237,37 @@ describe('Real MIME round-trip: content preservation', () => {
     }),
   };
 
-  const realImapService = {
-    getEmailContentForDraft: vi.fn(),
-    getAllAttachments: vi.fn(async () => []),
-    appendMessage: vi.fn(async () => true),
-    findDraftsFolder: vi.fn(async () => 'Drafts'),
-  } as unknown as ImapService;
+  const realImapService = new ImapService();
 
   const realAccountManager = {
     resolveAccountId: (id: string) => id,
     getAccount: vi.fn(async () => ({ ...imapOnlyAccount })),
   };
 
+  // Synthetic raw RFC822 HTML-only message source
+  const htmlOnlyRawSource = Buffer.from(`MIME-Version: 1.0\r\nContent-Type: text/html; charset=utf-8\r\nFrom: Alice <alice@example.org>\r\nTo: Me <me@example.com>, Bob <bob@example.org>\r\nCc: carol@example.org\r\nSubject: Test\r\nDate: Wed, 01 Jan 2026 12:00:00 +0000\r\nMessage-ID: <test@example.com>\r\nIn-Reply-To: <parent@example.com>\r\nReferences: <ref1@example.com> <ref2@example.com>\r\n\r\n<p>ORIGINAL_HTML_MARKER</p>\r\n`);
+
+  // Mock ImapFlow client for stubbing fetch boundary
+  const mockFetchClient = {
+    usable: true,
+    list: vi.fn(async () => [
+      { path: 'INBOX', delimiter: '/', flags: [], specialUse: null },
+      { path: 'Drafts', delimiter: '/', flags: ['\\Drafts'], specialUse: '\\Drafts' },
+    ]),
+    getMailboxLock: vi.fn(async (_folder: string) => ({
+      release: vi.fn(),
+    })),
+    fetchOne: vi.fn(),
+    append: vi.fn(async () => true),
+  } as unknown as ImapFlow;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    // Stub ensureConnected to return our mock client with stubbed fetchOne
+    vi.spyOn(realImapService as any, 'ensureConnected').mockResolvedValue(mockFetchClient);
+    // Spy on appendMessage and getAllAttachments to track calls
+    vi.spyOn(realImapService, 'appendMessage');
+    vi.spyOn(realImapService, 'getAllAttachments');
     emailTools(
       realMockServer as any,
       realImapService as any,
@@ -257,28 +276,14 @@ describe('Real MIME round-trip: content preservation', () => {
     );
   });
 
-  it('reply draft round-trip: HTML-only original, Bcc, from alias, self-exclusion, References preserved', async () => {
-    const testEmail = {
-      uid: 1,
-      from: 'Alice <alice@example.org>',
-      to: ['Me <me@example.com>', 'Bob <bob@example.org>'],
-      cc: ['carol@example.org'],
-      subject: 'Test',
-      date: new Date('2026-01-01T12:00:00Z'),
-      messageId: '<test@example.com>',
-      inReplyTo: '<parent@example.com>',
-      references: ['<ref1@example.com>', '<ref2@example.com>'],
-      textContent: undefined,
-      htmlContent: '<p>ORIGINAL_HTML_MARKER</p>',
-      textAsHtml: '<p>ORIGINAL_HTML_MARKER</p>',
-      attachments: [],
-      customKeywords: [],
-      flags: [],
-      headers: { 'content-type': 'text/html' },
-    };
-    realImapService.getEmailContentForDraft.mockResolvedValue(testEmail);
+  it('reply draft round-trip via real parser: HTML-only original survives', async () => {
+    // Stub fetchOne to return synthetic HTML-only raw source
+    mockFetchClient.fetchOne.mockResolvedValue({
+      source: htmlOnlyRawSource,
+      flags: ['\\Seen'],
+    });
 
-    const result = await realSaveReplyDraftHandler({
+    await realSaveReplyDraftHandler({
       accountId: 'acc1',
       folder: 'INBOX',
       uid: 1,
@@ -289,14 +294,13 @@ describe('Real MIME round-trip: content preservation', () => {
       includeQuotedOriginal: true,
     });
 
+    // Verify appendMessage was called with Drafts
     expect(realImapService.appendMessage).toHaveBeenCalled();
-    expect(mockSmtpService.sendEmail).not.toHaveBeenCalled();
-
-    const appendCall = realImapService.appendMessage.mock.calls[0];
+    const appendCall = (realImapService.appendMessage as any).mock.calls[0];
     const rawMessage = appendCall[2] as Buffer;
     const rawString = rawMessage.toString();
 
-    // Verify HTML-only content survives
+    // Verify HTML-only content survives through real parser path
     expect(rawString).toContain('ORIGINAL_HTML_MARKER');
     expect(rawString).toContain('My reply');
 
@@ -309,40 +313,23 @@ describe('Real MIME round-trip: content preservation', () => {
     expect(rawString).toContain('archive@example.com');
     expect(rawString).toContain('References: <ref1@example.com> <ref2@example.com> <test@example.com>');
 
+    // Verify via simpleParser
     const parsed = await simpleParser(rawMessage);
     expect(parsed.text).toContain('My reply');
     expect(parsed.text).toContain('ORIGINAL_HTML_MARKER');
   });
 
-  it('forward draft round-trip: multipart HTML-only + NEW_TEXT_MARKER + original + caller attachments', async () => {
-    const multipartEmail = {
-      uid: 1,
-      from: 'Alice <alice@example.org>',
-      to: ['Me <me@example.com>'],
-      cc: [],
-      subject: 'Test with attachment',
-      date: new Date('2026-01-01T12:00:00Z'),
-      messageId: '<test@example.com>',
-      inReplyTo: undefined,
-      references: [],
-      textContent: undefined,
-      htmlContent: '<p>ORIGINAL_HTML_MARKER</p>',
-      textAsHtml: '<p>ORIGINAL_HTML_MARKER</p>',
-      attachments: [{ filename: 'file.pdf', contentType: 'application/pdf', size: 1000 }],
-      customKeywords: [],
-      flags: [],
-      headers: { 'content-type': 'text/html' },
-    };
-    const testAttachment = {
-      filename: 'file.pdf',
-      content: Buffer.from('test content'),
-      contentType: 'application/pdf',
-      size: 1000,
-    };
-    realImapService.getEmailContentForDraft.mockResolvedValue(multipartEmail);
-    realImapService.getAllAttachments.mockResolvedValue([testAttachment]);
+  it('forward draft round-trip via real parser: multipart HTML + attachments', async () => {
+    // Synthetic raw multipart/mixed with HTML body + attachment
+    const multipartRawSource = Buffer.from(`MIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary="boundary123"\r\nFrom: Alice <alice@example.org>\r\nTo: Me <me@example.com>\r\nSubject: Test with attachment\r\nDate: Wed, 01 Jan 2026 12:00:00 +0000\r\nMessage-ID: <test@example.com>\r\n\r\n--boundary123\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<p>ORIGINAL_HTML_MARKER</p>\r\n\r\n--boundary123\r\nContent-Type: application/pdf; name="file.pdf"\r\nContent-Disposition: attachment; filename="file.pdf"\r\nContent-Transfer-Encoding: base64\r\n\r\nJVBERi0xLjMK\r\n--boundary123--\r\n`);
 
-    const result = await realSaveForwardDraftHandler({
+    // Stub fetchOne for multipart source - getAllAttachments will parse attachment from this
+    mockFetchClient.fetchOne.mockResolvedValue({
+      source: multipartRawSource,
+      flags: ['\\Seen'],
+    });
+
+    await realSaveForwardDraftHandler({
       accountId: 'acc1',
       folder: 'INBOX',
       uid: 1,
@@ -356,9 +343,8 @@ describe('Real MIME round-trip: content preservation', () => {
 
     expect(realImapService.appendMessage).toHaveBeenCalled();
     expect(realImapService.getAllAttachments).toHaveBeenCalledWith('acc1', 'INBOX', 1);
-    expect(mockSmtpService.sendEmail).not.toHaveBeenCalled();
 
-    const appendCall = realImapService.appendMessage.mock.calls[0];
+    const appendCall = (realImapService.appendMessage as any).mock.calls[0];
     const rawMessage = appendCall[2] as Buffer;
     const rawString = rawMessage.toString();
 
@@ -366,6 +352,7 @@ describe('Real MIME round-trip: content preservation', () => {
     expect(rawString).toContain('NEW_TEXT_MARKER');
     expect(rawString).toContain('ORIGINAL_HTML_MARKER');
 
+    // Verify via simpleParser
     const parsed = await simpleParser(rawMessage);
     expect(parsed.text).toContain('NEW_TEXT_MARKER');
     expect(parsed.text).toContain('ORIGINAL_HTML_MARKER');

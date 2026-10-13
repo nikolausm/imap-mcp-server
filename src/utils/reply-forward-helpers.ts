@@ -35,6 +35,18 @@ function isHtmlOnlyMessage(email: EmailContent): boolean {
 }
 
 /**
+ * Check if an HTML string contains meaningful visible content.
+ * Rejects empty strings, whitespace-only, and empty HTML tags like <p></p>.
+ * This prevents mailparser's synthesized empty textAsHtml from masking genuine htmlContent.
+ */
+function hasMeaningfulHtml(html: string | undefined): html is string {
+  if (!html) return false;
+  // Remove all HTML tags and check if there's any non-whitespace content
+  const textOnly = html.replace(/<[^>]*>/g, '');
+  return textOnly.trim().length > 0;
+}
+
+/**
  * Escape a string for safe insertion into HTML text content. */
 function escapeHtmlText(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -148,8 +160,10 @@ export function composeReplyBody(
   // Get clean text for quoting
   // - For multipart messages with genuine text/plain: use textContent directly
   // - For HTML-only messages: derive clean text from textAsHtml to avoid synthesized artifacts
-  // - Fallback to htmlContent (raw HTML) when textAsHtml is unavailable (e.g., multipart/mixed with text/html + attachment)
-  const cleanTextAsHtml = originalEmail.textAsHtml ? cleanSafeLinks(originalEmail.textAsHtml) : undefined;
+  // - Fallback to htmlContent (raw HTML) when textAsHtml is unavailable or empty (e.g., multipart/mixed with text/html + attachment)
+  const cleanTextAsHtml = hasMeaningfulHtml(originalEmail.textAsHtml)
+    ? cleanSafeLinks(originalEmail.textAsHtml)
+    : undefined;
   const cleanHtmlContent = originalEmail.htmlContent ? cleanSafeLinks(originalEmail.htmlContent) : undefined;
   const cleanHtml = cleanTextAsHtml || cleanHtmlContent; // Reuse for HTML quoting
   const originalTextForQuoting = isHtmlOnlyMessage(originalEmail)
@@ -240,8 +254,10 @@ To: ${originalEmail.to.join(',')}
   // Get clean text for quoting
   // - For multipart messages with genuine text/plain: use textContent directly
   // - For HTML-only messages: derive clean text from textAsHtml to avoid synthesized artifacts
-  // - Fallback to htmlContent (raw HTML) when textAsHtml is unavailable (e.g., multipart/mixed with text/html + attachment)
-  const cleanTextAsHtml = originalEmail.textAsHtml ? cleanSafeLinks(originalEmail.textAsHtml) : undefined;
+  // - Fallback to htmlContent (raw HTML) when textAsHtml is unavailable or empty (e.g., multipart/mixed with text/html + attachment)
+  const cleanTextAsHtml = hasMeaningfulHtml(originalEmail.textAsHtml)
+    ? cleanSafeLinks(originalEmail.textAsHtml)
+    : undefined;
   const cleanHtmlContent = originalEmail.htmlContent ? cleanSafeLinks(originalEmail.htmlContent) : undefined;
   const cleanHtml = cleanTextAsHtml || cleanHtmlContent; // Reuse for HTML quoting
   const originalTextForQuoting = isHtmlOnlyMessage(originalEmail)
