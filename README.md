@@ -708,6 +708,23 @@ sending, drafts, replies, and forwards.
   - folders: Specific folders (optional)
   ```
 
+## Attachment filesystem boundaries
+
+Path-based attachments must be inside `IMAP_DOWNLOAD_DIR` (default
+`~/Downloads/imap-attachments`) or explicitly configured `IMAP_ATTACHMENT_DIRS`.
+Separate additional roots with `:` on POSIX or `;` on Windows. Use
+`imap_upload_file` to stage attachments without granting access to other folders.
+Base64 attachments remain supported.
+
+Download `savePath` must stay inside `IMAP_DOWNLOAD_DIR`; relative paths start
+at that root. Existing configurations that used other output locations must set
+`IMAP_DOWNLOAD_DIR` to the desired output directory. Credential-store paths
+(`~/.imap-mcp`) are always denied, including when a broad root is configured.
+Symlink leaves are rejected; parent links are accepted only when their canonical
+target stays within an allowed root. Configured directories must remain trusted:
+this boundary is not a sandbox against another local process concurrently
+replacing directory entries.
+
 ## Security
 
 - Credentials are encrypted using AES-256-CBC encryption
