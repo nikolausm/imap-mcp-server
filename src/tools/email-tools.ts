@@ -7,6 +7,7 @@ import { parseSerializedArray } from '../utils/array-input.js';
 import { mergeBcc } from '../utils/default-bcc.js';
 import { allowedFromAddresses, resolveFrom } from '../utils/send-as.js';
 import { buildReferences, buildReplyRecipients } from '../utils/reply-headers.js';
+import { forwardSubject, replySubject } from '../utils/subject-prefix.js';
 import type { EmailAttachment, EmailMessage, ImapAccount, SentSaveResult } from '../types/index.js';
 import { z } from 'zod';
 import { basename, join } from 'path';
@@ -1157,7 +1158,7 @@ export function emailTools(
 
   // Reply to email tool
   server.registerTool('imap_reply_to_email', {
-    description: 'Reply to an existing email identified by folder + uid. Automatically sets the recipient to the original sender, prefixes the subject with "Re:", and preserves threading (In-Reply-To/References). Set replyAll to also include the original To (and Cc as Cc), excluding the account\'s own address; a Reply-To header on the original is honoured. Use this instead of imap_send_email whenever the user is responding to a message already in a mailbox. Account defaultBcc addresses are always BCC\'d when configured.',
+    description: 'Reply to an existing email identified by folder + uid. Automatically sets the recipient to the original sender, prefixes the subject with "Re:" unless it already starts with Re: or AW: (any case, optional space before the colon), and preserves threading (In-Reply-To/References). Set replyAll to also include the original To (and Cc as Cc), excluding the account\'s own address; a Reply-To header on the original is honoured. Use this instead of imap_send_email whenever the user is responding to a message already in a mailbox. Account defaultBcc addresses are always BCC\'d when configured.',
     inputSchema: {
       ...accountSelector,
       from: z.string().optional().describe('Sender identity. Must match the account email/login or an address configured in allowedFrom.'),
@@ -1194,7 +1195,7 @@ export function emailTools(
       from: resolveFrom(account, from),
       to: replyRecipients,
       cc: replyCc.length > 0 ? replyCc : undefined,
-      subject: originalEmail.subject.startsWith('Re: ') ? originalEmail.subject : `Re: ${originalEmail.subject}`,
+      subject: replySubject(originalEmail.subject),
       text: text ?? body,
       html,
       bcc: resolveBcc(account, bcc),
@@ -1225,7 +1226,7 @@ export function emailTools(
 
   // Forward email tool
   server.registerTool('imap_forward_email', {
-    description: 'Forward an existing email (folder + uid) to new recipients, quoting the original message and headers. Optionally include the original attachments. Use when the user wants to pass an existing message on to someone else; use imap_reply_to_email instead to respond to the sender. Account defaultBcc addresses are always BCC\'d when configured.',
+    description: 'Forward an existing email (folder + uid) to new recipients, quoting the original message and headers. The subject gets a "Fwd:" prefix unless it already starts with Fwd:, FW: or WG: (any case, optional space before the colon). Optionally include the original attachments. Use when the user wants to pass an existing message on to someone else; use imap_reply_to_email instead to respond to the sender. Account defaultBcc addresses are always BCC\'d when configured.',
     inputSchema: {
       ...accountSelector,
       from: z.string().optional().describe('Sender identity. Must match the account email/login or an address configured in allowedFrom.'),
@@ -1253,7 +1254,7 @@ export function emailTools(
     const emailComposer = {
       from: resolveFrom(account, from),
       to,
-      subject: originalEmail.subject.startsWith('Fwd: ') ? originalEmail.subject : `Fwd: ${originalEmail.subject}`,
+      subject: forwardSubject(originalEmail.subject),
       text: (text ?? body ?? '') + forwardHeader + (originalEmail.textContent || ''),
       html: originalEmail.htmlContent,
       bcc: resolveBcc(account, bcc),
