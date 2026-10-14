@@ -53,3 +53,9 @@ jobs:
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options
 
+      - name: Classify review execution failure without exposing output
+        if: failure() && steps.claude-review.outcome == 'failure'
+        env:
+          CLAUDE_REVIEW_OUTPUT: ${{ steps.claude-review.outputs.execution_file }}
+        run: node scripts/review-failure-diagnostics.mjs
+
