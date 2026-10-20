@@ -859,3 +859,113 @@ MIT
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
+
+### Review saved drafts and send later
+
+One server installation can manage multiple email accounts. Add each mailbox as a
+separate account and use its account ID. Draft references include the account ID;
+UIDs alone are never interchangeable between accounts or folders. Read-only mode
+includes draft listing, reading and send-attempt inspection, but excludes updates
+and sending.
+
+`imap_save_draft` keeps its existing inputs and success/folder fields and now also
+returns `draft` and `contentHash`. A draft reference looks like:
+
+```json
+{
+  "accountId": "account-id-from-imap-list-accounts",
+  "mailbox": "Drafts",
+  "uid": 123,
+  "uidValidity": "1730000000",
+  "messageId": "<draft-id@example.test>"
+}
+```
+
+Use values actually returned by the server, not these examples. `messageId` can
+be null on externally created drafts. UIDVALIDITY is a decimal string, avoiding
+JavaScript integer precision loss.
+
+| Tool | Inputs | Result / purpose |
+| --- | --- | --- |
+| `imap_list_drafts` | `accountId`, optional `mailbox`, `limit` (1–100; default 50) | Newest active drafts with references, subject, recipients and SHA-256 hashes. Auto-detects Drafts when mailbox is omitted. |
+| `imap_read_draft` | `draft` | Review recipients, text/HTML, attachment metadata, threading, raw MIME base64, current `contentHash` and any prior attempt. Does not set Seen. |
+| `imap_update_draft` | `draft`, reviewed `contentHash`, `patch` | Replace subject/text/HTML/To/Cc/Bcc fields. Omitted fields remain; empty recipient arrays clear them. Returns a **new reference and hash**. |
+| `imap_send_draft` | `draft`, reviewed `contentHash` | Send saved MIME, then report the durable attempt and cleanup status. No composition from fresh tool arguments. |
+| `imap_get_draft_send_attempt` | original `draft` | Inspect the local attempt even if the source is no longer an active draft. No send or retry. |
+
+Workflow: save or list → read and review the complete draft → optionally update →
+read/review the replacement → send with that reference and hash. A changed hash,
+Message-ID, UIDVALIDITY, missing UID, or inactive draft is rejected. If APPEND
+succeeds without UIDPLUS/APPENDUID, save returns a warning and null identity;
+list and review the saved message to obtain its reference. Do not repeat APPEND
+just because the server did not return an identity.
+
+Updates append a replacement before removing `\Draft` from the exact original.
+The original stays in the same mailbox and can be recovered by searching all
+messages there and restoring its Draft flag in a mail client. No draft is
+expunged or permanently deleted. If retirement fails, both copies remain and the
+result reports `originalActive: true`. If APPEND disconnects or times out, its
+outcome can be uncertain: inspect the mailbox before repeating the update.
+Header-only edits keep MIME body bytes unchanged. Body edits rebuild MIME while
+retaining attachment bytes, filenames, MIME types, dispositions, inline Content-IDs
+and thread headers. Signed/encrypted drafts cannot be edited by this tool; make a
+fresh unsigned draft. This patch interface does not add/remove attachments; use
+`imap_save_draft` to compose a new message with a different attachment set.
+
+Sending uses the saved From/To/Cc/Bcc recipients and MIME body, attachments,
+inline images, Reply-To, In-Reply-To and References. It checks the configured
+allowed sender identities. Account defaultBcc is applied when composing/saving,
+not silently reapplied when sending an already reviewed draft. Bcc is retained
+in the SMTP envelope and optional Sent copy but removed from transmitted headers.
+An existing RFC Message-ID is retained; if absent, a generated ID is durably
+recorded before SMTP. Resent-* messages, ambiguous From/Message-ID headers and
+non-CRLF header blocks are rejected rather than guessed.
+
+#### Delivery attempts and recovery
+
+**SMTP cannot guarantee exactly-once delivery.** A disconnect after DATA can
+mean the server accepted the message but its acknowledgment was lost. A Sent
+copy is evidence for reconciliation, not a universal delivery receipt.
+
+Before SMTP, the server writes and fsyncs an exclusive attempt under
+`~/.imap-mcp/draft-attempts/`, containing identifiers, hash, Message-ID, timestamp
+and state (plus recipient acceptance results when available), but no MIME bodies or credentials. States are:
+
+- `prepared`: persisted before submission; after a crash, delivery may be unknown.
+- `failed`: failure before `sendMail` started; no message submission by this attempt.
+- `uncertain`: submission started but completion could not be durably confirmed.
+- `partial`: SMTP did not acknowledge all recipients; some may have received it.
+- `confirmed`: SMTP accepted all envelope recipients, not a guarantee of inbox delivery.
+
+Every existing attempt blocks automatic resubmission, including failed attempts.
+Copies/moves sharing an account and Message-ID are also blocked (source-content
+hash is the fallback for drafts without an ID). Reused Message-IDs therefore fail
+closed. After confirmation, only the original draft's Draft flag is removed;
+cleanup and Sent-copy failures do not trigger another send. The message remains
+recoverable in its original mailbox; some clients still show it under Drafts.
+
+To reconcile, inspect `imap_get_draft_send_attempt`, then check the provider's Sent
+folder, SMTP logs and recipient-level results using its Message-ID and timestamp.
+Absence from Sent alone does not prove non-delivery. There is deliberately no
+"force retry" or automatic journal reset tool. An operator must establish the
+outcome before any intentional fresh send. Preserve the journal; deleting it,
+changing account IDs, or running independent installations with separate journals
+removes duplicate protection. Share the same local journal between processes
+using the same account IDs. Use a local filesystem supporting exclusive creation,
+atomic rename and file/directory fsync; failures stop sending. Network filesystems
+and cross-host coordination are not supported. A crash may leave a `.lock` file;
+only an operator should remove that lock after stopping the relevant process and
+reconciling the attempt. Keep `.json` and `.message` records intact.
+
+IMAP and SMTP cannot form a single atomic transaction. The source is rechecked
+immediately before submission and before cleanup, but another mail client can
+change/delete a draft between checks. Sending uses the reviewed snapshot, never
+a fresh unreviewed composition. The safeguards apply to these saved-draft tools;
+legacy `imap_send_email` remains a separate composition/send operation.
+
+For Gmail, SMTP already saves a Sent copy. Configure that account with
+`saveToSent: false` to avoid an extra IMAP Sent append. Other providers may need
+`saveToSent: true` and an optional `sentFolder`. This documentation changes no
+account or mailbox settings. Authentication remains the existing password/app-
+password implementation; OAuth is not wired here. The MCP transport remains
+stdio; remote access, OAuth and deployment are outside this feature.

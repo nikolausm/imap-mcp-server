@@ -4,6 +4,8 @@ import { ImapAccount, EmailComposer, SmtpConfig } from '../types/index.js';
 import { parseSerializedArray } from '../utils/array-input.js';
 import { assertCredentialsResolved } from '../utils/env-credentials.js';
 import { randomUUID } from 'crypto';
+import { simpleParser } from 'mailparser';
+import type { DraftPatch } from './draft-service.js';
 
 export class SmtpService {
   private transporters: Map<string, Transporter> = new Map();
@@ -207,6 +209,37 @@ export class SmtpService {
     } catch (error) {
       throw new Error(`Failed to send email: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
+  }
+
+  /** Patch draft fields without dropping attachments, inline CIDs or thread headers. */
+  async patchDraft(raw: Buffer, patch: DraftPatch): Promise<Buffer> {
+    const split = raw.indexOf('\r\n\r\n');
+    if (split < 0) throw new Error('Draft must have RFC 5322 CRLF headers');
+    const parsed = await simpleParser(raw, { skipHtmlToText: true, skipTextToHtml: true, skipImageLinks: true });
+    if (parsed.headers.has('dkim-signature') || /multipart\/(signed|encrypted)/i.test(raw.subarray(0, split).toString())) {
+      throw new Error('Cannot edit a signed/encrypted draft; save a fresh unsigned draft');
+    }
+    const bodyChanged = patch.text !== undefined || patch.html !== undefined;
+    const built = await SmtpService.buildRaw({
+      subject: patch.subject, to: patch.to, cc: patch.cc, bcc: patch.bcc,
+      ...(bodyChanged ? {
+        text: SmtpService.normalizeLineEndings(patch.text ?? parsed.text),
+        html: SmtpService.normalizeLineEndings(patch.html ?? (parsed.html || undefined)),
+        attachments: parsed.attachments.map(a => ({ filename: a.filename, content: a.content, contentType: a.contentType, contentDisposition: a.contentDisposition, cid: a.cid, headers: Object.fromEntries([...a.headers].filter(([key]) => !['content-type', 'content-transfer-encoding', 'content-disposition', 'content-id'].includes(key))) })),
+      } : {}),
+    });
+    const builtSplit = built.indexOf('\r\n\r\n');
+    const name = (header: string) => header.slice(0, header.indexOf(':')).toLowerCase();
+    const replace = new Set(Object.keys(patch).filter(k => ['subject', 'to', 'cc', 'bcc'].includes(k)));
+    if (bodyChanged) {
+      ['content-type', 'content-transfer-encoding', 'mime-version'].forEach(k => replace.add(k));
+    }
+    const originalHeaders = raw.subarray(0, split).toString('utf8').split(/\r\n(?![ \t])/);
+    const newHeaders = built.subarray(0, builtSplit).toString('utf8').split(/\r\n(?![ \t])/);
+    return Buffer.concat([
+      Buffer.from([...originalHeaders.filter(h => !replace.has(name(h))), ...newHeaders.filter(h => replace.has(name(h)))].join('\r\n') + '\r\n\r\n'),
+      bodyChanged ? built.subarray(builtSplit + 4) : raw.subarray(split + 4),
+    ]);
   }
 
   async verifySmtpConnection(account: ImapAccount): Promise<boolean> {

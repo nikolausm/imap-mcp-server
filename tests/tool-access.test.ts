@@ -9,6 +9,9 @@ import {
 // mailboxes, send mail, or change stored config).
 const DESTRUCTIVE_TOOLS = [
   'imap_delete_email',
+  'imap_save_draft',
+  'imap_update_draft',
+  'imap_send_draft',
   'imap_bulk_delete',
   'imap_bulk_delete_by_search',
   'imap_send_email',
