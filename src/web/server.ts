@@ -482,6 +482,7 @@ export class WebUIServer {
   }
 
   async start(autoOpen: boolean = true): Promise<void> {
+    await this.accountManager.hydrateExternalCredentials();
     return new Promise((resolve) => {
       const server = this.app.listen(this.port, this.bindHost, () => {
         // The URL may contain the generated one-time wizard token. Printing it is
