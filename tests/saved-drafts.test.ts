@@ -54,6 +54,18 @@ beforeEach(async () => {
 afterEach(async () => { vi.restoreAllMocks(); await rm(directory, { recursive: true, force: true }); });
 
 describe('saved draft mocked IMAP/SMTP integration', () => {
+  it.each(['\n', '\r'].flatMap(ending => ['Bcc', 'From', 'Message-ID', 'Resent-To'].map(field => ({ ending, field }))))('rejects malformed $field boundary $ending before send claim or edit APPEND', async ({ ending, field }) => {
+    raw = Buffer.concat([Buffer.from(`X-Note: synthetic${ending}${field}: hidden@example.test\r\n`), raw]);
+    const malformed = await draftIdentity(account.id, ref.mailbox, ref.uid, ref.uidValidity, raw);
+    const claim = vi.spyOn(journal, 'claim');
+    await expect(service.send(account, malformed.draft, malformed.contentHash)).rejects.toThrow('lone CR or LF');
+    await expect(service.update(account, malformed.draft, malformed.contentHash, { subject: 'Edited' })).rejects.toThrow('lone CR or LF');
+    expect(claim).not.toHaveBeenCalled();
+    expect(smtp.createTransporter).not.toHaveBeenCalled();
+    expect(sendMail).not.toHaveBeenCalled();
+    expect(client.append).not.toHaveBeenCalled();
+    expect(await journal.get(malformed.draft)).toBeNull();
+  });
   it('lists stable references, reads all content and never sets Seen', async () => {
     expect((await service.list(account, 'Drafts')).drafts[0]).toMatchObject({ draft: ref, contentHash: hash });
     const result = await service.read(account, ref);

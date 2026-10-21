@@ -6,6 +6,7 @@ import { assertCredentialsResolved } from '../utils/env-credentials.js';
 import { randomUUID } from 'crypto';
 import { simpleParser } from 'mailparser';
 import type { DraftPatch } from './draft-service.js';
+import { draftHeaders } from '../utils/draft-headers.js';
 
 export class SmtpService {
   private transporters: Map<string, Transporter> = new Map();
@@ -213,8 +214,7 @@ export class SmtpService {
 
   /** Patch draft fields without dropping attachments, inline CIDs or thread headers. */
   async patchDraft(raw: Buffer, patch: DraftPatch): Promise<Buffer> {
-    const split = raw.indexOf('\r\n\r\n');
-    if (split < 0) throw new Error('Draft must have RFC 5322 CRLF headers');
+    const { split, headers: originalHeaders } = draftHeaders(raw);
     const parsed = await simpleParser(raw, { skipHtmlToText: true, skipTextToHtml: true, skipImageLinks: true });
     if (parsed.headers.has('dkim-signature') || /multipart\/(signed|encrypted)/i.test(raw.subarray(0, split).toString())) {
       throw new Error('Cannot edit a signed/encrypted draft; save a fresh unsigned draft');
@@ -234,10 +234,10 @@ export class SmtpService {
     if (bodyChanged) {
       ['content-type', 'content-transfer-encoding', 'mime-version'].forEach(k => replace.add(k));
     }
-    const originalHeaders = raw.subarray(0, split).toString('utf8').split(/\r\n(?![ \t])/);
-    const newHeaders = built.subarray(0, builtSplit).toString('utf8').split(/\r\n(?![ \t])/);
+
+    const newHeaders = built.subarray(0, builtSplit).toString('latin1').split(/\r\n(?![ \t])/);
     return Buffer.concat([
-      Buffer.from([...originalHeaders.filter(h => !replace.has(name(h))), ...newHeaders.filter(h => replace.has(name(h)))].join('\r\n') + '\r\n\r\n'),
+      Buffer.from([...originalHeaders.filter(h => !replace.has(name(h))), ...newHeaders.filter(h => replace.has(name(h)))].join('\r\n') + '\r\n\r\n', 'latin1'),
       bodyChanged ? built.subarray(builtSplit + 4) : raw.subarray(split + 4),
     ]);
   }

@@ -7,6 +7,7 @@ import { ImapService } from './imap-service.js';
 import { DraftJournal, draftIdentity, type DraftReference, type SendAttempt } from './draft-state.js';
 import { assertCredentialsResolved } from '../utils/env-credentials.js';
 import { resolveFrom } from '../utils/send-as.js';
+import { draftHeaders } from '../utils/draft-headers.js';
 
 export interface DraftPatch {
   subject?: string; text?: string; html?: string;
@@ -15,9 +16,7 @@ export interface DraftPatch {
 
 /** Rewrite only transport headers; MIME body bytes (including binaries) stay untouched. */
 export function transportMessage(raw: Buffer, messageId: string, keepBcc = false): Buffer {
-  const split = raw.indexOf('\r\n\r\n');
-  if (split < 0) throw new Error('Draft must have RFC 5322 CRLF headers');
-  const headers = raw.subarray(0, split).toString('latin1').split(/\r\n(?![ \t])/);
+  const { split, headers } = draftHeaders(raw);
   if (headers.some(h => /^resent-/i.test(h))) throw new Error('Resent-* drafts are unsupported; review and save a fresh draft.');
   if (headers.filter(h => /^message-id:/i.test(h)).length > 1 || headers.filter(h => /^from:/i.test(h)).length !== 1) throw new Error('Draft has ambiguous From or Message-ID headers');
   const kept = headers.filter(h => keepBcc || !/^bcc:/i.test(h));
@@ -56,6 +55,8 @@ export class DraftService {
     if (!client.mailbox || String(client.mailbox.uidValidity) !== ref.uidValidity) throw new Error('Draft UIDVALIDITY changed; list drafts again');
     const message = await client.fetchOne(ref.uid, { source: true, flags: true }, { uid: true });
     if (!message || !message.source || !message.flags?.has('\\Draft') || message.flags.has('\\Deleted')) throw new Error('Draft is missing or no longer active');
+    // Mutating operations must reject ambiguous headers before mailparser sees them.
+    if (expectedHash !== undefined) draftHeaders(message.source);
     const result = await draftIdentity(ref.accountId, ref.mailbox, ref.uid, ref.uidValidity, message.source);
     if (result.draft.messageId !== ref.messageId) throw new Error('Draft Message-ID changed');
     if (expectedHash && result.contentHash !== expectedHash) throw new Error('Draft content changed; read and review it again');

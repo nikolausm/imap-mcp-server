@@ -919,7 +919,9 @@ not silently reapplied when sending an already reviewed draft. Bcc is retained
 in the SMTP envelope and optional Sent copy but removed from transmitted headers.
 An existing RFC Message-ID is retained; if absent, a generated ID is durably
 recorded before SMTP. Resent-* messages, ambiguous From/Message-ID headers and
-non-CRLF header blocks are rejected rather than guessed.
+non-CRLF header blocks (including any lone CR or LF before the header/body
+separator) are rejected before send/edit parsing or mutation. Validation never
+normalizes the MIME body or attachments.
 
 #### Delivery attempts and recovery
 
