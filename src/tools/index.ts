@@ -5,6 +5,7 @@ import { SmtpService } from '../services/smtp-service.js';
 import { SpamService } from '../services/spam-service.js';
 import { accountTools } from './account-tools.js';
 import { emailTools } from './email-tools.js';
+import { draftTools } from './draft-tools.js';
 import { folderTools } from './folder-tools.js';
 import { spamTools } from './spam-tools.js';
 
@@ -25,6 +26,9 @@ export const READ_ONLY_TOOLS: readonly string[] = [
   // Email (read)
   'imap_search_emails',
   'imap_get_email',
+  'imap_list_drafts',
+  'imap_read_draft',
+  'imap_get_draft_send_attempt',
   'imap_get_latest_emails',
   'imap_download_attachment',
   'imap_find_thread_messages',
@@ -146,6 +150,7 @@ export function registerTools(
 
   // Register email operation tools
   emailTools(target, imapService, accountManager, smtpService);
+  draftTools(target, imapService, accountManager, smtpService);
 
   // Register folder operation tools
   folderTools(target, imapService, accountManager);
