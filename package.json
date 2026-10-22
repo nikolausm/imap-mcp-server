@@ -93,7 +93,7 @@
     "hono": "^4.13.13",
     "@hono/node-server": "^2.0.5",
     "fast-uri": "^3.1.8",
-    "ip-address": "^10.7.2",
+    "ip-address": "^10.7.4",
     "brace-expansion": "^5.0.12",
     "postcss": "^8.5.23",
     "string-width": "^7.2.0",
