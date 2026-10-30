@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -43,6 +43,7 @@ const baseArgs = {
 };
 
 describe('imap_send_email attachment diagnostics', () => {
+  afterEach(() => vi.unstubAllEnvs());
   beforeEach(() => {
     vi.clearAllMocks();
     emailTools(
@@ -88,7 +89,7 @@ describe('imap_send_email attachment diagnostics', () => {
 
     expect(thrown).toBeInstanceOf(Error);
     const message = (thrown as Error).message;
-    expect(message).toBe('Invalid attachment at index 0: path is not a readable file. Check that the attachment path exists, points to a regular file, and is readable.');
+    expect(message).toContain('path must be a readable regular file inside IMAP_DOWNLOAD_DIR or IMAP_ATTACHMENT_DIRS');
     expect(message).not.toContain(suppliedPath);
     expect(message).not.toContain('missing-secret-report.pdf');
     expect(message).not.toContain('imap-mcp-private-path');
@@ -156,6 +157,7 @@ describe('imap_send_email attachment diagnostics', () => {
     const dir = await mkdtemp(join(tmpdir(), 'imap-mcp-attachments-'));
     const filePath = join(dir, 'invoice.pdf');
     await writeFile(filePath, Buffer.from('file bytes'));
+    vi.stubEnv('IMAP_ATTACHMENT_DIRS', dir);
 
     const result = await sendEmailHandler({
       ...baseArgs,

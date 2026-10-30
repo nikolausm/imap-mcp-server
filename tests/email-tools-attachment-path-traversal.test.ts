@@ -59,7 +59,7 @@ describe('imap_download_attachment — path traversal via sender-controlled file
 
     const parsed = JSON.parse(result.content[0].text);
     const savedTo = path.resolve(parsed.path);
-    const downloadRoot = path.resolve(TMP_DOWNLOAD_DIR);
+    const downloadRoot = await fsp.realpath(TMP_DOWNLOAD_DIR);
 
     // The file must land INSIDE the download dir, with the traversal stripped.
     expect(savedTo.startsWith(downloadRoot + path.sep)).toBe(true);
