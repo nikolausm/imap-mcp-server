@@ -5,9 +5,15 @@ import { SmtpService } from '../services/smtp-service.js';
 import { selectSearchFolders } from '../utils/search-folders.js';
 import { parseSerializedArray } from '../utils/array-input.js';
 import { mergeBcc } from '../utils/default-bcc.js';
+import {
+  generateReplySubject,
+  generateForwardSubject,
+  composeReplyBody,
+  composeForwardBody
+} from '../utils/reply-forward-helpers.js';
 import { allowedFromAddresses, resolveFrom } from '../utils/send-as.js';
 import { buildReferences, buildReplyRecipients } from '../utils/reply-headers.js';
-import type { EmailAttachment, EmailMessage, ImapAccount, SentSaveResult } from '../types/index.js';
+import type { EmailAttachment, EmailComposer, EmailContent, EmailMessage, ImapAccount, SentSaveResult } from '../types/index.js';
 import { z } from 'zod';
 import { basename, join } from 'path';
 import { homedir } from 'os';
@@ -68,7 +74,7 @@ type AttachmentDiagnostic = {
   filename: string;
   contentType: string;
   size: number;
-  source: 'content' | 'path';
+  source: 'content' | 'path' | 'original';
   contentDisposition: 'attachment' | 'inline';
   cid?: string;
 };
@@ -93,6 +99,48 @@ function decodeStrictBase64(value: string, index: number): Buffer {
     throw new Error(`Invalid attachment at index ${index}: content is not valid base64`);
   }
   return Buffer.from(normalized, 'base64');
+}
+
+/**
+ * Convert mailparser attachment format (from getAllAttachments) to EmailAttachment
+ * format expected by MailComposer/nodemailer.
+ * Preserves contentDisposition (inline/attachment) and cid for CID references.
+ */
+export function toEmailAttachments(
+  attachments: Array<{
+    filename: string;
+    content: Buffer;
+    contentType: string;
+    contentDisposition?: string;
+    contentId?: string;
+    cid?: string;
+    size: number;
+  }>
+): EmailAttachment[] {
+  if (!attachments || attachments.length === 0) {
+    return [];
+  }
+
+  return attachments.map(att => {
+    const contentDisposition = att.contentDisposition === 'inline' ? 'inline' : 'attachment';
+    const cid = att.cid || (att.contentId ? att.contentId.replace(/^<|>$/g, '') : undefined);
+
+    const result: EmailAttachment = {
+      filename: att.filename,
+      content: att.content,
+      contentType: att.contentType,
+    };
+
+    // Only include optional fields if they have meaningful values
+    if (contentDisposition === 'inline') {
+      result.contentDisposition = 'inline';
+    }
+    if (cid) {
+      result.cid = cid;
+    }
+
+    return result;
+  });
 }
 
 export async function normalizeAttachments(atts?: AttachmentInput[]): Promise<NormalizedAttachments> {
@@ -1249,8 +1297,15 @@ export function emailTools(
 
     // Prepare forwarded content
     const forwardHeader = `\n\n---------- Forwarded message ----------\nFrom: ${originalEmail.from}\nDate: ${originalEmail.date.toLocaleString()}\nSubject: ${originalEmail.subject}\nTo: ${originalEmail.to.join(', ')}\n\n`;
-    
-    const emailComposer = {
+
+    // Handle original attachments if requested
+    let allAttachments: EmailAttachment[] | undefined;
+    if (includeAttachments && originalEmail.attachments?.length) {
+      const originalAttachments = await imapService.getAllAttachments(accountId, folder, uid);
+      allAttachments = toEmailAttachments(originalAttachments);
+    }
+
+    const emailComposer: EmailComposer = {
       from: resolveFrom(account, from),
       to,
       subject: originalEmail.subject.startsWith('Fwd: ') ? originalEmail.subject : `Fwd: ${originalEmail.subject}`,
@@ -1258,6 +1313,7 @@ export function emailTools(
       html: originalEmail.htmlContent,
       bcc: resolveBcc(account, bcc),
       references: originalEmail.messageId,
+      attachments: allAttachments,
     };
 
     const { messageId, rawMessage } = await smtpService.sendEmail(accountId, account, emailComposer);
@@ -1273,6 +1329,185 @@ export function emailTools(
           messageId,
           ...sentSaveFields(sentSave),
           message: `Email forwarded successfully${sentSaveSuffix(sentSave)}`,
+        }, null, 2)
+      }]
+    };
+  });
+
+  // Save reply draft tool
+  server.registerTool('imap_save_reply_draft', {
+    description: 'Save a reply to an existing email as a draft in the Drafts folder (no send, IMAP only). Automatically sets recipients based on the original sender (and all recipients if replyAll), prefixes the subject with "Re:", and preserves threading (In-Reply-To/References). Use this when the user wants to compose a reply as a draft without sending. Account defaultBcc addresses are applied when configured. New content appears first, followed by quoted original when includeQuotedOriginal is true.',
+    inputSchema: {
+      ...accountSelector,
+      from: z.string().optional().describe('Sender identity. Must match the account email/login or an address configured in allowedFrom.'),
+      folder: z.string().default('INBOX').describe('Folder containing the original email'),
+      uid: z.coerce.number().describe('UID of the email to reply to'),
+      text: z.string().optional().describe('Plain text reply content'),
+      html: z.string().optional().describe('HTML reply content'),
+      body: z.string().optional().describe("Alias for 'text' (backward-compat)"),
+      replyAll: z.boolean().default(false).describe('Reply to all recipients'),
+      bcc: bccSchema,
+      includeQuotedOriginal: z.boolean().default(true).describe('Include quoted original message content'),
+      attachments: z.array(attachmentSchema).optional().describe('Additional email attachments'),
+      draftFolder: z.string().optional().describe('Override the Drafts folder name (defaults to auto-detected Drafts folder)'),
+    }
+  }, async ({ accountId: rawAccountId, accountName, from, folder, uid, text, html, body, replyAll, bcc, includeQuotedOriginal, attachments, draftFolder }) => {
+    const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
+    const account = await accountManager.getAccount(accountId);
+    if (!account) {
+      throw new Error(`Account ${accountId} not found`);
+    }
+
+    const resolvedFrom = resolveFrom(account, from);
+    const normalizedAttachments = await normalizeAttachments(attachments as AttachmentInput[] | undefined);
+
+    const originalEmail = await imapService.getEmailContentForDraft(accountId, folder, uid);
+    const recipients = buildReplyRecipients(
+      originalEmail,
+      [...allowedFromAddresses(account)],
+      replyAll,
+    );
+    const referencesChain = buildReferences(originalEmail);
+    const { text: replyText, html: replyHtml } = composeReplyBody(
+      text ?? body,
+      html,
+      originalEmail,
+      includeQuotedOriginal
+    );
+
+    const emailComposer = {
+      from: resolvedFrom,
+      to: recipients.to,
+      subject: generateReplySubject(originalEmail.subject),
+      text: replyText,
+      html: replyHtml,
+      cc: recipients.cc.length > 0 ? recipients.cc : undefined,
+      bcc: resolveBcc(account, bcc),
+      replyTo: undefined, // Let From header handle replies
+      inReplyTo: originalEmail.messageId,
+      references: referencesChain,
+      attachments: normalizedAttachments.attachments,
+    };
+
+    const rawMessage = await smtpService.composeRaw(account, emailComposer);
+    const destinationFolder = draftFolder ?? await imapService.findDraftsFolder(accountId);
+    if (!destinationFolder) {
+      throw new Error('No Drafts folder found. Tried: Drafts, Draft, INBOX.Drafts, INBOX.Draft, [Gmail]/Drafts. Pass `draftFolder` to override.');
+    }
+
+    const appended = await imapService.appendMessage(accountId, destinationFolder, rawMessage, ['\\Draft', '\\Seen']);
+    if (!appended) {
+      throw new Error(`Failed to append reply draft to folder "${destinationFolder}"`);
+    }
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: true,
+          folder: destinationFolder,
+          attachmentCount: normalizedAttachments.diagnostics.length,
+          attachmentDiagnostics: normalizedAttachments.diagnostics,
+          message: `Reply draft saved to "${destinationFolder}"`,
+        }, null, 2)
+      }]
+    };
+  });
+
+  // Save forward draft tool
+  server.registerTool('imap_save_forward_draft', {
+    description: 'Save a forward of an existing email as a draft in the Drafts folder (no send, IMAP only). Forwards the message to specified recipients with conventional forwarded-message header block, optionally includes quoted original content, and optionally includes original message attachments. Additional attachments can also be supplied. Account defaultBcc addresses are applied when configured. Use this when the user wants to compose a forward as a draft without sending.',
+    inputSchema: {
+      ...accountSelector,
+      from: z.string().optional().describe('Sender identity. Must match the account email/login or an address configured in allowedFrom.'),
+      folder: z.string().default('INBOX').describe('Folder containing the original email'),
+      uid: z.coerce.number().describe('UID of the email to forward'),
+      to: addressList('to', 'Forward to email address(es). Either an array of addresses or a single comma-separated string.').nonoptional(),
+      text: z.string().optional().describe('Additional text to include'),
+      html: z.string().optional().describe('HTML additional content'),
+      body: z.string().optional().describe("Alias for 'text' (backward-compat)"),
+      bcc: bccSchema,
+      includeQuotedOriginal: z.boolean().default(true).describe('Include quoted original message content'),
+      includeAttachments: z.boolean().default(true).describe('Include attachments from the original message in the forward draft.'),
+      attachments: z.array(attachmentSchema).optional().describe('Additional email attachments'),
+      draftFolder: z.string().optional().describe('Override the Drafts folder name (defaults to auto-detected Drafts folder)'),
+    }
+  }, async ({ accountId: rawAccountId, accountName, from, folder, uid, to, text, html, body, bcc, includeQuotedOriginal, includeAttachments, draftFolder, attachments }) => {
+    const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
+    const account = await accountManager.getAccount(accountId);
+    if (!account) {
+      throw new Error(`Account ${accountId} not found`);
+    }
+
+    const resolvedFrom = resolveFrom(account, from);
+    const originalEmail = await imapService.getEmailContentForDraft(accountId, folder, uid);
+    const normalizedAttachments = await normalizeAttachments(attachments as AttachmentInput[] | undefined);
+    const { text: forwardText, html: forwardHtml } = composeForwardBody(
+      text ?? body,
+      html,
+      originalEmail,
+      includeQuotedOriginal
+    );
+
+    // Handle original attachments if requested
+    let allAttachments: EmailAttachment[] = [...(normalizedAttachments.attachments || [])];
+    let allDiagnostics: AttachmentDiagnostic[] = [...(normalizedAttachments.diagnostics || [])];
+
+    if (includeAttachments && originalEmail.attachments?.length) {
+      const originalAttachments = await imapService.getAllAttachments(accountId, folder, uid);
+      const forwardedOriginalAttachments = toEmailAttachments(originalAttachments);
+      allAttachments = [...forwardedOriginalAttachments, ...allAttachments];
+
+      // Add diagnostics for original attachments
+      originalAttachments.forEach((att, index) => {
+        const baseIndex = normalizedAttachments.diagnostics.length + index;
+        allDiagnostics.push({
+          index: baseIndex,
+          filename: att.filename,
+          contentType: att.contentType,
+          size: att.size,
+          source: 'original' as const,
+          contentDisposition: att.contentDisposition === 'inline' ? 'inline' : 'attachment',
+          cid: att.cid,
+        });
+      });
+    }
+
+    const emailComposer: EmailComposer = {
+      from: resolvedFrom,
+      to,
+      subject: generateForwardSubject(originalEmail.subject),
+      text: forwardText,
+      html: forwardHtml,
+      cc: undefined,
+      bcc: resolveBcc(account, bcc),
+      replyTo: undefined,
+      inReplyTo: undefined, // Forward typically doesn't use In-Reply-To
+      references: undefined, // Forward typically doesn't use References to avoid threading
+      attachments: allAttachments.length > 0 ? allAttachments : undefined,
+    };
+
+    const rawMessage = await smtpService.composeRaw(account, emailComposer);
+    const destinationFolder = draftFolder ?? await imapService.findDraftsFolder(accountId);
+    if (!destinationFolder) {
+      throw new Error('No Drafts folder found. Tried: Drafts, Draft, INBOX.Drafts, INBOX.Draft, [Gmail]/Drafts. Pass `draftFolder` to override.');
+    }
+
+    const appended = await imapService.appendMessage(accountId, destinationFolder, rawMessage, ['\\Draft', '\\Seen']);
+    if (!appended) {
+      throw new Error(`Failed to append forward draft to folder "${destinationFolder}"`);
+    }
+
+    // Return combined diagnostics
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: true,
+          folder: destinationFolder,
+          attachmentCount: allDiagnostics.length,
+          attachmentDiagnostics: allDiagnostics,
+          message: `Forward draft saved to "${destinationFolder}"`,
         }, null, 2)
       }]
     };
