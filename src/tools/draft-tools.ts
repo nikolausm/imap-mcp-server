@@ -75,6 +75,8 @@ export function draftTools(server: McpServer, imap: ImapService, accounts: Accou
       limit: z.number().int().min(1).max(500).default(100).describe('Maximum newest Drafts messages to scan (1–500).'),
     },
   }, async ({ accountId, limit, ...overrides }) => result(await reconciliation.reconcile(await account(accountId), overrides, limit)));
+  // Off unless explicitly enabled: it writes to the mailbox and needs a live provider test first.
+  if (!['1', 'true', 'yes', 'on'].includes((process.env.IMAP_MCP_ENABLE_DRAFT_CLEANUP ?? '').trim().toLowerCase())) return;
   server.registerTool('imap_clear_sent_draft_status', {
     description: 'Removes only Draft status from ONE message that imap_reconcile_drafts classified as shared_sent_draft or sent_residual_flag, then reads back Sent, All Mail, labels, flags and content. Refuses unsent drafts, holds and uncertain evidence. Never deletes, moves, expunges or sends. Idempotent: an unverified earlier attempt is only re-read, never repeated. On ordinary IMAP the message stays in the Drafts folder without the flag.',
     inputSchema: { draft: draftReferenceSchema, contentHash: hashSchema, ...mailboxOverrides },

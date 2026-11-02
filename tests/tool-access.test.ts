@@ -34,6 +34,19 @@ const DESTRUCTIVE_TOOLS = [
   'imap_add_spam_domain',
 ];
 
+describe('draft cleanup gate', () => {
+  afterEach(() => { delete process.env.IMAP_MCP_ENABLE_DRAFT_CLEANUP; });
+  it('keeps the cleanup tool off by default but exposes the dry run', () => {
+    const names = registeredToolsFor({});
+    expect(names).toContain('imap_reconcile_drafts');
+    expect(names).not.toContain('imap_clear_sent_draft_status');
+  });
+  it('registers the cleanup tool only when explicitly enabled', () => {
+    process.env.IMAP_MCP_ENABLE_DRAFT_CLEANUP = 'true';
+    expect(registeredToolsFor({})).toContain('imap_clear_sent_draft_status');
+  });
+});
+
 /** Collect the tool names that `registerTools` actually registers under the given env. */
 function registeredToolsFor(env: Record<string, string | undefined>): string[] {
   const saved: Record<string, string | undefined> = {};

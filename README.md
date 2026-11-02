@@ -964,7 +964,8 @@ recoverable in its original mailbox; some clients still show it under Drafts.
 - `retired`: ordinary IMAP, no `\Draft` flag. Nothing to do.
 - `uncertain`: anything ambiguous. Report only.
 
-`imap_clear_sent_draft_status` acts only on `shared_sent_draft` and
+`imap_clear_sent_draft_status` is registered only when
+`IMAP_MCP_ENABLE_DRAFT_CLEANUP` is truthy. It acts only on `shared_sent_draft` and
 `sent_residual_flag`, re-checking the evidence first. Gmail removes the `\Draft`
 label through All Mail; ordinary IMAP removes the `\Draft` flag and the message stays
 in its Drafts folder, because leaving it would need a move or delete. Neither path
