@@ -892,6 +892,8 @@ JavaScript integer precision loss.
 | `imap_update_draft` | `draft`, reviewed `contentHash`, `patch` | Replace subject/text/HTML/To/Cc/Bcc fields. Omitted fields remain; empty recipient arrays clear them. Returns a **new reference and hash**. |
 | `imap_send_draft` | `draft`, reviewed `contentHash` | Send saved MIME, then report the durable attempt and cleanup status. No composition from fresh tool arguments. |
 | `imap_get_draft_send_attempt` | original `draft` | Inspect the local attempt even if the source is no longer an active draft. No send or retry. |
+| `imap_reconcile_drafts` | `accountId`, optional mailbox overrides, `limit` (1–500; default 100) | Dry run: classify everything in Drafts against Sent, All Mail and the send journal. Read-only. |
+| `imap_clear_sent_draft_status` | `draft`, `contentHash`, optional mailbox overrides | Remove only Draft status from one eligible already-sent message, then verify by readback. |
 
 Workflow: save or list → read and review the complete draft → optionally update →
 read/review the replacement → send with that reference and hash. A changed hash,
@@ -945,6 +947,36 @@ hash is the fallback for drafts without an ID). Reused Message-IDs therefore fai
 closed. After confirmation, only the original draft's Draft flag is removed;
 cleanup and Sent-copy failures do not trigger another send. The message remains
 recoverable in its original mailbox; some clients still show it under Drafts.
+
+#### Clearing Draft status from sent messages
+
+`imap_reconcile_drafts` reports each message in Drafts as one of:
+
+- `unsent_draft`: no send attempt and nothing in Sent. Never changed.
+- `held`: a non-confirmed attempt, a local lock or an unverified earlier cleanup.
+- `shared_sent_draft`: Gmail only. One Gmail message ID in both Sent and Drafts, a
+  confirmed attempt with the same hash, All Mail labels showing Sent and Draft, and
+  no remaining `\Draft` flag.
+- `sent_residual_flag`: ordinary IMAP. A confirmed attempt, one Sent copy with the
+  exact Message-ID, and a leftover `\Draft` flag.
+- `separate_sent_copy`: Gmail only. Sent holds a different message. Report only.
+- `sent_unverified`: Sent and the journal do not both confirm the send. Report only.
+- `retired`: ordinary IMAP, no `\Draft` flag. Nothing to do.
+- `uncertain`: anything ambiguous. Report only.
+
+`imap_clear_sent_draft_status` acts only on `shared_sent_draft` and
+`sent_residual_flag`, re-checking the evidence first. Gmail removes the `\Draft`
+label through All Mail; ordinary IMAP removes the `\Draft` flag and the message stays
+in its Drafts folder, because leaving it would need a move or delete. Neither path
+deletes, moves, expunges, appends or sends.
+
+The operation is recorded in the attempt's `statusCleanup` before the store, and
+readback must show that only Draft status changed. A store happens at most once:
+a later call on an unverified cleanup only re-reads it, and marks it `verified`
+if the mailbox now proves it. Anything else stays held for an operator.
+
+Gmail behavior has so far been tested only against a mock of Gmail's documented
+IMAP extensions. Test on a disposable mailbox before using this on a real one.
 
 To reconcile, inspect `imap_get_draft_send_attempt`, then check the provider's Sent
 folder, SMTP logs and recipient-level results using its Message-ID and timestamp.

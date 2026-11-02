@@ -155,7 +155,10 @@ export class DraftService {
         try {
           await this.snapshot(client, ref, hash);
           if (!await client.messageFlagsRemove(ref.uid, ['\\Draft'], { uid: true })) throw new Error('Flag change failed');
-          attempt.cleanup = 'marked';
+          // Only a readback may report success; otherwise it stays pending for reconciliation.
+          const after = await client.fetchOne(ref.uid, { flags: true }, { uid: true });
+          // false means no such UID; undefined means the session dropped, which proves nothing.
+          if (after === false || (after && after.flags && !after.flags.has('\\Draft'))) attempt.cleanup = 'marked';
         } catch { /* retain exact draft; send journal prevents resubmission */ }
         if (account.saveToSent !== false) {
           try { attempt.sentCopy = await this.imap.appendToSentFolder(account.id, transportMessage(saved.raw, messageId, true), account.sentFolder); }

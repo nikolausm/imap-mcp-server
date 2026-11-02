@@ -29,6 +29,7 @@ export const READ_ONLY_TOOLS: readonly string[] = [
   'imap_list_drafts',
   'imap_read_draft',
   'imap_get_draft_send_attempt',
+  'imap_reconcile_drafts',
   'imap_get_latest_emails',
   'imap_download_attachment',
   'imap_find_thread_messages',

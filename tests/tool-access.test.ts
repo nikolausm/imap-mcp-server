@@ -12,6 +12,7 @@ const DESTRUCTIVE_TOOLS = [
   'imap_save_draft',
   'imap_update_draft',
   'imap_send_draft',
+  'imap_clear_sent_draft_status',
   'imap_bulk_delete',
   'imap_bulk_delete_by_search',
   'imap_send_email',

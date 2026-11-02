@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, open, readFile, rename, unlink } from 'node:fs/promises';
+import { access, mkdir, open, readFile, rename, unlink } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { simpleParser } from 'mailparser';
@@ -26,6 +26,28 @@ export interface SendAttempt {
   rejectedRecipients?: string[];
   cleanup?: 'marked' | 'pending';
   sentCopy?: unknown;
+  statusCleanup?: StatusCleanup;
+}
+export interface StatusCopy {
+  mailbox: string;
+  uid: number;
+  uidValidity: string;
+  contentHash: string;
+  flags: string[];
+  labels?: string[];
+  emailId?: string;
+  threadId?: string;
+}
+/** Audit of a Draft-status removal. Any state other than verified blocks a repeat store. */
+export interface StatusCleanup {
+  state: 'started' | 'uncertain' | 'verified';
+  operation: 'gmail-label' | 'imap-flag';
+  startedAt: string;
+  finishedAt?: string;
+  before: StatusCopy;
+  sent: StatusCopy;
+  reason?: string;
+  problems?: string[];
 }
 
 /** Metadata only. Exclusive durable claims survive crashes; no automatic retry or expiry. */
@@ -35,6 +57,10 @@ export class DraftJournal {
     return createHash('sha256').update(JSON.stringify([ref.accountId, ref.mailbox, ref.uidValidity, ref.uid])).digest('hex');
   }
   private path(ref: DraftReference) { return join(this.directory, this.key(ref) + '.json'); }
+  private logicalPath(accountId: string, messageId: string | null, contentHash: string) {
+    const key = createHash('sha256').update(JSON.stringify([accountId, messageId || contentHash])).digest('hex');
+    return join(this.directory, key + '.message');
+  }
   private async syncDirectory(path = this.directory) {
     const dir = await open(path, 'r');
     try { await dir.sync(); } finally { await dir.close(); }
@@ -54,6 +80,13 @@ export class DraftJournal {
     try { return JSON.parse(await readFile(this.path(ref), 'utf8')); }
     catch (e: any) { if (e.code === 'ENOENT') return null; throw e; }
   }
+  /** Attempt for this Message-ID (or content) journaled under any reference. */
+  async getLogical(accountId: string, messageId: string | null, contentHash: string): Promise<SendAttempt | null> {
+    try {
+      const original: SendAttempt = JSON.parse(await readFile(this.logicalPath(accountId, messageId, contentHash), 'utf8'));
+      return await this.get(original.draft) ?? original;
+    } catch (e: any) { if (e.code === 'ENOENT') return null; throw e; }
+  }
   async claim(attempt: SendAttempt) {
     await this.ensureDirectory();
     const file = await open(this.path(attempt.draft), 'wx', 0o600);
@@ -62,10 +95,7 @@ export class DraftJournal {
     await this.syncDirectory();
     // Also guard copies/moves with a different UID. Reused Message-IDs fail
     // closed; drafts without IDs fall back to the reviewed source hash.
-    const logicalKey = createHash('sha256').update(JSON.stringify([
-      attempt.draft.accountId, attempt.draft.messageId || attempt.contentHash,
-    ])).digest('hex');
-    const logicalPath = join(this.directory, logicalKey + '.message');
+    const logicalPath = this.logicalPath(attempt.draft.accountId, attempt.draft.messageId, attempt.contentHash);
     let logical;
     try { logical = await open(logicalPath, 'wx', 0o600); }
     catch (e: any) {
@@ -85,6 +115,10 @@ export class DraftJournal {
     finally { await file.close(); }
     await rename(tmp, this.path(attempt.draft));
     await this.syncDirectory();
+  }
+  async isLocked(ref: DraftReference) {
+    try { await access(join(this.directory, this.key(ref) + '.lock')); return true; }
+    catch (e: any) { if (e.code === 'ENOENT') return false; throw e; }
   }
   async exclusive<T>(ref: DraftReference, operation: () => Promise<T>): Promise<T> {
     await this.ensureDirectory();

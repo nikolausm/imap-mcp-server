@@ -4,6 +4,7 @@ import type { AccountManager } from '../services/account-manager.js';
 import type { ImapService } from '../services/imap-service.js';
 import type { SmtpService } from '../services/smtp-service.js';
 import { DraftService } from '../services/draft-service.js';
+import { DraftReconciliationService } from '../services/draft-reconciliation.js';
 
 export const draftReferenceSchema = z.object({
   accountId: z.string().min(1).describe('Account ID returned by save/list drafts; never substitute a different account.'),
@@ -15,6 +16,7 @@ export const draftReferenceSchema = z.object({
 const hashSchema = z.string().regex(/^[a-f0-9]{64}$/).describe('SHA-256 contentHash from the last reviewed draft; rejects changed content.');
 
 export function draftTools(server: McpServer, imap: ImapService, accounts: AccountManager, smtp: SmtpService, service = new DraftService(smtp, imap)) {
+  const reconciliation = new DraftReconciliationService(service.journal);
   const result = (value: unknown) => ({ content: [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }] });
   async function account(id: string) {
     const found = await accounts.getAccount(id);
@@ -60,4 +62,21 @@ export function draftTools(server: McpServer, imap: ImapService, accounts: Accou
     description: 'Read local durable send-attempt status by original draft reference, including Message-ID for manual Sent/provider-log reconciliation. Does not retry SMTP or change status.',
     inputSchema: { draft: draftReferenceSchema },
   }, async ({ draft }) => { await account(draft.accountId); return result({ attempt: await service.journal.get(draft) }); });
+  const mailboxOverrides = {
+    draftsMailbox: z.string().optional().describe('Exact Drafts mailbox; defaults to special-use detection.'),
+    sentMailbox: z.string().optional().describe('Exact Sent mailbox; defaults to the account setting, then special-use detection.'),
+    allMailMailbox: z.string().optional().describe('Exact All Mail mailbox; defaults to special-use detection. Required for Gmail.'),
+  };
+  server.registerTool('imap_reconcile_drafts', {
+    description: 'Dry run. Classifies everything in Drafts against Sent, All Mail and the local send journal: unsent_draft, held, shared_sent_draft, sent_residual_flag, separate_sent_copy, sent_unverified, retired or uncertain. Read-only: changes no mailbox or journal, sets no Seen flag. Use before imap_clear_sent_draft_status.',
+    inputSchema: {
+      accountId: z.string().describe('Account ID from imap_list_accounts.'),
+      ...mailboxOverrides,
+      limit: z.number().int().min(1).max(500).default(100).describe('Maximum newest Drafts messages to scan (1–500).'),
+    },
+  }, async ({ accountId, limit, ...overrides }) => result(await reconciliation.reconcile(await account(accountId), overrides, limit)));
+  server.registerTool('imap_clear_sent_draft_status', {
+    description: 'Removes only Draft status from ONE message that imap_reconcile_drafts classified as shared_sent_draft or sent_residual_flag, then reads back Sent, All Mail, labels, flags and content. Refuses unsent drafts, holds and uncertain evidence. Never deletes, moves, expunges or sends. Idempotent: an unverified earlier attempt is only re-read, never repeated. On ordinary IMAP the message stays in the Drafts folder without the flag.',
+    inputSchema: { draft: draftReferenceSchema, contentHash: hashSchema, ...mailboxOverrides },
+  }, async ({ draft, contentHash, ...overrides }) => result(await reconciliation.clearStatus(await account(draft.accountId), draft, contentHash, overrides)));
 }
