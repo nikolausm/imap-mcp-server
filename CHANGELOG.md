@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.1] - 2026-10-13
+
+### Security
+- Confine path-based attachments and download targets to configured directories.
+  Canonical path checks reject out-of-root targets and credential-store access;
+  uploads and default download names use the same validation. Attachment bytes
+  are captured before SMTP composition instead of deferring a filesystem read.
+- Migration: stage files with `imap_upload_file`, or configure trusted additional
+  attachment roots with `IMAP_ATTACHMENT_DIRS`. Set `IMAP_DOWNLOAD_DIR` for the
+  desired download destination; relative `savePath` values start at that root.
+  The default tool permissions and credential-storage format are unchanged.
+
 ## [2.2.0] - 2026-10-09
 
 No tool was renamed, and no existing input or output shape changed. The new `from` and `allowedFrom` fields are optional. Local use of the setup wizard is unchanged.
