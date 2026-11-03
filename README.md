@@ -643,7 +643,7 @@ sending, drafts, replies, and forwards.
 
 - **imap_save_draft**: Save an email as a draft (no send). Takes the same fields as `imap_send_email`, plus `inReplyTo`, `references`, and an optional `folder` override for the Drafts folder.
 
-- **imap_reply_to_email**: Reply to an existing email
+- **imap_reply_to_email**: Reply to an existing email. The subject gets a `Re:` prefix unless it already starts with `Re:` or the German `AW:`, matched case-insensitively with optional whitespace before the colon (`RE: Budget` and `re:Budget` are kept as they are).
   ```
   Parameters:
   - accountId: Account ID
@@ -656,7 +656,7 @@ sending, drafts, replies, and forwards.
   - attachments: Array of attachments (optional, same shape as imap_send_email, including contentDisposition/cid for inline images)
   ```
 
-- **imap_forward_email**: Forward an existing email
+- **imap_forward_email**: Forward an existing email. The subject gets a `Fwd:` prefix unless it already starts with `Fwd:`, `FW:` or the German `WG:`, matched the same way. A reply prefix does not count, so `Re: Budget` is forwarded as `Fwd: Re: Budget`.
   ```
   Parameters:
   - accountId: Account ID
