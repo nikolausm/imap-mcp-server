@@ -73,6 +73,39 @@ export function buildReplyRecipients(
 }
 
 /**
+ * Split a recipient value given as a list or a comma-separated string.
+ * Commas inside a quoted display name ('"Doe, John" <john@example.com>')
+ * do not split.
+ */
+export function splitAddresses(value?: string | string[]): string[] {
+  return (Array.isArray(value) ? value : [value ?? ''])
+    .flatMap(entry => entry.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/))
+    .map(entry => entry.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Additional recipients requested by the caller, minus the account's own
+ * addresses, anything already in `existing`, and duplicates (case-insensitive).
+ */
+export function extraRecipients(
+  existing: string[],
+  extra: string | string[] | undefined,
+  ownAddresses: Array<string | undefined>,
+): string[] {
+  const seen = new Set<string>([
+    ...ownAddresses.filter((a): a is string => !!a && a.includes('@')).map(extractEmail),
+    ...existing.map(extractEmail),
+  ]);
+  return splitAddresses(extra).filter(addr => {
+    const normalized = extractEmail(addr);
+    if (!normalized || seen.has(normalized)) return false;
+    seen.add(normalized);
+    return true;
+  });
+}
+
+/**
  * References for a reply: the original's References (or, failing that, its
  * In-Reply-To) followed by the original's Message-ID (RFC 5322 §3.6.4).
  */
