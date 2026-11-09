@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `imap_reply_to_email` and `imap_forward_email` no longer stack subject prefixes (#203). An existing `Re:`/`AW:` (reply) or `Fwd:`/`FW:`/`WG:` (forward) prefix is recognized case-insensitively with optional whitespace before the colon, so `RE: Budget` stays `RE: Budget` instead of becoming `Re: RE: Budget`. Only the prefix for the same operation is suppressed: forwarding `Re: Budget` still gives `Fwd: Re: Budget`. Shared helper in `src/utils/subject-prefix.ts`; tests in `tests/subject-prefix.test.ts`.
+
 ## [2.2.0] - 2026-10-09
 
 No tool was renamed, and no existing input or output shape changed. The new `from` and `allowedFrom` fields are optional. Local use of the setup wizard is unchanged.
