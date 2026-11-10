@@ -1,3 +1,4 @@
+import nodemailer from 'nodemailer';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { emailTools } from '../src/tools/email-tools.js';
 import { extraRecipients, splitAddresses } from '../src/utils/reply-headers.js';
@@ -96,8 +97,59 @@ describe('cc on imap_reply_to_email and imap_forward_email', () => {
       to: 'frank@example.org',
       cc: 'FRANK@example.org, me@example.com, gina@example.org',
     });
-    expect(composed().to).toBe('frank@example.org');
+    expect(composed().to).toEqual(['frank@example.org']);
     expect(composed().cc).toEqual(['gina@example.org']);
     expect(composed().subject).toBe('Fwd: Plans');
+  });
+
+  describe('SMTP envelope (nodemailer stream transport, offline)', () => {
+    const envelopeOf = async (mail: any) => {
+      const t = nodemailer.createTransport({ streamTransport: true, buffer: true });
+      const info: any = await t.sendMail({ from: 'me@example.com', ...mail });
+      return info.envelope.to as string[];
+    };
+
+    it('own mailbox inside an address group is filtered from the envelope', async () => {
+      await handlers.imap_reply_to_email({
+        accountId: 'acc1', folder: 'INBOX', uid: 7, text: 'ok', replyAll: false,
+        cc: 'Team: me@example.com, dan@example.org;',
+      });
+      expect(composed().cc).toEqual(['dan@example.org']);
+      expect(await envelopeOf({ to: composed().to, cc: composed().cc })).toEqual(['alice@example.org', 'dan@example.org']);
+    });
+
+    it('own mailbox after a display name containing angle brackets is filtered', async () => {
+      await handlers.imap_reply_to_email({
+        accountId: 'acc1', folder: 'INBOX', uid: 7, text: 'ok', replyAll: false,
+        cc: '"Evil <x@example.net>" <me@example.com>, dan@example.org',
+      });
+      expect(composed().cc).toEqual(['dan@example.org']);
+      expect(await envelopeOf({ to: composed().to, cc: composed().cc })).toEqual(['alice@example.org', 'dan@example.org']);
+    });
+
+    it('forward: cc duplicate of a To member inside a group is dropped', async () => {
+      await handlers.imap_forward_email({
+        accountId: 'acc1', folder: 'INBOX', uid: 7, includeAttachments: false,
+        to: 'Friends: frank@example.org;', cc: 'frank@example.org, me@example.com, gina@example.org',
+      });
+      expect(await envelopeOf({ to: composed().to, cc: composed().cc })).toEqual(['frank@example.org', 'gina@example.org']);
+    });
+
+    it('rejects malformed recipients instead of passing them through', async () => {
+      await expect(handlers.imap_reply_to_email({
+        accountId: 'acc1', folder: 'INBOX', uid: 7, text: 'ok', replyAll: false, cc: 'not-an-address',
+      })).rejects.toThrow(/Invalid recipient/);
+      await expect(handlers.imap_reply_to_email({
+        accountId: 'acc1', folder: 'INBOX', uid: 7, text: 'ok', replyAll: false, cc: 'Empty:;',
+      })).rejects.toThrow(/Invalid recipient/);
+    });
+
+    it('forward without cc leaves To untouched', async () => {
+      await handlers.imap_forward_email({
+        accountId: 'acc1', folder: 'INBOX', uid: 7, includeAttachments: false, to: 'Friends: frank@example.org;',
+      });
+      expect(composed().to).toBe('Friends: frank@example.org;');
+      expect(composed().cc).toBeUndefined();
+    });
   });
 });

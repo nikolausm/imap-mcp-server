@@ -1250,11 +1250,14 @@ export function emailTools(
     // Prepare forwarded content
     const forwardHeader = `\n\n---------- Forwarded message ----------\nFrom: ${originalEmail.from}\nDate: ${originalEmail.date.toLocaleString()}\nSubject: ${originalEmail.subject}\nTo: ${originalEmail.to.join(', ')}\n\n`;
     
+    // Without cc the recipients go out untouched; with cc, To and Cc are both
+    // parsed with Nodemailer's address parser so dedup matches the envelope.
+    const forwardTo = cc === undefined ? to : splitAddresses(to);
     const forwardCc = extraRecipients(splitAddresses(to), cc, [...allowedFromAddresses(account)]);
 
     const emailComposer = {
       from: resolveFrom(account, from),
-      to,
+      to: forwardTo,
       cc: forwardCc.length > 0 ? forwardCc : undefined,
       subject: originalEmail.subject.startsWith('Fwd: ') ? originalEmail.subject : `Fwd: ${originalEmail.subject}`,
       text: (text ?? body ?? '') + forwardHeader + (originalEmail.textContent || ''),

@@ -4,14 +4,48 @@
  * Kept free of I/O so the reply-all rules can be unit-tested directly.
  */
 
+import addressparser from 'nodemailer/lib/addressparser/index.js';
+
+interface Mailbox { name: string; address: string }
+
+/** Flatten nodemailer's parse result; members of an RFC 5322 group become plain mailboxes. */
+function flatten(parsed: ReturnType<typeof addressparser>): Mailbox[] {
+  return parsed.flatMap(entry => entry.group ? flatten(entry.group) : [{ name: entry.name, address: entry.address }]);
+}
+
+function formatMailbox({ name, address }: Mailbox): string {
+  if (!name) return address;
+  return /^[\w .'-]+$/.test(name) ? `${name} <${address}>` : `"${name.replace(/(["\\])/g, '\\$1')}" <${address}>`;
+}
+
 /**
- * Bare, lowercase address of a header entry that may carry a display name
- * ('Alice <Alice@Example.com>' → 'alice@example.com'). Addresses are compared
- * case-insensitively by convention (RFC 5321 §2.4).
+ * Parse recipients with the same parser Nodemailer uses to build the SMTP
+ * envelope, so what we dedupe is what actually gets delivered.
+ * Policy: groups are expanded to their members (group syntax is dropped, the
+ * envelope contains the members anyway); an entry without an address, e.g. an
+ * empty group or garbage, is rejected instead of being passed through.
+ */
+export function parseRecipients(value?: string | string[]): string[] {
+  const out: string[] = [];
+  for (const raw of Array.isArray(value) ? value : [value ?? '']) {
+    if (!raw.trim()) continue;
+    const mailboxes = flatten(addressparser(raw));
+    if (mailboxes.length === 0 || mailboxes.some(m => !m.address || !m.address.includes('@'))) {
+      throw new Error(`Invalid recipient address: ${JSON.stringify(raw)}`);
+    }
+    out.push(...mailboxes.map(formatMailbox));
+  }
+  return out;
+}
+
+/**
+ * Bare, lowercase address of a single recipient ('Alice <Alice@Example.com>'
+ * → 'alice@example.com'). Addresses are compared case-insensitively by
+ * convention (RFC 5321 §2.4).
  */
 export function extractEmail(addr: string): string {
-  const match = addr.match(/<([^>]+)>/);
-  return (match ? match[1] : addr).trim().toLowerCase();
+  const [first] = flatten(addressparser(addr));
+  return (first?.address ?? addr).trim().toLowerCase();
 }
 
 export interface ReplySource {
@@ -50,7 +84,7 @@ export function buildReplyRecipients(
   );
   const take = (list: string[] | undefined): string[] => {
     const out: string[] = [];
-    for (const addr of list || []) {
+    for (const addr of safeParse(list)) {
       const normalized = extractEmail(addr);
       if (normalized && !seen.has(normalized)) {
         seen.add(normalized);
@@ -72,16 +106,16 @@ export function buildReplyRecipients(
   return { to, cc };
 }
 
-/**
- * Split a recipient value given as a list or a comma-separated string.
- * Commas inside a quoted display name ('"Doe, John" <john@example.com>')
- * do not split.
- */
+/** Headers of received mail are not caller input: skip what cannot be parsed instead of failing the reply. */
+function safeParse(list: string[] | undefined): string[] {
+  return (list || []).flatMap(addr => {
+    try { return parseRecipients(addr); } catch { return [addr]; }
+  });
+}
+
+/** Split a recipient value given as a list or a comma-separated string (see parseRecipients). */
 export function splitAddresses(value?: string | string[]): string[] {
-  return (Array.isArray(value) ? value : [value ?? ''])
-    .flatMap(entry => entry.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/))
-    .map(entry => entry.trim())
-    .filter(Boolean);
+  return parseRecipients(value);
 }
 
 /**
