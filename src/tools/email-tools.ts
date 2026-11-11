@@ -6,7 +6,7 @@ import { selectSearchFolders } from '../utils/search-folders.js';
 import { parseSerializedArray } from '../utils/array-input.js';
 import { mergeBcc } from '../utils/default-bcc.js';
 import { allowedFromAddresses, resolveFrom } from '../utils/send-as.js';
-import { buildReferences, buildReplyRecipients } from '../utils/reply-headers.js';
+import { buildReferences, buildReplyRecipients, extraRecipients } from '../utils/reply-headers.js';
 import type { EmailAttachment, EmailMessage, ImapAccount, SentSaveResult } from '../types/index.js';
 import { z } from 'zod';
 import { basename, join } from 'path';
@@ -1157,7 +1157,7 @@ export function emailTools(
 
   // Reply to email tool
   server.registerTool('imap_reply_to_email', {
-    description: 'Reply to an existing email identified by folder + uid. Automatically sets the recipient to the original sender, prefixes the subject with "Re:", and preserves threading (In-Reply-To/References). Set replyAll to also include the original To (and Cc as Cc), excluding the account\'s own address; a Reply-To header on the original is honoured. Use this instead of imap_send_email whenever the user is responding to a message already in a mailbox. Account defaultBcc addresses are always BCC\'d when configured.',
+    description: 'Reply to an existing email identified by folder + uid. Automatically sets the recipient to the original sender, prefixes the subject with "Re:", and preserves threading (In-Reply-To/References). Set replyAll to also include the original To (and Cc as Cc), excluding the account\'s own address; a Reply-To header on the original is honoured. cc adds further recipients without breaking the thread. Use this instead of imap_send_email whenever the user is responding to a message already in a mailbox. Account defaultBcc addresses are always BCC\'d when configured.',
     inputSchema: {
       ...accountSelector,
       from: z.string().optional().describe('Sender identity. Must match the account email/login or an address configured in allowedFrom.'),
@@ -1167,10 +1167,11 @@ export function emailTools(
       html: z.string().optional().describe('HTML reply content'),
       body: z.string().optional().describe("Alias for 'text' (backward-compat)"),
       replyAll: z.boolean().default(false).describe('Reply to all recipients'),
+      cc: addressList('cc', 'Additional CC recipients. Either an array of addresses or a single comma-separated string; merged with the replyAll Cc, duplicates and the account\'s own addresses are dropped.').optional(),
       bcc: bccSchema,
       attachments: z.array(attachmentSchema).optional().describe('Email attachments'),
     }
-  }, async ({ accountId: rawAccountId, accountName, from, folder, uid, text, html, body, replyAll, bcc, attachments }) => {
+  }, async ({ accountId: rawAccountId, accountName, from, folder, uid, text, html, body, replyAll, cc, bcc, attachments }) => {
     const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
     const account = await accountManager.getAccount(accountId);
     if (!account) {
@@ -1184,11 +1185,9 @@ export function emailTools(
     // Reply: To = Reply-To or From. replyAll: also the original To, and Cc =
     // the original Cc, minus our own address(es) — including configured
     // send-as aliases — and duplicates.
-    const { to: replyRecipients, cc: replyCc } = buildReplyRecipients(
-      originalEmail,
-      [...allowedFromAddresses(account)],
-      replyAll,
-    );
+    const ownAddresses = [...allowedFromAddresses(account)];
+    const { to: replyRecipients, cc: originalCc } = buildReplyRecipients(originalEmail, ownAddresses, replyAll);
+    const replyCc = [...originalCc, ...extraRecipients([...replyRecipients, ...originalCc], cc, ownAddresses)];
 
     const emailComposer = {
       from: resolveFrom(account, from),
@@ -1232,12 +1231,13 @@ export function emailTools(
       folder: z.string().default('INBOX').describe('Folder containing the original email'),
       uid: z.coerce.number().describe('UID of the email to forward'),
       to: addressList('to', 'Forward to email address(es). Either an array of addresses or a single comma-separated string.').nonoptional(),
+      cc: addressList('cc', 'CC recipients. Either an array of addresses or a single comma-separated string; addresses already in To and the account\'s own addresses are dropped.').optional(),
       text: z.string().optional().describe('Additional text to include'),
       body: z.string().optional().describe("Alias for 'text' (backward-compat)"),
       bcc: bccSchema,
       includeAttachments: z.boolean().default(true).describe('Include original attachments'),
     }
-  }, async ({ accountId: rawAccountId, accountName, from, folder, uid, to, text, body, bcc, includeAttachments }) => {
+  }, async ({ accountId: rawAccountId, accountName, from, folder, uid, to, cc, text, body, bcc, includeAttachments }) => {
     const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
     const account = await accountManager.getAccount(accountId);
     if (!account) {
@@ -1250,9 +1250,16 @@ export function emailTools(
     // Prepare forwarded content
     const forwardHeader = `\n\n---------- Forwarded message ----------\nFrom: ${originalEmail.from}\nDate: ${originalEmail.date.toLocaleString()}\nSubject: ${originalEmail.subject}\nTo: ${originalEmail.to.join(', ')}\n\n`;
     
+    // Without cc nothing is parsed or normalized: To goes out exactly as given
+    // (an empty named group is valid for a Bcc-only forward). With cc, only the
+    // cc is parsed and deduped against To and the account's own addresses.
+    const forwardTo = to;
+    const forwardCc = cc === undefined ? [] : extraRecipients([to].flat(), cc, [...allowedFromAddresses(account)]);
+
     const emailComposer = {
       from: resolveFrom(account, from),
-      to,
+      to: forwardTo,
+      cc: forwardCc.length > 0 ? forwardCc : undefined,
       subject: originalEmail.subject.startsWith('Fwd: ') ? originalEmail.subject : `Fwd: ${originalEmail.subject}`,
       text: (text ?? body ?? '') + forwardHeader + (originalEmail.textContent || ''),
       html: originalEmail.htmlContent,

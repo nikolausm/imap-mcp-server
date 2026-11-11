@@ -644,6 +644,10 @@ sending, drafts, replies, and forwards.
 - **imap_save_draft**: Save an email as a draft (no send). Takes the same fields as `imap_send_email`, plus `inReplyTo`, `references`, and an optional `folder` override for the Drafts folder.
 
 - **imap_reply_to_email**: Reply to an existing email
+  Recipients (`to`/`cc`) are parsed with Nodemailer's address parser, the same one
+  that builds the SMTP envelope. RFC 5322 groups (`Team: a@x.org, b@x.org;`) are
+  expanded to their members, so an own address inside a group is filtered too. An
+  entry without a valid address is rejected with an error.
   ```
   Parameters:
   - accountId: Account ID
@@ -652,6 +656,9 @@ sending, drafts, replies, and forwards.
   - text: Plain text reply content (optional)
   - html: HTML reply content (optional)
   - replyAll: Reply to all recipients (default: false)
+  - cc: Additional CC recipients (optional; array or comma-separated string).
+      Merged with the replyAll Cc; addresses already on the reply, the account's
+      own addresses and duplicates are dropped. Threading headers are kept
   - bcc: BCC recipients (optional; merged with account defaultBcc)
   - attachments: Array of attachments (optional, same shape as imap_send_email, including contentDisposition/cid for inline images)
   ```
@@ -663,6 +670,8 @@ sending, drafts, replies, and forwards.
   - folder: Folder containing the original email
   - uid: UID of the email to forward
   - to: Forward to email address(es)
+  - cc: CC recipients (optional; array or comma-separated string). Addresses
+      already in `to`, the account's own addresses and duplicates are dropped
   - text: Additional text to include (optional)
   - bcc: BCC recipients (optional; merged with account defaultBcc)
   - includeAttachments: Include original attachments (default: true)
