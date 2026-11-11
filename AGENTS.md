@@ -34,7 +34,7 @@ working in this repository.
   - `account-tools.ts` — add / update / list / remove / connect / disconnect / test.
   - `email-tools.ts` — search, get, latest, send, reply, forward, save draft,
     mark read/unread, delete, bulk delete, move, attachments, upload, threads.
-  - `folder-tools.ts` — list, status, create, unread counts.
+  - `folder-tools.ts` — list, status, create, rename, unread counts.
   - `spam-tools.ts` — spam analysis, domain stats, allow/deny lists.
 - **Web setup wizard** — `src/web/server.ts` (Express) serves `public/` for
   account onboarding (`npm run setup` / `imap-setup`). Binds `127.0.0.1` and
@@ -58,7 +58,7 @@ npm run setup        # launch the web setup wizard
 ```
 
 Always run `npm run build` **and** `npm test` before committing changes that
-touch `src/`. Keep the suite green (currently 451 tests).
+touch `src/`. Keep the suite green (currently 487 tests).
 
 > Note: `npm run lint` (`tsc --noEmit`) is memory-hungry on this project — the
 > MCP SDK's `registerTool` generics are deep enough to surface a pre-existing
@@ -103,3 +103,8 @@ touch `src/`. Keep the suite green (currently 451 tests).
   tells an LLM **when and how** to use it.
 - Match the surrounding code style; keep error handling and connection cleanup
   consistent with existing tools.
+- Select mailboxes only through `client.getMailboxLock()`, never a bare
+  `client.mailboxOpen()`. The lock is what serializes selection on a pooled
+  connection: `renameFolder` holds a read-only INBOX lock so the source cannot
+  be re-selected before `RENAME`, which imapflow would otherwise deselect with
+  an expunging `CLOSE` on servers without `UNSELECT`.

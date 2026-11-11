@@ -309,7 +309,7 @@ to a mailbox, or expose only a hand-picked subset of tools.
 
 | Variable | Effect |
 | --- | --- |
-| `IMAP_MCP_READ_ONLY` | When truthy (`1`, `true`, `yes`, `on`), only the safe, read-only tools are registered — searching, reading, listing folders, unread counts, spam analysis. No tool that sends mail, deletes/moves messages, changes flags, or edits accounts is exposed. |
+| `IMAP_MCP_READ_ONLY` | When truthy (`1`, `true`, `yes`, `on`), only the safe, read-only tools are registered — searching, reading, listing folders, unread counts, spam analysis. No tool that sends mail, deletes/moves messages, creates or renames folders, changes flags, or edits accounts is exposed. |
 | `IMAP_MCP_ENABLED_TOOLS` | Comma-separated allowlist of tool names — only these are registered. Names are case-insensitive and the `imap_` prefix is optional (`search_emails` ≡ `imap_search_emails`). When set, it takes precedence over `IMAP_MCP_READ_ONLY`. |
 
 **Example — read-only access:**
@@ -700,6 +700,32 @@ sending, drafts, replies, and forwards.
   - accountId: Account ID
   - folder: Full folder path to create (e.g. "Archives/2026/2026-05" or "INBOX.Archive")
   ```
+
+- **imap_rename_folder**: Rename an existing folder in place with a single IMAP `RENAME`. Messages are not moved, copied or deleted.
+  ```
+  Parameters:
+  - accountId: Account ID
+  - folder: Exact current full path (from imap_list_folders)
+  - newName: New full path, same hierarchy delimiter
+
+  Returns:
+  - oldPath, newPath
+  - renamedChildren: [{ oldPath, newPath }] — child folders move with their
+      parent, so their paths change too ("Projects/Acme" becomes
+      "Clients/Acme"). Derived from the folder list before the rename.
+  - on failure: success: false and a reason — source_not_found,
+      destination_exists, inbox_not_supported, same_name, server_refused,
+      source_selected, not_connected (nothing was sent), or outcome_unknown
+      (the connection dropped; check imap_list_folders before retrying)
+  ```
+  The rename never expunges. If the source folder is the one currently open,
+  it is closed first by opening INBOX read-only (EXAMINE), which deselects
+  without deleting anything; a plain IMAP CLOSE would permanently remove
+  messages flagged `\Deleted`.
+  An existing destination is never replaced or merged, and INBOX can't be renamed
+  (or used as the new name), because RFC 3501 gives a rename of INBOX special
+  semantics. On servers that show labels as folders (Proton Mail Bridge
+  `Labels/<name>`), renaming the folder renames the label.
 
 - **imap_get_unread_count**: Count unread emails
   ```
