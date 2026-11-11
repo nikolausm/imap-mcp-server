@@ -6,7 +6,7 @@ import { selectSearchFolders } from '../utils/search-folders.js';
 import { parseSerializedArray } from '../utils/array-input.js';
 import { mergeBcc } from '../utils/default-bcc.js';
 import { allowedFromAddresses, resolveFrom } from '../utils/send-as.js';
-import { buildReferences, buildReplyRecipients, extraRecipients, splitAddresses } from '../utils/reply-headers.js';
+import { buildReferences, buildReplyRecipients, extraRecipients } from '../utils/reply-headers.js';
 import type { EmailAttachment, EmailMessage, ImapAccount, SentSaveResult } from '../types/index.js';
 import { z } from 'zod';
 import { basename, join } from 'path';
@@ -1250,10 +1250,11 @@ export function emailTools(
     // Prepare forwarded content
     const forwardHeader = `\n\n---------- Forwarded message ----------\nFrom: ${originalEmail.from}\nDate: ${originalEmail.date.toLocaleString()}\nSubject: ${originalEmail.subject}\nTo: ${originalEmail.to.join(', ')}\n\n`;
     
-    // Without cc the recipients go out untouched; with cc, To and Cc are both
-    // parsed with Nodemailer's address parser so dedup matches the envelope.
-    const forwardTo = cc === undefined ? to : splitAddresses(to);
-    const forwardCc = extraRecipients(splitAddresses(to), cc, [...allowedFromAddresses(account)]);
+    // Without cc nothing is parsed or normalized: To goes out exactly as given
+    // (an empty named group is valid for a Bcc-only forward). With cc, only the
+    // cc is parsed and deduped against To and the account's own addresses.
+    const forwardTo = to;
+    const forwardCc = cc === undefined ? [] : extraRecipients([to].flat(), cc, [...allowedFromAddresses(account)]);
 
     const emailComposer = {
       from: resolveFrom(account, from),

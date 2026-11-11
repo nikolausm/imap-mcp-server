@@ -39,11 +39,18 @@ export function parseRecipients(value?: string | string[]): string[] {
 }
 
 /**
- * Bare, lowercase address of a single recipient ('Alice <Alice@Example.com>'
- * → 'alice@example.com'). Addresses are compared case-insensitively by
- * convention (RFC 5321 §2.4).
+ * Bare, lowercase address of a header entry that may carry a display name
+ * ('Alice <Alice@Example.com>' → 'alice@example.com'). Addresses are compared
+ * case-insensitively by convention (RFC 5321 §2.4).
+ * Legacy matcher of reply-all, left untouched so it behaves as before when cc is omitted.
  */
 export function extractEmail(addr: string): string {
+  const match = addr.match(/<([^>]+)>/);
+  return (match ? match[1] : addr).trim().toLowerCase();
+}
+
+/** Same as extractEmail, but through Nodemailer's parser; used for caller supplied recipients only. */
+function parsedEmail(addr: string): string {
   const [first] = flatten(addressparser(addr));
   return (first?.address ?? addr).trim().toLowerCase();
 }
@@ -84,7 +91,7 @@ export function buildReplyRecipients(
   );
   const take = (list: string[] | undefined): string[] => {
     const out: string[] = [];
-    for (const addr of safeParse(list)) {
+    for (const addr of list || []) {
       const normalized = extractEmail(addr);
       if (normalized && !seen.has(normalized)) {
         seen.add(normalized);
@@ -106,16 +113,14 @@ export function buildReplyRecipients(
   return { to, cc };
 }
 
-/** Headers of received mail are not caller input: skip what cannot be parsed instead of failing the reply. */
-function safeParse(list: string[] | undefined): string[] {
-  return (list || []).flatMap(addr => {
-    try { return parseRecipients(addr); } catch { return [addr]; }
-  });
-}
-
 /** Split a recipient value given as a list or a comma-separated string (see parseRecipients). */
 export function splitAddresses(value?: string | string[]): string[] {
   return parseRecipients(value);
+}
+
+/** Addresses of an already accepted recipient value; unparsable or empty groups contribute none. */
+function lenientEmails(value: string): string[] {
+  return flatten(addressparser(value)).map(m => m.address.trim().toLowerCase()).filter(Boolean);
 }
 
 /**
@@ -128,11 +133,11 @@ export function extraRecipients(
   ownAddresses: Array<string | undefined>,
 ): string[] {
   const seen = new Set<string>([
-    ...ownAddresses.filter((a): a is string => !!a && a.includes('@')).map(extractEmail),
-    ...existing.map(extractEmail),
+    ...ownAddresses.filter((a): a is string => !!a && a.includes('@')).map(parsedEmail),
+    ...existing.flatMap(lenientEmails),
   ]);
   return splitAddresses(extra).filter(addr => {
-    const normalized = extractEmail(addr);
+    const normalized = parsedEmail(addr);
     if (!normalized || seen.has(normalized)) return false;
     seen.add(normalized);
     return true;

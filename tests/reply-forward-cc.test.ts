@@ -97,7 +97,7 @@ describe('cc on imap_reply_to_email and imap_forward_email', () => {
       to: 'frank@example.org',
       cc: 'FRANK@example.org, me@example.com, gina@example.org',
     });
-    expect(composed().to).toEqual(['frank@example.org']);
+    expect(composed().to).toBe('frank@example.org');
     expect(composed().cc).toEqual(['gina@example.org']);
     expect(composed().subject).toBe('Fwd: Plans');
   });
@@ -150,6 +150,33 @@ describe('cc on imap_reply_to_email and imap_forward_email', () => {
       });
       expect(composed().to).toBe('Friends: frank@example.org;');
       expect(composed().cc).toBeUndefined();
+    });
+
+    it('legacy forward: empty named To group with Bcc only still reaches the envelope', async () => {
+      await handlers.imap_forward_email({
+        accountId: 'acc1', folder: 'INBOX', uid: 7, includeAttachments: false,
+        to: 'Undisclosed:;', bcc: 'hidden@example.org',
+      });
+      expect(composed().to).toBe('Undisclosed:;');
+      expect(composed().cc).toBeUndefined();
+      const t = nodemailer.createTransport({ streamTransport: true, buffer: true });
+      const info: any = await t.sendMail({ from: 'me@example.com', to: composed().to, bcc: 'hidden@example.org' });
+      expect(info.envelope.to).toEqual(['hidden@example.org']);
+    });
+
+    it('forward with cc and an empty To group keeps To as given', async () => {
+      await handlers.imap_forward_email({
+        accountId: 'acc1', folder: 'INBOX', uid: 7, includeAttachments: false,
+        to: 'Undisclosed:;', cc: 'gina@example.org', bcc: 'hidden@example.org',
+      });
+      expect(composed().to).toBe('Undisclosed:;');
+      expect(composed().cc).toEqual(['gina@example.org']);
+    });
+
+    it('replyAll without cc keeps the legacy recipient normalization', async () => {
+      await handlers.imap_reply_to_email({ accountId: 'acc1', folder: 'INBOX', uid: 7, text: 'ok', replyAll: true });
+      expect(composed().to).toEqual(['Alice <alice@example.org>', 'Bob <bob@example.org>']);
+      expect(composed().cc).toEqual(['carol@example.org']);
     });
   });
 });
