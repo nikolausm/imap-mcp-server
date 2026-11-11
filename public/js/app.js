@@ -213,6 +213,9 @@ async function handleAccountSubmit(e) {
         tls: selectedProvider?.imapSecurity !== 'STARTTLS',
         saveToSent: document.getElementById('saveToSent').checked,
         imapUsername: imapUsername || undefined,
+        // Registry id of the picked provider card, so provider-specific rules
+        // still apply if the host is later changed (e.g. a Bridge hostname).
+        provider: selectedProvider && selectedProvider.id !== 'custom' ? selectedProvider.id : undefined,
         // "Do not save to config" flags — the typed value is still used for the
         // connection test, it just isn't persisted to accounts.json.
         imapUsernameFromEnv: document.getElementById('imapUsernameFromEnv').checked,
