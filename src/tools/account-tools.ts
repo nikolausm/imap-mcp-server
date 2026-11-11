@@ -3,6 +3,14 @@ import { AccountManager } from '../services/account-manager.js';
 import { ImapService } from '../services/imap-service.js';
 import { SmtpService } from '../services/smtp-service.js';
 import { z } from 'zod';
+import { accountProviderIds, resolveAccountProvider } from '../providers/email-providers.js';
+
+const providerIdEnum = z.enum(accountProviderIds as [string, ...string[]]);
+const providerDescription =
+  'Email provider id from the built-in provider list (e.g. "gmail", "protonmail"). Optional: when unset, the provider is ' +
+  'recognised by IMAP host. Set it when the host differs from the provider\'s standard one, e.g. Proton Mail Bridge ' +
+  'reached through a Docker or LAN hostname instead of 127.0.0.1. Provider-specific safety rules (such as which ' +
+  'imap_copy_email destinations are allowed) depend on it.';
 
 export function accountTools(
   server: McpServer,
@@ -28,8 +36,9 @@ export function accountTools(
       sentFolder: z.string().optional().describe('Explicit Sent-folder name for saving sent-mail copies (e.g. "Gesendet"). Only needed when auto-detection fails — the server must lack a \\Sent SPECIAL-USE folder. Check names with imap_list_folders'),
       defaultBcc: z.union([z.string(), z.array(z.string())]).optional().describe('Optional BCC address(es) applied automatically to every outbound send, reply, forward, and draft for this account. Merged with any per-call bcc'),
       allowedFrom: z.array(z.string()).optional().describe('Additional sender identities allowed in the From header. The account email and login are always allowed.'),
+      provider: providerIdEnum.optional().describe(providerDescription),
     }
-  }, async ({ name, host, port, user, password, tls, allowStartTLS, email, smtpHost, smtpPort, smtpSecure, sentFolder, defaultBcc, allowedFrom }) => {
+  }, async ({ name, host, port, user, password, tls, allowStartTLS, email, smtpHost, smtpPort, smtpSecure, sentFolder, defaultBcc, allowedFrom, provider }) => {
     const smtp = (smtpHost || smtpPort !== undefined || smtpSecure !== undefined)
       ? {
           host: smtpHost || host,
@@ -53,6 +62,7 @@ export function accountTools(
         ? { defaultBcc }
         : {}),
       ...(allowedFrom?.length ? { allowedFrom } : {}),
+      ...(provider ? { provider } : {}),
     });
 
     return {
@@ -89,8 +99,9 @@ export function accountTools(
       sentFolder: z.string().optional().describe('Explicit Sent-folder name for saving sent-mail copies (e.g. "Gesendet"). Overrides auto-detection; pass an empty string to clear the override and re-enable auto-detection. Check names with imap_list_folders'),
       defaultBcc: z.union([z.string(), z.array(z.string())]).optional().describe('Optional BCC address(es) applied automatically to every outbound message for this account. Pass an empty string to clear'),
       allowedFrom: z.array(z.string()).optional().describe('Additional sender identities allowed in the From header. Pass an empty array to clear.'),
+      provider: z.union([providerIdEnum, z.literal('')]).optional().describe(`${providerDescription} Pass an empty string to clear it and fall back to host matching.`),
     }
-  }, async ({ accountId, name, host, port, user, password, tls, allowStartTLS, email, smtpHost, smtpPort, smtpSecure, smtpUser, smtpPassword, saveToSent, sentFolder, defaultBcc, allowedFrom }) => {
+  }, async ({ accountId, name, host, port, user, password, tls, allowStartTLS, email, smtpHost, smtpPort, smtpSecure, smtpUser, smtpPassword, saveToSent, sentFolder, defaultBcc, allowedFrom, provider }) => {
     const existing = accountManager.getAccount(accountId);
     if (!existing) {
       throw new Error(`Account ${accountId} not found`);
@@ -119,6 +130,8 @@ export function accountTools(
     if (allowedFrom !== undefined) {
       updates.allowedFrom = allowedFrom.length === 0 ? undefined : allowedFrom;
     }
+    // Empty string clears the explicit provider (falls back to host matching).
+    if (provider !== undefined) updates.provider = provider === '' ? undefined : provider;
 
     const smtpTouched = [smtpHost, smtpPort, smtpSecure, smtpUser, smtpPassword].some(v => v !== undefined);
     if (smtpTouched) {
@@ -171,6 +184,8 @@ export function accountTools(
             user: acc.user,
             tls: acc.tls,
             ...(acc.allowStartTLS === false ? { allowStartTLS: false } : {}),
+            // The provider in effect: explicit, or recognised by host; null if neither.
+            provider: resolveAccountProvider(acc)?.id ?? null,
           })),
         }, null, 2)
       }]

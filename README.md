@@ -309,7 +309,7 @@ to a mailbox, or expose only a hand-picked subset of tools.
 
 | Variable | Effect |
 | --- | --- |
-| `IMAP_MCP_READ_ONLY` | When truthy (`1`, `true`, `yes`, `on`), only the safe, read-only tools are registered — searching, reading, listing folders, unread counts, spam analysis. No tool that sends mail, deletes/moves messages, changes flags, or edits accounts is exposed. |
+| `IMAP_MCP_READ_ONLY` | When truthy (`1`, `true`, `yes`, `on`), only the safe, read-only tools are registered — searching, reading, listing folders, unread counts, spam analysis. No tool that sends mail, deletes/moves/copies messages, changes flags, or edits accounts is exposed. |
 | `IMAP_MCP_ENABLED_TOOLS` | Comma-separated allowlist of tool names — only these are registered. Names are case-insensitive and the `imap_` prefix is optional (`search_emails` ≡ `imap_search_emails`). When set, it takes precedence over `IMAP_MCP_READ_ONLY`. |
 
 **Example — read-only access:**
@@ -381,6 +381,11 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
       any per-call `bcc` (duplicates removed case-insensitively)
   - allowedFrom: Optional list of additional sender identities permitted in
       outbound `From` headers. The account email and login are always allowed
+  - provider: Optional provider id from the built-in provider list ("gmail",
+      "protonmail", ...). When unset, the provider is recognised by IMAP host.
+      Set it when the host differs from the provider's standard one (e.g.
+      Proton Mail Bridge via a Docker hostname). Provider-specific rules, such
+      as the imap_copy_email copy policy, depend on it
   ```
 
 - **imap_update_account**: Update an existing account (fix SMTP settings, rename, etc.)
@@ -396,6 +401,8 @@ Once configured, the IMAP MCP server provides the following tools in Claude:
       string to clear
   - allowedFrom: Optional list of additional sender identities. Pass an empty
       array to clear
+  - provider: Provider id (optional). Pass an empty string to clear it and fall
+      back to host matching
   ```
 
 `allowedFrom` is an application-level guardrail, not a hard security boundary:
@@ -405,7 +412,7 @@ mailbox addresses are matched case-insensitively; the supplied display name and
 address casing are preserved in the outbound `From` header. This applies to
 sending, drafts, replies, and forwards.
 
-- **imap_list_accounts**: List all configured accounts
+- **imap_list_accounts**: List all configured accounts. Each entry includes `provider`: the provider id in effect (explicit, or recognised by host), or `null`.
 
 - **imap_remove_account**: Remove an account
   ```
@@ -541,6 +548,66 @@ sending, drafts, replies, and forwards.
   - targetFolder: Destination folder name
   - createDestinationIfMissing: Create the destination folder if it does not exist (default: false)
   ```
+
+- **imap_copy_email**: Copy emails to another folder in the same account with IMAP `COPY`. The tool itself never moves, flags, deletes or expunges anything. Some providers turn a copy into a move on their side, so each destination is checked against a copy policy first (see below).
+  ```
+  Parameters:
+  - accountId: Account ID
+  - folder: Source folder (required, no default)
+  - uid: Email UID, or an array of UIDs (duplicates are copied once)
+  - targetFolder: Destination folder. Must already exist and differ from
+      the source; it is never created.
+  - acknowledgeSourceMayChange: Optional. Only needed on servers the tool
+      does not recognise (see below).
+
+  Returns:
+  - success (all copied), partial (some copied), uncertain (at least one
+      outcome unknown)
+  - provider: proton | gmail | unknown
+  - preservation: verified (the destination is known to keep the original)
+      or acknowledged (unrecognised server, caller passed the flag)
+  - copiedCount, failedCount, uncertainCount, notAttemptedCount
+  - results: [{ uid, status, uidMap?, error? }], where status is
+      copied | failed | uncertain | not_attempted. uidMap appears only when
+      the server reports it (UIDPLUS COPYUID).
+  - on refusal: success: false and a reason — destination_not_found,
+      source_not_found, same_folder, no_uids, destination_may_move_source,
+      destination_is_trash_or_junk, destination_not_verified or
+      preservation_unverified
+  ```
+  `failed` means definitely not copied: the UID isn't in the source folder, or
+  the server refused the copy. `uncertain` means the connection dropped while
+  the copy was in flight, so it may have landed. Copying stops there, the
+  remaining UIDs are reported `not_attempted`, and nothing is retried. Check
+  the destination before calling again, or the message may be duplicated.
+
+  **Copy policy.** Standard IMAP `COPY` (RFC 3501) leaves the original in
+  place, but providers whose folders are exclusive (a message can be in only
+  one) may turn a copy into a move. The policy is checked before anything is
+  sent; a refused copy sends nothing.
+
+  | Account provider | Destination | Result |
+  |---|---|---|
+  | Any | Trash or Spam/Junk (`\Trash` / `\Junk` special-use) | Refused: `destination_is_trash_or_junk` |
+  | `protonmail` | `Labels/<name>` | Copied; adds the label. |
+  | `protonmail` | `Folders/<name>`, INBOX, Archive, Sent, Drafts, Starred, All Mail | Refused: `destination_may_move_source` |
+  | `gmail` | User label | Copied; adds the label. |
+  | `gmail` | INBOX and other `[Gmail]/...` system folders | Refused: `destination_not_verified` |
+  | Any other, or none identified | Anything else | Refused: `preservation_unverified`, unless `acknowledgeSourceMayChange: true` |
+
+  The rules come from the `copyBehavior` of the account's entry in the
+  provider registry (`src/providers/email-providers.ts`), the same list the
+  setup wizard uses. The account's provider is its `provider` field when set
+  (the wizard saves the provider card you pick), otherwise the registry entry
+  whose IMAP host matches the account's host. `imap_list_accounts` shows the
+  provider in effect. Set `provider` explicitly when the host differs from the
+  registry's, e.g. Proton Mail Bridge reached through a Docker or LAN hostname
+  instead of `127.0.0.1`; without it, such an account counts as unidentified.
+  On Proton Mail Bridge, a copy into `Folders/<name>` reports success and at
+  first shows the message in both places, but once Bridge syncs with Proton
+  the message is gone from its original folder.
+  `acknowledgeSourceMayChange` never overrides a refusal. To add another
+  provider's rules, see [Adding a provider's copy behaviour](#adding-a-providers-copy-behaviour).
 
 - **imap_find_thread_messages**: Find inbox messages that belong to the same conversation threads as messages already sorted into another folder. Uses RFC 3501 HEADER search on In-Reply-To and References — works on any IMAP server.
   ```
@@ -859,3 +926,35 @@ MIT
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
+
+### Adding a provider's copy behaviour
+
+`imap_copy_email` only lets a copy through without acknowledgment when the
+account's provider has a `copyBehavior` entry in
+`src/providers/email-providers.ts` (see the copy policy under
+`imap_copy_email`). To add one, find out what COPY does on that provider:
+
+1. Use an account you control and a message you don't mind changing. Create a
+   scratch destination of each kind the provider has: an ordinary user folder,
+   a label folder if labels have their own prefix (e.g. `Labels/`), and any
+   system folder you want to cover (INBOX, Archive, Starred, ...). Never test
+   on Trash or Spam; they are refused everywhere.
+2. Copy the message into each one with `imap_copy_email` and
+   `acknowledgeSourceMayChange: true`.
+3. Check the source folder right away and again after the provider has synced
+   (a few minutes; also check the webmail). If the message left the source,
+   that destination is exclusive: COPY moves.
+4. If it stayed, find out whether the copy is a second view of the same
+   message (a label) or an independent duplicate: mark it read in one folder
+   and see whether it changes in the other, or see whether the total in the
+   provider's "All Mail" folder went up.
+5. Map the results to the fields: `labelPrefixes` (label folders, COPY keeps
+   the original), `unverifiedPrefixes` and `inboxUnverified` (system folders
+   you couldn't confirm), and `otherFolders` (`label` if every other folder
+   behaved like a label, `exclusive` if any moved the message).
+6. Delete the scratch folders. Describe what you tested and the results in the
+   pull request, not in code comments, and add a row for the provider to the
+   copy-policy table and a case to `tests/copy-policy.test.ts`.
+
+A provider that keeps independent duplicates (standard IMAP) needs no entry:
+the acknowledgment path already covers it.

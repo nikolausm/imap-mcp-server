@@ -33,7 +33,7 @@ working in this repository.
 - **Tools** (`src/tools/`), grouped by area:
   - `account-tools.ts` — add / update / list / remove / connect / disconnect / test.
   - `email-tools.ts` — search, get, latest, send, reply, forward, save draft,
-    mark read/unread, delete, bulk delete, move, attachments, upload, threads.
+    mark read/unread, delete, bulk delete, move, copy, attachments, upload, threads.
   - `folder-tools.ts` — list, status, create, unread counts.
   - `spam-tools.ts` — spam analysis, domain stats, allow/deny lists.
 - **Web setup wizard** — `src/web/server.ts` (Express) serves `public/` for
@@ -58,7 +58,7 @@ npm run setup        # launch the web setup wizard
 ```
 
 Always run `npm run build` **and** `npm test` before committing changes that
-touch `src/`. Keep the suite green (currently 451 tests).
+touch `src/`. Keep the suite green (currently 538 tests).
 
 > Note: `npm run lint` (`tsc --noEmit`) is memory-hungry on this project — the
 > MCP SDK's `registerTool` generics are deep enough to surface a pre-existing
@@ -103,3 +103,9 @@ touch `src/`. Keep the suite green (currently 451 tests).
   tells an LLM **when and how** to use it.
 - Match the surrounding code style; keep error handling and connection cleanup
   consistent with existing tools.
+- Provider `copyBehavior` entries (`src/providers/email-providers.ts`) come
+  from testing COPY against the real provider, following README → "Adding a
+  provider's copy behaviour". An agent helping with that tests only on scratch
+  folders and a message the user picked, never on other mail without the
+  user's go-ahead, and puts the test results in the PR description, not in
+  code comments.
