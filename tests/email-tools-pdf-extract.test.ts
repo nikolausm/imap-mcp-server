@@ -47,10 +47,12 @@ const mockSmtpService = {};
 
 describe('imap_download_attachment PDF text extraction (pdf-parse v2)', () => {
   // Keep writes inside the temp dir so the test has no side effects on the real downloads folder.
-  const savePath = join(tmpdir(), `imap-pdf-extract-${process.pid}.pdf`);
+  const downloadRoot = join(tmpdir(), `imap-pdf-extract-${process.pid}`);
+  const savePath = join(downloadRoot, 'fixture.pdf');
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubEnv('IMAP_DOWNLOAD_DIR', downloadRoot);
     emailTools(
       mockServer as any,
       mockImapService as any,
@@ -60,7 +62,8 @@ describe('imap_download_attachment PDF text extraction (pdf-parse v2)', () => {
   });
 
   afterEach(() => {
-    if (existsSync(savePath)) rmSync(savePath);
+    if (existsSync(downloadRoot)) rmSync(downloadRoot, { recursive: true });
+    vi.unstubAllEnvs();
   });
 
   it('should be registered', () => {
