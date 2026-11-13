@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { ImapService } from '../services/imap-service.js';
 import { AccountManager } from '../services/account-manager.js';
 import { isSystemFlag } from '../types/index.js';
+import { errorReason } from '../utils/operation-error.js';
 import { z } from 'zod';
 
 // Backward-compatible account selector (accountId stays accepted; accountName
@@ -120,6 +121,58 @@ export function folderTools(
           text: JSON.stringify({
             success: false,
             folder,
+            error: err instanceof Error ? err.message : 'Unknown error',
+          }, null, 2)
+        }]
+      };
+    }
+  });
+
+  // Rename folder tool (#221)
+  server.registerTool('imap_rename_folder', {
+    description:
+      'Rename (or re-path) an existing IMAP folder/mailbox in place with a single IMAP RENAME. ' +
+      'Messages stay in the folder untouched (no move, copy or delete). Child folders are renamed with it, ' +
+      'so their paths change too: renaming "Projects" to "Clients" turns "Projects/Acme" into "Clients/Acme" ' +
+      '(see renamedChildren). Refuses when the source does not exist, when a folder with the new name already ' +
+      'exists (it is never replaced or merged), and when either name is INBOX. ' +
+      'The rename never expunges: if the folder is currently open it is first deselected by opening INBOX read-only, ' +
+      'never with CLOSE, so messages flagged \\Deleted are not removed. ' +
+      'On servers that expose labels as folders (Proton Mail Bridge "Labels/<name>"), renaming the folder renames the label. ' +
+      'Use imap_list_folders first to get the exact current path and the hierarchy delimiter.',
+    inputSchema: {
+      ...accountSelector,
+      folder: z.string().describe('Exact current full path of the folder to rename, as returned by imap_list_folders (e.g. "Labels/2024 KEF/AMS" or "INBOX.Projects")'),
+      newName: z.string().describe('New full path, using the same hierarchy delimiter (e.g. "Labels/2024 KEF-AMS"). Must not already exist. Changing the parent part moves the folder in the hierarchy.'),
+    }
+  }, async ({ accountId: rawAccountId, accountName, folder, newName }) => {
+    const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
+    try {
+      const result = await imapService.renameFolder(accountId, folder, newName);
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            success: true,
+            oldPath: result.oldPath,
+            newPath: result.newPath,
+            renamedChildren: result.renamedChildren,
+            message: `Folder "${result.oldPath}" renamed to "${result.newPath}"` +
+              (result.renamedChildren.length > 0
+                ? ` (${result.renamedChildren.length} child folder(s) renamed with it)`
+                : ''),
+          }, null, 2)
+        }]
+      };
+    } catch (err) {
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            success: false,
+            folder,
+            newName,
+            reason: errorReason(err),
             error: err instanceof Error ? err.message : 'Unknown error',
           }, null, 2)
         }]
