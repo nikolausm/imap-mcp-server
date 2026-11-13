@@ -1090,7 +1090,7 @@ export function emailTools(
 
   // Save draft tool — composes a message and appends it to the Drafts folder with the \Draft flag
   server.registerTool('imap_save_draft', {
-    description: 'Save an email as a draft in the Drafts folder (no send). Takes the same fields as imap_send_email (including account defaultBcc when configured).',
+    description: 'Save an email as a draft in the Drafts folder (no send). Returns draft identity and contentHash for review/update/send using saved-draft tools. Takes the same fields as imap_send_email (including account defaultBcc when configured).',
     inputSchema: {
       ...accountSelector,
       from: z.string().optional().describe('Sender identity. Must match the account email/login or an address configured in allowedFrom.'),
@@ -1136,7 +1136,7 @@ export function emailTools(
       throw new Error('No Drafts folder found. Tried: Drafts, Draft, INBOX.Drafts, INBOX.Draft, [Gmail]/Drafts. Pass `folder` to override.');
     }
 
-    const appended = await imapService.appendMessage(accountId, draftsFolder, rawMessage, ['\\Draft', '\\Seen']);
+    const appended = await imapService.appendDraft(accountId, draftsFolder, rawMessage);
     if (!appended) {
       throw new Error(`Failed to append draft to folder "${draftsFolder}"`);
     }
@@ -1147,6 +1147,7 @@ export function emailTools(
         text: JSON.stringify({
           success: true,
           folder: draftsFolder,
+          ...appended,
           attachmentCount: normalizedAttachments.diagnostics.length,
           attachmentDiagnostics: normalizedAttachments.diagnostics,
           message: `Draft saved to "${draftsFolder}"`,
