@@ -15,6 +15,30 @@ export interface EmailProvider {
   requiresAppPassword?: boolean;
   oauth2Supported?: boolean;
   notes?: string;
+  /** How IMAP COPY behaves on this provider, where it is known. See
+   * src/utils/copy-policy.ts for how imap_copy_email uses it. */
+  copyBehavior?: CopyBehavior;
+}
+
+/**
+ * What an IMAP COPY into a given folder does to the original on providers
+ * that show labels as folders. Without this, a provider is treated as
+ * unverified and imap_copy_email needs the caller's acknowledgment. To add
+ * one, see README.md, "Adding a provider's copy behaviour".
+ */
+export interface CopyBehavior {
+  /** Path prefixes of label folders: COPY adds the label and keeps the original. */
+  labelPrefixes?: string[];
+  /** Path prefixes of system folders whose COPY behaviour is not verified (refused). */
+  unverifiedPrefixes?: string[];
+  /** INBOX as a destination is not verified (refused). */
+  inboxUnverified?: boolean;
+  /**
+   * Every other destination. `label`: user folders are labels, COPY keeps the
+   * original (Gmail). `exclusive`: folders are exclusive locations, COPY can
+   * move the message out of its current folder (Proton Mail Bridge).
+   */
+  otherFolders: 'label' | 'exclusive';
 }
 
 export const emailProviders: EmailProvider[] = [
@@ -34,7 +58,13 @@ export const emailProviders: EmailProvider[] = [
     helpUrl: 'https://support.google.com/mail/answer/7126229',
     requiresAppPassword: true,
     oauth2Supported: true,
-    notes: 'Requires app-specific password or OAuth2. Enable "Less secure app access" or use App Password with 2FA.'
+    notes: 'Requires app-specific password or OAuth2. Enable "Less secure app access" or use App Password with 2FA.',
+    // Every user folder is a label: COPY adds the label and keeps the original.
+    copyBehavior: {
+      unverifiedPrefixes: ['[Gmail]/', '[Google Mail]/'],
+      inboxUnverified: true,
+      otherFolders: 'label',
+    },
   },
   {
     id: 'outlook',
@@ -225,7 +255,14 @@ export const emailProviders: EmailProvider[] = [
     smtpSecurity: 'STARTTLS',
     domains: ['protonmail.com', 'proton.me', 'pm.me'],
     helpUrl: 'https://proton.me/support/protonmail-bridge-install',
-    notes: 'Requires ProtonMail Bridge application running locally. Paid accounts only.'
+    notes: 'Requires ProtonMail Bridge application running locally. Paid accounts only.',
+    // "Labels/<name>" are labels: COPY adds the label and keeps the original.
+    // Everything else is an exclusive location: once Bridge syncs, a COPY into
+    // "Folders/<name>" moves the message out of its original folder.
+    copyBehavior: {
+      labelPrefixes: ['Labels/'],
+      otherFolders: 'exclusive',
+    },
   },
   {
     id: 'fastmail',
@@ -269,4 +306,21 @@ export function getProviderByEmail(email: string): EmailProvider | undefined {
 
 export function getProviderById(id: string): EmailProvider | undefined {
   return emailProviders.find(provider => provider.id === id);
+}
+
+/** Registry ids an account's `provider` field may hold ("custom" is not a provider). */
+export const accountProviderIds = emailProviders.map(p => p.id).filter(id => id !== 'custom');
+
+/**
+ * The registry entry for an account: its explicit `provider` field if set,
+ * otherwise the entry whose IMAP host matches the account's host. Returns
+ * undefined when neither identifies one (e.g. Proton Mail Bridge reached
+ * through a Docker or LAN hostname without `provider` set).
+ */
+export function resolveAccountProvider(account: { provider?: string; host: string }): EmailProvider | undefined {
+  if (account.provider) {
+    return getProviderById(account.provider);
+  }
+  const host = account.host.toLowerCase();
+  return emailProviders.find(p => p.id !== 'custom' && p.imapHost.toLowerCase() === host);
 }

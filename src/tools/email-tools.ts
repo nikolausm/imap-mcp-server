@@ -7,6 +7,7 @@ import { parseSerializedArray } from '../utils/array-input.js';
 import { mergeBcc } from '../utils/default-bcc.js';
 import { allowedFromAddresses, resolveFrom } from '../utils/send-as.js';
 import { buildReferences, buildReplyRecipients } from '../utils/reply-headers.js';
+import { errorReason } from '../utils/operation-error.js';
 import type { EmailAttachment, EmailMessage, ImapAccount, SentSaveResult } from '../types/index.js';
 import { z } from 'zod';
 import { basename, join } from 'path';
@@ -852,6 +853,86 @@ export function emailTools(
           text: JSON.stringify({
             success: false,
             message: `Failed to move email ${uid} from ${folder} to ${targetFolder}`,
+            error: err instanceof Error ? err.message : 'Unknown error',
+          }, null, 2)
+        }]
+      };
+    }
+  });
+
+  // Copy email to another folder (#222)
+  server.registerTool('imap_copy_email', {
+    description:
+      'Copy one or more emails to another folder in the same account with IMAP COPY. Standard IMAP COPY keeps the original ' +
+      'in place, but some providers treat folders as exclusive locations and turn a copy into a move, so destinations are ' +
+      'checked first against the account\'s provider (its provider field, or recognised by IMAP host; see ' +
+      'imap_list_accounts) and the response says which guarantee applies (preservation). ' +
+      'Proton Mail Bridge: only "Labels/<name>" is allowed (it adds the label); "Folders/<name>", INBOX, Archive and the ' +
+      'other system folders are refused because a copy there can move the message. ' +
+      'Gmail: user labels are allowed (it adds the label); "[Gmail]/..." system folders and INBOX are refused. ' +
+      'Trash and Spam are refused on every server; use imap_move_email or imap_delete_email for those. ' +
+      'For any other provider, or an account whose provider is not identified, the copy is refused with reason ' +
+      '"preservation_unverified" unless you pass ' +
+      'acknowledgeSourceMayChange: true. The destination must already exist (use imap_create_folder first). ' +
+      'Each UID gets a status: "copied", "failed" (definitely not copied), "uncertain" (the connection dropped mid-copy, so ' +
+      'a copy may exist) or "not_attempted" (skipped after an uncertain one). Never repeat a call for "uncertain" UIDs ' +
+      'without first checking the destination folder (e.g. imap_find_email_by_message_id), or the message may be duplicated.',
+    inputSchema: {
+      ...accountSelector,
+      folder: z.string().describe('Source folder holding the UIDs (exact path from imap_list_folders). Required: UIDs are only meaningful within their own folder.'),
+      uid: uidList('Email UID, or array of UIDs, in the source folder. Duplicate UIDs are copied once.').nonoptional(),
+      targetFolder: z.string().describe('Destination folder (exact path; must already exist and differ from the source), e.g. "Labels/2026 Thailand"'),
+      acknowledgeSourceMayChange: z.boolean().optional().describe(
+        'Only after a refusal with reason "preservation_unverified" (provider without verified copy behaviour, or not identified). Set true to accept ' +
+        'that the original might leave its folder if this server treats folders as exclusive. Leave unset when the user ' +
+        'needs the message to stay where it is. If the account is actually Proton or Gmail, set its provider with ' +
+        'imap_update_account instead. Never overrides a refusal for a known risky destination.',
+      ),
+    }
+  }, async ({ accountId: rawAccountId, accountName, folder, uid, targetFolder, acknowledgeSourceMayChange }) => {
+    const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
+    try {
+      const { results, provider, preservation } = await imapService.copyEmail(
+        accountId, folder, uid, targetFolder, { acknowledgeSourceMayChange },
+      );
+      const count = (status: string) => results.filter(r => r.status === status).length;
+      const copiedCount = count('copied');
+      const failedCount = count('failed');
+      const uncertainCount = count('uncertain');
+      const notAttemptedCount = count('not_attempted');
+      const success = copiedCount === results.length;
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            success,
+            partial: copiedCount > 0 && !success,
+            uncertain: uncertainCount > 0,
+            message: `Copied ${copiedCount}/${results.length} email(s) from ${folder} to ${targetFolder}` +
+              (uncertainCount > 0 ? '; check the destination before retrying the uncertain ones' : ''),
+            source: folder,
+            destination: targetFolder,
+            provider,
+            preservation,
+            copiedCount,
+            failedCount,
+            uncertainCount,
+            notAttemptedCount,
+            results,
+          }, null, 2)
+        }]
+      };
+    } catch (err) {
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            success: false,
+            partial: false,
+            uncertain: false,
+            source: folder,
+            destination: targetFolder,
+            reason: errorReason(err),
             error: err instanceof Error ? err.message : 'Unknown error',
           }, null, 2)
         }]
