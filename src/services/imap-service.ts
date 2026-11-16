@@ -1,4 +1,5 @@
 import { ImapFlow } from 'imapflow';
+import { draftIdentity } from './draft-state.js';
 import { simpleParser } from 'mailparser';
 import { ImapAccount, EmailMessage, EmailContent, EmailBodyFormat, EmailLocation, Folder, SearchCriteria, SearchOptions, SentSaveResult, DEFAULT_BODY_MAX_LENGTH, DEFAULT_BODY_FORMAT, isSystemFlag } from '../types/index.js';
 import type { AccountManager } from './account-manager.js';
@@ -1749,6 +1750,16 @@ export class ImapService {
       'Concepten',
     ];
     return this.findSpecialUseFolder(accountId, '\\Drafts', draftsFolderNames);
+  }
+
+  async appendDraft(accountId: string, folder: string, raw: Buffer) {
+    const client = await this.ensureConnected(accountId);
+    const result = await client.append(folder, raw, ['\\Draft', '\\Seen']);
+    if (!result) throw new Error('Draft APPEND failed');
+    if (!result.uid || !result.uidValidity) {
+      return { draft: null, contentHash: null, warning: 'Draft saved, but server did not return APPENDUID. List drafts to obtain its identity; do not repeat save.' };
+    }
+    return draftIdentity(accountId, folder, result.uid, String(result.uidValidity), raw);
   }
 
   async appendMessage(accountId: string, folder: string, rawMessage: Buffer | string, flags?: string[]): Promise<boolean> {
