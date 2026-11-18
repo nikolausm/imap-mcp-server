@@ -1,0 +1,15 @@
+MIME-Version: 1.0
+Content-Type: text/html; charset="UTF-8"
+From: sender@example.com
+To: recipient@example.com
+Subject: Test HTML-only email with SafeLink
+Date: Wed, 07 Oct 2026 12:00:00 +0000
+Message-ID: <test123@example.com>
+
+<html>
+<body>
+<p>This is a test email with a SafeLink.</p>
+<p>Visit our website: <a href="http://www.example.com/">www.example.com</a></p>
+<p>Also check: <a href="https://eur02.safelinks.protection.outlook.com/?url=http%3A%2F%2Fwww.example.com%2Fpage&amp;data=test">https://eur02.safelinks.protection.outlook.com/?url=http%3A%2F%2Fwww.example.com%2Fpage&amp;data=test</a></p>
+</body>
+</html>

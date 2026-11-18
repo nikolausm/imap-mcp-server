@@ -70,6 +70,7 @@ export interface EmailContent extends EmailMessage {
   textContent?: string;
   htmlContent?: string;
   markdownContent?: string;
+  textAsHtml?: string;
   bodyFormat?: EmailBodyFormat;
   headers: Record<string, string | string[]>;
   attachments: Attachment[];
