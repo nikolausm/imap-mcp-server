@@ -81,6 +81,10 @@ describe('isNonSelectable', () => {
     expect(isNonSelectable(f('x', { attributes: ['\\Noselect'] }))).toBe(true);
     expect(isNonSelectable(f('x', { attributes: ['\\noselect'] }))).toBe(true);
   });
+  it('is true for \\NonExistent folders, which imply \\Noselect (RFC 5258)', () => {
+    expect(isNonSelectable(f('[Gmail]', { attributes: ['\\HasChildren', '\\NonExistent'] }))).toBe(true);
+    expect(isNonSelectable({ attributes: ['\\NONEXISTENT'] })).toBe(true);
+  });
   it('is false for ordinary folders', () => {
     expect(isNonSelectable(f('INBOX'))).toBe(false);
   });

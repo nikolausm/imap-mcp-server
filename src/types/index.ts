@@ -15,6 +15,12 @@ export interface ImapAccount {
    * STARTTLS upgrade attempt entirely and stay on the plain connection.
    * Defaults to `true` (existing opportunistic-STARTTLS behavior). */
   allowStartTLS?: boolean;
+  /** Provider id from the registry in src/providers/email-providers.ts (e.g.
+   * "gmail", "protonmail"). Set by the setup wizard when a provider is picked.
+   * When unset, the provider is matched by IMAP host; set it explicitly when
+   * the host doesn't match the registry (e.g. Proton Mail Bridge reached
+   * through a Docker or LAN hostname instead of 127.0.0.1). */
+  provider?: string;
   email?: string;
   loginMethod?: string;
   authTimeout?: number;

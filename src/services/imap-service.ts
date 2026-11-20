@@ -4,7 +4,11 @@ import { ImapAccount, EmailMessage, EmailContent, EmailBodyFormat, EmailLocation
 import type { AccountManager } from './account-manager.js';
 import { htmlToMarkdown, normalizeWhitespace } from './html-to-markdown.js';
 import { assertCredentialsResolved } from '../utils/env-credentials.js';
+import { classifyCopyDestination, isTrashOrJunk } from '../utils/copy-policy.js';
+import { isNonSelectable } from '../utils/search-folders.js';
+import { resolveAccountProvider } from '../providers/email-providers.js';
 import { matchesSearchCriteria, extractMessageIds } from '../utils/client-side-search.js';
+import { ImapOperationError } from '../utils/operation-error.js';
 
 /**
  * Upper bound on messages whose source is downloaded and parsed for a
@@ -127,6 +131,53 @@ export interface MoveEmailBatchResultItem {
   uidMap?: Record<number, number>;
 }
 
+/**
+ * Outcome of copying one UID with `copyEmail`.
+ *
+ * - `copied`: the server confirmed the copy.
+ * - `failed`: definitely not copied (UID not in the source folder, or the
+ *   server refused the command while the connection stayed up).
+ * - `uncertain`: the connection dropped while the command was in flight, so a
+ *   copy may or may not exist in the destination. Never retried automatically.
+ * - `not_attempted`: skipped because an earlier UID ended `uncertain`.
+ */
+export type CopyEmailStatus = 'copied' | 'failed' | 'uncertain' | 'not_attempted';
+
+export interface CopyEmailResultItem {
+  uid: number;
+  status: CopyEmailStatus;
+  /** Source uid → destination uid, only when the server reported it (UIDPLUS COPYUID). */
+  uidMap?: Record<number, number>;
+  error?: string;
+}
+
+/**
+ * Which rule let the copy through: `label_destination` when the provider's
+ * registry rule treats the destination as a label folder (a rule about the
+ * provider, not a guarantee about this server), `acknowledged` when no rule
+ * applies and the caller accepted with acknowledgeSourceMayChange that the
+ * original might leave its folder.
+ */
+export type CopyRule = 'label_destination' | 'acknowledged';
+
+/** Most UIDs one imap_copy_email call takes (one COPY is sent per UID). */
+export const MAX_COPY_UIDS = 1000;
+
+export interface CopyEmailResult {
+  source: string;
+  destination: string;
+  /** Registry id of the account's provider, or null when none was identified. */
+  provider: string | null;
+  copyRule: CopyRule;
+  results: CopyEmailResultItem[];
+}
+
+function uncertainCopyError(err?: unknown): string {
+  const detail = err instanceof Error ? ` (${err.message})` : '';
+  return `The connection dropped during the copy${detail}; the message may or may not have been copied. ` +
+    'Check the destination folder before trying again.';
+}
+
 export interface MoveEmailBatchResult {
   path: string;
   destination: string;
@@ -171,6 +222,11 @@ export function parseRawHeaders(raw: Buffer | string): Record<string, string> {
   commit();
 
   return headers;
+}
+
+/** RFC 3501 §5.1: the name INBOX is case-insensitive. */
+function isInbox(path: string): boolean {
+  return path.trim().toUpperCase() === 'INBOX';
 }
 
 export class ImapService {
@@ -1442,6 +1498,177 @@ export class ImapService {
       if (lock) {
         lock.release();
       }
+    }
+  }
+
+  /**
+   * Copy one or more emails from `folder` to `targetFolder` within the same
+   * account with IMAP (UID) COPY. This method never issues MOVE, STORE
+   * \Deleted, EXPUNGE or DELETE itself, but some providers turn a COPY into a
+   * move server-side (Proton Mail Bridge exclusive folders), so the
+   * destination first goes through the copy policy in utils/copy-policy.ts.
+   *
+   * Refuses (throws ImapOperationError, nothing copied) when source and
+   * destination are the same folder, when either folder does not exist, when
+   * the policy refuses the destination, or when the server is not recognised
+   * and `options.acknowledgeSourceMayChange` is not true. The destination is
+   * never created.
+   *
+   * UIDs are deduplicated and checked against the source folder first, since a
+   * UID COPY of a missing UID succeeds silently on most servers. Each present
+   * UID is then copied on its own, so every result is attributable:
+   * see {@link CopyEmailStatus}. After the first `uncertain` outcome the loop
+   * stops and the remaining UIDs are reported `not_attempted`; nothing is
+   * retried, because a retry could duplicate a copy that did land.
+   */
+  async copyEmail(
+    accountId: string,
+    folder: string,
+    uids: number | number[],
+    targetFolder: string,
+    options: { acknowledgeSourceMayChange?: boolean } = {},
+  ): Promise<CopyEmailResult> {
+    const uidList = [...new Set(Array.isArray(uids) ? uids : [uids])];
+    if (uidList.length === 0) {
+      throw new ImapOperationError('no_uids', 'No UIDs given');
+    }
+    const invalid = uidList.filter(uid => !Number.isSafeInteger(uid) || uid < 1);
+    if (invalid.length > 0) {
+      throw new ImapOperationError(
+        'invalid_uids',
+        `UIDs must be positive integers; got ${invalid.slice(0, 5).map(String).join(', ')}`,
+      );
+    }
+    if (uidList.length > MAX_COPY_UIDS) {
+      throw new ImapOperationError(
+        'too_many_uids',
+        `At most ${MAX_COPY_UIDS} UIDs per call (got ${uidList.length}); split them into several calls`,
+      );
+    }
+    const sameFolder = folder === targetFolder || (isInbox(folder) && isInbox(targetFolder));
+    if (sameFolder) {
+      throw new ImapOperationError(
+        'same_folder',
+        `Source and destination are both "${folder}"; copying there would duplicate the messages`,
+      );
+    }
+
+    const client = await this.ensureConnected(accountId);
+    const list = await client.list();
+    const exists = (path: string) =>
+      list.some(f => f.path === path || (isInbox(path) && isInbox(f.path)));
+    if (!exists(folder)) {
+      throw new ImapOperationError('source_not_found', `Source folder "${folder}" does not exist`);
+    }
+    const sourceEntry = list.find(f => f.path === folder)
+      ?? (isInbox(folder) ? list.find(f => isInbox(f.path)) : undefined);
+    if (isNonSelectable({ attributes: Array.from(sourceEntry?.flags ?? []) })) {
+      throw new ImapOperationError(
+        'source_not_selectable',
+        `Source folder "${folder}" cannot hold messages (\\Noselect); pick one of its subfolders`,
+      );
+    }
+    if (isTrashOrJunk(sourceEntry?.specialUse, Array.from(sourceEntry?.flags ?? []))) {
+      throw new ImapOperationError(
+        'source_is_trash_or_junk',
+        `"${folder}" is a Trash or Spam folder, and copying out of it is refused: on some providers (Gmail) the copy ` +
+          'takes the message out of Trash or Spam instead of leaving it there. To restore a message, move it with ' +
+          'imap_move_email first, then copy it from its new folder.',
+      );
+    }
+    if (!exists(targetFolder)) {
+      throw new ImapOperationError(
+        'destination_not_found',
+        `Destination folder "${targetFolder}" does not exist; create it first with imap_create_folder`,
+      );
+    }
+
+    // Copy policy: refuse system folders (by special-use role, from the
+    // parsed specialUse or the LIST flags) and destinations the provider's
+    // rule marks as exclusive; for providers without a copyBehavior require
+    // the caller's acknowledgment. Runs before the lock, so nothing is sent on
+    // refusal.
+    const account = this.connections.get(accountId)?.account;
+    const provider = account ? resolveAccountProvider(account) : undefined;
+    const destinationEntry = list.find(f => f.path === targetFolder)
+      ?? (isInbox(targetFolder) ? list.find(f => isInbox(f.path)) : undefined);
+    const verdict = classifyCopyDestination({
+      providerName: provider?.displayName,
+      behavior: provider?.copyBehavior,
+      destination: targetFolder,
+      specialUse: destinationEntry?.specialUse,
+      attributes: Array.from(destinationEntry?.flags ?? []),
+    });
+    let copyRule: CopyRule;
+    if (verdict.kind === 'refused') {
+      throw new ImapOperationError(verdict.reason, verdict.message);
+    } else if (verdict.kind === 'label_destination') {
+      copyRule = 'label_destination';
+    } else if (options.acknowledgeSourceMayChange === true) {
+      copyRule = 'acknowledged';
+    } else {
+      throw new ImapOperationError(
+        'preservation_unverified',
+        (provider ? `Copy behaviour on ${provider.displayName} has not been verified. ` : 'This account\'s provider is not identified (see the account\'s provider setting). ') +
+          'Standard IMAP COPY keeps the original in place, ' +
+          'but some providers treat folders as exclusive locations and move the message instead. ' +
+          'Call again with acknowledgeSourceMayChange: true only if it is acceptable that the original might leave ' +
+          `"${folder}"; otherwise do not copy.`,
+      );
+    }
+
+    const lock = await client.getMailboxLock(folder);
+    try {
+      // Which of the requested UIDs are actually in the source folder.
+      const present = new Set<number>();
+      for await (const msg of client.fetch(uidList.join(','), { uid: true }, { uid: true })) {
+        present.add(msg.uid);
+      }
+
+      const results: CopyEmailResultItem[] = [];
+      let stopped = false;
+      for (const uid of uidList) {
+        if (stopped) {
+          results.push({
+            uid,
+            status: 'not_attempted',
+            error: 'Skipped because an earlier copy had an uncertain outcome',
+          });
+          continue;
+        }
+        if (!present.has(uid)) {
+          results.push({ uid, status: 'failed', error: `UID ${uid} not found in "${folder}"` });
+          continue;
+        }
+
+        let result: { uidMap?: Map<number, number> } | false | undefined;
+        try {
+          result = await client.messageCopy(uid, targetFolder, { uid: true });
+        } catch (err) {
+          // imapflow throws here only when the connection is already gone.
+          results.push({ uid, status: 'uncertain', error: uncertainCopyError(err) });
+          stopped = true;
+          continue;
+        }
+
+        if (result) {
+          const uidMap = result.uidMap && result.uidMap.size > 0
+            ? Object.fromEntries(result.uidMap)
+            : undefined;
+          results.push({ uid, status: 'copied', ...(uidMap ? { uidMap } : {}) });
+        } else if (client.usable) {
+          // imapflow swallows a NO/BAD and returns false; the connection is
+          // still up, so the server answered and refused this copy.
+          results.push({ uid, status: 'failed', error: 'The server refused the copy' });
+        } else {
+          results.push({ uid, status: 'uncertain', error: uncertainCopyError() });
+          stopped = true;
+        }
+      }
+
+      return { source: folder, destination: targetFolder, provider: provider?.id ?? null, copyRule, results };
+    } finally {
+      lock.release();
     }
   }
 

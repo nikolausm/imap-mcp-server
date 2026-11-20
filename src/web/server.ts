@@ -9,7 +9,7 @@ import { fileURLToPath, pathToFileURL } from 'url';
 import open from 'open';
 import { AccountManager } from '../services/account-manager.js';
 import { ImapService } from '../services/imap-service.js';
-import { emailProviders, getProviderByEmail } from '../providers/email-providers.js';
+import { emailProviders, getProviderByEmail, accountProviderIds } from '../providers/email-providers.js';
 import { ImapAccount } from '../types/index.js';
 import { PACKAGE_VERSION } from '../utils/version.js';
 
@@ -265,7 +265,7 @@ export class WebUIServer {
     this.app.post('/api/accounts', async (req, res) => {
       try {
         const {
-          name, email, password, host, port, tls, smtp, imapUsername, sentFolder, defaultBcc,
+          name, email, password, host, port, tls, smtp, imapUsername, sentFolder, defaultBcc, provider,
           imapUsernameFromEnv, imapPasswordFromEnv,
           smtpUsernameFromEnv, smtpPasswordFromEnv,
         } = req.body;
@@ -302,6 +302,7 @@ export class WebUIServer {
               }
             : undefined,
           ...(typeof sentFolder === 'string' && sentFolder ? { sentFolder } : {}),
+          ...(typeof provider === 'string' && accountProviderIds.includes(provider) ? { provider } : {}),
           ...(defaultBcc !== undefined && defaultBcc !== '' && !(Array.isArray(defaultBcc) && defaultBcc.length === 0)
             ? { defaultBcc }
             : {}),
