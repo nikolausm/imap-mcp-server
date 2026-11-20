@@ -579,6 +579,43 @@ export class ImapService {
   }
 
   /**
+   * Decoded envelope fields (sender, subject, date, Message-ID) for specific
+   * UIDs. Unlike {@link fetchHeadersForUids}, RFC 2047 encoded-words are
+   * already decoded by the server library, so values are human-readable.
+   * Missing UIDs are simply absent from the map.
+   */
+  async fetchEnvelopesForUids(
+    accountId: string,
+    folderName: string,
+    uids: number[],
+  ): Promise<Map<number, { from: string; subject: string; date: string; messageId: string }>> {
+    const result = new Map<number, { from: string; subject: string; date: string; messageId: string }>();
+    if (!uids || uids.length === 0) {
+      return result;
+    }
+
+    const client = await this.ensureConnected(accountId);
+    let lock;
+    try {
+      lock = await client.getMailboxLock(folderName);
+      for await (const msg of client.fetch(uids, { uid: true, envelope: true }, { uid: true })) {
+        const env: any = msg.envelope ?? {};
+        result.set(msg.uid, {
+          from: env.from?.[0] ? this.formatAddress(env.from[0]) : '',
+          subject: env.subject || '',
+          date: env.date ? new Date(env.date).toISOString() : '',
+          messageId: env.messageId || '',
+        });
+      }
+      return result;
+    } finally {
+      if (lock) {
+        lock.release();
+      }
+    }
+  }
+
+  /**
    * Get the newest `count` messages in `folderName`. By default returns
    * lightweight headers only; set `options.includeBody = true` to also fetch
    * and parse the body of each message.
@@ -1023,6 +1060,38 @@ export class ImapService {
         contentType: attachment.contentType || 'application/octet-stream',
         filename: attachment.filename || 'unknown',
       };
+    } finally {
+      if (lock) {
+        lock.release();
+      }
+    }
+  }
+
+  /**
+   * Return every attachment of one message (filename, content type, bytes).
+   * Used by tools that need to read attachments without knowing their names
+   * up front (e.g. DMARC report decoding).
+   */
+  async getAllAttachments(
+    accountId: string,
+    folderName: string,
+    uid: number
+  ): Promise<Array<{ content: Buffer; contentType: string; filename: string }>> {
+    const client = await this.ensureConnected(accountId);
+
+    let lock;
+    try {
+      lock = await client.getMailboxLock(folderName);
+      const source = await client.fetchOne(uid, { source: true }, { uid: true });
+      if (!source || !source.source) {
+        throw new Error(`Email with UID ${uid} not found`);
+      }
+      const parsed = await simpleParser(source.source);
+      return (parsed.attachments ?? []).map((att: any) => ({
+        content: att.content as Buffer,
+        contentType: att.contentType || 'application/octet-stream',
+        filename: att.filename || 'unknown',
+      }));
     } finally {
       if (lock) {
         lock.release();

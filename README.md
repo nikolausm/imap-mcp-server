@@ -345,7 +345,24 @@ The read-only subset is: `imap_list_accounts`, `imap_connect`, `imap_disconnect`
 `imap_get_latest_emails`, `imap_download_attachment`, `imap_find_thread_messages`,
 `imap_find_email_by_message_id`, `imap_list_folders`, `imap_folder_status`,
 `imap_get_unread_count`, `imap_check_spam`, `imap_domain_stats`,
-`imap_list_spam_domains`.
+`imap_list_spam_domains`, `imap_get_dmarc_report`.
+
+### Guarding and logging moves
+
+Two optional variables make `imap_move_email` safer for unattended use (for
+example a daily inbox cleanup). Both are off unless set.
+
+| Variable | Effect |
+| --- | --- |
+| `IMAP_MCP_MOVE_ALLOWED_FOLDERS` | Comma-separated list of allowed destination folders (case-insensitive), e.g. `Trash,INBOX`. A move to any other folder is refused before the server is contacted, and `createDestinationIfMissing` cannot create a folder outside the list. |
+| `IMAP_MCP_MOVE_LOG` | Path to a CSV file. Every moved (or failed) message gets one row: time, account, source folder and UID, target folder and new UID, status, error, sender, subject, date, Message-ID and the optional `reason` passed to the tool. The file is created with a header on first use and opens directly in Excel. Cells that a spreadsheet would read as formulas are prefixed with `'`. Only envelope headers are written, never bodies or credentials. To undo a move, look up the Message-ID with `imap_find_email_by_message_id`. |
+
+```json
+"env": {
+  "IMAP_MCP_MOVE_ALLOWED_FOLDERS": "Trash,INBOX",
+  "IMAP_MCP_MOVE_LOG": "C:\\Users\\me\\Documents\\mail-moves.csv"
+}
+```
 
 ## Usage
 
@@ -540,7 +557,25 @@ sending, drafts, replies, and forwards.
       and any errors). Single-uid calls return the legacy response shape.
   - targetFolder: Destination folder name
   - createDestinationIfMissing: Create the destination folder if it does not exist (default: false)
+  - reason: Optional note recorded in the move log (e.g. "rule 4: cold outreach")
   ```
+  Honors `IMAP_MCP_MOVE_ALLOWED_FOLDERS` and `IMAP_MCP_MOVE_LOG` (see
+  [Guarding and logging moves](#guarding-and-logging-moves)). When a log is
+  configured the response includes `logged`, plus `logWarning` if the row
+  could not be written (the move itself still happens).
+
+- **imap_get_dmarc_report**: Decode DMARC aggregate report emails (.zip, .xml.gz or .xml attachment) into a pass/fail summary
+  ```
+  Parameters:
+  - accountId: Account ID
+  - folder: Folder name (default: INBOX)
+  - uid: Email UID or array of UIDs
+  - detail: "issues" (default, only records with a DKIM/SPF/DMARC failure) or "full"
+  - resolveHostnames: Reverse-DNS the source IPs of returned records (default: false)
+  ```
+  Returns `allPass`, overall `totals`, an `issues` list that groups failing
+  source IPs across all reports, and per-report metadata (reporting org, date
+  range, published policy). Read-only.
 
 - **imap_find_thread_messages**: Find inbox messages that belong to the same conversation threads as messages already sorted into another folder. Uses RFC 3501 HEADER search on In-Reply-To and References — works on any IMAP server.
   ```

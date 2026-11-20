@@ -7,6 +7,8 @@ import { parseSerializedArray } from '../utils/array-input.js';
 import { mergeBcc } from '../utils/default-bcc.js';
 import { allowedFromAddresses, resolveFrom } from '../utils/send-as.js';
 import { buildReferences, buildReplyRecipients } from '../utils/reply-headers.js';
+import { checkMoveTarget } from '../utils/move-policy.js';
+import { appendMoveLog, getMoveLogPath, type MoveLogRow } from '../utils/move-log.js';
 import type { EmailAttachment, EmailMessage, ImapAccount, SentSaveResult } from '../types/index.js';
 import { z } from 'zod';
 import { basename, join } from 'path';
@@ -786,17 +788,74 @@ export function emailTools(
 
   // Move email to another folder
   server.registerTool('imap_move_email', {
-    description: 'Move an email from one folder to another (e.g., INBOX to Taxes, or INBOX to Archive). Optionally creates the destination folder if it does not exist.',
+    description: 'Move an email from one folder to another (e.g., INBOX to Taxes, or INBOX to Archive). Optionally creates the destination folder if it does not exist. If the server sets IMAP_MCP_MOVE_ALLOWED_FOLDERS, only those destinations are accepted and any other target is refused without moving anything. If IMAP_MCP_MOVE_LOG is set, every move is recorded in that CSV file (sender, subject, date, Message-ID, plus the optional `reason`).',
     inputSchema: {
       ...accountSelector,
       folder: z.string().default('INBOX').describe('Source folder name'),
       uid: uidList('Single email UID or array of UIDs to move in one call. Pass an array when triaging many messages at once (e.g. "move the 10 invoices I just classified to Archive") to avoid N round-trips.').nonoptional(),
       targetFolder: z.string().describe('Destination folder name'),
       createDestinationIfMissing: z.boolean().optional().describe('If true, create the destination folder before moving when it does not exist (default: false)'),
+      reason: z.string().optional().describe('Optional short note on why these messages are being moved (e.g. "cleanup rule 4: cold outreach"). Only used for the move log (IMAP_MCP_MOVE_LOG); ignored when no log is configured.'),
     }
-  }, async ({ accountId: rawAccountId, accountName, folder, uid, targetFolder, createDestinationIfMissing }) => {
+  }, async ({ accountId: rawAccountId, accountName, folder, uid, targetFolder, createDestinationIfMissing, reason }) => {
     const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
     const isBatch = Array.isArray(uid);
+
+    // Destination allowlist (IMAP_MCP_MOVE_ALLOWED_FOLDERS): refuse before any IMAP call.
+    const policyError = checkMoveTarget(targetFolder);
+    if (policyError) {
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            success: false,
+            message: `Failed to move email ${uid} from ${folder} to ${targetFolder}`,
+            error: policyError,
+            movedCount: 0,
+          }, null, 2)
+        }]
+      };
+    }
+
+    // Move log (IMAP_MCP_MOVE_LOG): capture envelopes before the move, since UIDs change after it.
+    const logPath = getMoveLogPath();
+    const uidArray: number[] = isBatch ? (uid as number[]) : [uid as number];
+    let envelopes = new Map<number, { from: string; subject: string; date: string; messageId: string }>();
+    let logWarning: string | null = null;
+    if (logPath) {
+      try {
+        envelopes = await imapService.fetchEnvelopesForUids(accountId, folder, uidArray);
+      } catch (err) {
+        logWarning = `Could not read headers for the move log: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    }
+    const accountLabel = (accountManager as any).getAccount?.(accountId)?.name ?? accountId;
+    const writeLog = async (outcomes: Array<{ uid: number; newUid?: number; error?: string }>) => {
+      if (!logPath) return undefined;
+      const now = new Date().toISOString();
+      const rows: MoveLogRow[] = outcomes.map(o => {
+        const h = envelopes.get(o.uid);
+        return {
+          timestamp_utc: now,
+          account: accountLabel,
+          source_folder: folder,
+          uid: o.uid,
+          target_folder: targetFolder,
+          new_uid: o.newUid,
+          status: o.error ? 'failed' : 'moved',
+          error: o.error,
+          from: h?.from,
+          subject: h?.subject,
+          date: h?.date,
+          message_id: h?.messageId,
+          reason,
+        };
+      });
+      const writeError = await appendMoveLog(logPath, rows);
+      const warning = [logWarning, writeError ? `Move log not written: ${writeError}` : null].filter(Boolean).join('; ');
+      return warning || undefined;
+    };
+
     try {
       const result = await imapService.moveEmail(accountId, folder, uid, targetFolder, {
         createDestinationIfMissing,
@@ -811,6 +870,7 @@ export function emailTools(
             uidMapObj[String(srcUid)] = destUid;
           }
         }
+        const logWarningSingle = await writeLog([{ uid: uid as number, newUid: single.uidMap?.get(uid as number) }]);
         return {
           content: [{
             type: 'text',
@@ -820,6 +880,7 @@ export function emailTools(
               destination: single.destination,
               destinationCreated: single.destinationCreated,
               uidMap: Object.keys(uidMapObj).length > 0 ? uidMapObj : undefined,
+              ...(logPath ? { logged: !logWarningSingle, ...(logWarningSingle ? { logWarning: logWarningSingle } : {}) } : {}),
             }, null, 2)
           }]
         };
@@ -829,6 +890,11 @@ export function emailTools(
       const batch = result as { destination: string; destinationCreated?: boolean; results: Array<{ uid: number; destination: string; uidMap?: Record<number, number>; error?: string }> };
       const succeeded = batch.results.filter(r => !r.error);
       const failed = batch.results.filter(r => r.error);
+      const logWarningBatch = await writeLog(batch.results.map(r => ({
+        uid: r.uid,
+        newUid: r.uidMap ? (r.uidMap as Record<number, number>)[r.uid] : undefined,
+        error: r.error,
+      })));
       return {
         content: [{
           type: 'text',
@@ -842,15 +908,21 @@ export function emailTools(
             failedCount: failed.length,
             results: batch.results,
             ...(failed.length > 0 ? { errors: failed.map(f => ({ uid: f.uid, error: f.error })) } : {}),
+            ...(logPath ? { logged: !logWarningBatch, ...(logWarningBatch ? { logWarning: logWarningBatch } : {}) } : {}),
           }, null, 2)
         }]
       };
     } catch (err) {
+      const logWarningErr = await writeLog(uidArray.map(u => ({
+        uid: u,
+        error: err instanceof Error ? err.message : 'Unknown error',
+      })));
       return {
         content: [{
           type: 'text',
           text: JSON.stringify({
             success: false,
+            ...(logPath && logWarningErr ? { logWarning: logWarningErr } : {}),
             message: `Failed to move email ${uid} from ${folder} to ${targetFolder}`,
             error: err instanceof Error ? err.message : 'Unknown error',
           }, null, 2)

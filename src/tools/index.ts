@@ -7,6 +7,7 @@ import { accountTools } from './account-tools.js';
 import { emailTools } from './email-tools.js';
 import { folderTools } from './folder-tools.js';
 import { spamTools } from './spam-tools.js';
+import { dmarcTools } from './dmarc-tools.js';
 
 /**
  * Read-only / safe-by-default subset of tools.
@@ -37,6 +38,8 @@ export const READ_ONLY_TOOLS: readonly string[] = [
   'imap_check_spam',
   'imap_domain_stats',
   'imap_list_spam_domains',
+  // DMARC (read / analysis only)
+  'imap_get_dmarc_report',
 ];
 
 /** Normalize a configured tool name: lowercase and add the `imap_` prefix if missing. */
@@ -152,6 +155,9 @@ export function registerTools(
 
   // Register spam detection and management tools
   spamTools(target, imapService, spamService);
+
+  // Register DMARC report decoding (read-only)
+  dmarcTools(target, imapService, accountManager);
 
   if (enabled) {
     // Log to stderr only — stdout is the JSON-RPC channel.

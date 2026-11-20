@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+No tool was renamed, and no existing input or output shape changed. The new `reason` field and the new response fields are optional and only appear when the matching setting is used.
+
+### Added
+- `IMAP_MCP_MOVE_ALLOWED_FOLDERS`: optional allowlist of destination folders for `imap_move_email`. Other targets are refused before any IMAP call, so an unattended agent can be limited to, say, `Trash`. Tests in `tests/email-tools-move-guard-and-log.test.ts`.
+- `IMAP_MCP_MOVE_LOG`: optional CSV audit log of every `imap_move_email` call (sender, subject, date, Message-ID, old/new UID, status, optional `reason`). It opens in Excel, neutralizes formula cells, and never stops a move because of a write error.
+- `imap_get_dmarc_report`: read-only tool that decodes DMARC aggregate report attachments (.zip, .xml.gz, .xml) and returns pass/fail totals and failing sources, with optional reverse DNS. No new dependencies (built-in zlib); decompressed size is capped at 20 MB. Tests in `tests/dmarc.test.ts`.
+- `ImapService.getAllAttachments()`.
+
 ## [2.2.0] - 2026-10-09
 
 No tool was renamed, and no existing input or output shape changed. The new `from` and `allowedFrom` fields are optional. Local use of the setup wizard is unchanged.
