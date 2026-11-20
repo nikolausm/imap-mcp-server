@@ -147,3 +147,30 @@ export function normalizeWhitespace(text: string): string {
     .join('\n');
   return t.trim();
 }
+
+// data:<mime>[;param]*;base64,<payload>. The payload alphabet is base64 only, so the match ends at
+// the first quote, bracket, parenthesis or whitespace around it (HTML attribute, Markdown link,
+// or plain text).
+const DATA_URI_BASE64 = /data:([A-Za-z0-9.+-]+\/[A-Za-z0-9.+-]+)?(?:;[A-Za-z0-9=.+-]+)*;base64,([A-Za-z0-9+/=]+)/g;
+
+/**
+ * Replace every base64 data: URI in an email body with a short placeholder such as
+ * "[inline image, image/jpeg, 24 KB]".
+ *
+ * Why: some senders embed an image as a data: URI, and mailparser hands it through unchanged, even
+ * in the text/plain part. A single logo can be tens of thousands of characters of base64. That
+ * floods the LLM context and, when it sits near the start, pushes the real text past the length cap.
+ * Apply this before converting or truncating a body.
+ */
+export function stripInlineDataUris(text: string): string;
+export function stripInlineDataUris(text: string | undefined): string | undefined;
+export function stripInlineDataUris(text: string | undefined): string | undefined {
+  if (!text) return text;
+  return text.replace(DATA_URI_BASE64, (_match, mime: string | undefined, data: string) => {
+    const padding = data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0;
+    const bytes = Math.floor((data.length * 3) / 4) - padding;
+    const size = bytes < 1024 ? `${bytes} B` : `${Math.round(bytes / 1024)} KB`;
+    const kind = mime && mime.toLowerCase().startsWith('image/') ? 'inline image' : 'inline data';
+    return `[${kind}${mime ? `, ${mime}` : ''}, ${size}]`;
+  });
+}

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `imap_get_email` and the other body-returning tools no longer pass embedded images through as base64. Some mails (forwarded mails with a logo, for example) carry the image as a `data:image/...;base64,...` URI, even in the text/plain part. It could be tens of thousands of characters long and, when it came first, pushed the real text past `bodyMaxLength` / `maxContentLength`. Each such URI is now replaced by a short placeholder like `[inline image, image/jpeg, 24 KB]` before the body is converted or truncated. Tests in `tests/inline-data-uris.test.ts`.
+
 ## [2.2.0] - 2026-10-09
 
 No tool was renamed, and no existing input or output shape changed. The new `from` and `allowedFrom` fields are optional. Local use of the setup wizard is unchanged.
