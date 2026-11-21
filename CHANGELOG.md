@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `imap_get_dmarc_report`: read-only tool (in `READ_ONLY_TOOLS`) that decodes DMARC aggregate report attachments (.zip incl. data descriptors, .xml.gz, .xml) into totals, per-report metadata and a cross-report `issues` list. No new dependencies (zlib only). Every input path is bounded before parsing: attachment size, ZIP entry count, decoded size per report (raw XML, gzip, stored and deflated ZIP entries, checked against both the declared and the actual size), decoded total per call, UIDs per call, and records/issues returned. Optional `resolveHostnames` (default off) does reverse DNS for at most 50 IPs. Tests in `tests/dmarc.test.ts`.
+- `ImapService.getAllAttachments()`.
+
 ## [2.2.0] - 2026-10-09
 
 No tool was renamed, and no existing input or output shape changed. The new `from` and `allowedFrom` fields are optional. Local use of the setup wizard is unchanged.
