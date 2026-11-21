@@ -347,6 +347,20 @@ The read-only subset is: `imap_list_accounts`, `imap_connect`, `imap_disconnect`
 `imap_get_unread_count`, `imap_check_spam`, `imap_domain_stats`,
 `imap_list_spam_domains`.
 
+### Restricting move destinations
+
+`IMAP_MCP_MOVE_ALLOWED_FOLDERS` limits where `imap_move_email` may move mail,
+which is useful when an assistant runs unattended (for example a daily inbox
+cleanup that should only ever move to Trash). It is off unless set.
+
+| Variable | Effect |
+| --- | --- |
+| `IMAP_MCP_MOVE_ALLOWED_FOLDERS` | Comma-separated list of allowed destination folders, e.g. `Trash,INBOX`. A move to any other folder is refused before the IMAP server is contacted, so `createDestinationIfMissing` cannot create a folder outside the list. Names must match exactly as `imap_list_folders` reports them (case and spaces count, because servers may treat `Archive` and `archive` as different folders). The only exception is `INBOX`, which is case-insensitive per RFC 3501. Spaces around the commas are ignored. |
+
+```json
+"env": { "IMAP_MCP_MOVE_ALLOWED_FOLDERS": "Trash,INBOX" }
+```
+
 ## Usage
 
 Once configured, the IMAP MCP server provides the following tools in Claude:
@@ -541,6 +555,9 @@ sending, drafts, replies, and forwards.
   - targetFolder: Destination folder name
   - createDestinationIfMissing: Create the destination folder if it does not exist (default: false)
   ```
+  Honors `IMAP_MCP_MOVE_ALLOWED_FOLDERS` (see
+  [Restricting move destinations](#restricting-move-destinations)): a refused
+  target returns `success: false` and `movedCount: 0` without contacting the server.
 
 - **imap_find_thread_messages**: Find inbox messages that belong to the same conversation threads as messages already sorted into another folder. Uses RFC 3501 HEADER search on In-Reply-To and References — works on any IMAP server.
   ```

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `IMAP_MCP_MOVE_ALLOWED_FOLDERS`: optional allowlist of destination folders for `imap_move_email`. Other targets are refused before any IMAP call, including folder creation, so an unattended agent can be limited to, say, `Trash`. Names are matched exactly (INBOX case-insensitively, per RFC 3501). No tool was renamed and no input or output shape changed. Tests in `tests/email-tools-move-allowlist.test.ts`.
+
 ## [2.2.0] - 2026-10-09
 
 No tool was renamed, and no existing input or output shape changed. The new `from` and `allowedFrom` fields are optional. Local use of the setup wizard is unchanged.
