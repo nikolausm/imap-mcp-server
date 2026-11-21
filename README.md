@@ -345,7 +345,7 @@ The read-only subset is: `imap_list_accounts`, `imap_connect`, `imap_disconnect`
 `imap_get_latest_emails`, `imap_download_attachment`, `imap_find_thread_messages`,
 `imap_find_email_by_message_id`, `imap_list_folders`, `imap_folder_status`,
 `imap_get_unread_count`, `imap_check_spam`, `imap_domain_stats`,
-`imap_list_spam_domains`.
+`imap_list_spam_domains`, `imap_get_dmarc_report`.
 
 ## Usage
 
@@ -541,6 +541,35 @@ sending, drafts, replies, and forwards.
   - targetFolder: Destination folder name
   - createDestinationIfMissing: Create the destination folder if it does not exist (default: false)
   ```
+
+- **imap_get_dmarc_report**: Decode DMARC aggregate report emails (.zip, .xml.gz or .xml attachment) into a pass/fail summary. Read-only.
+  ```
+  Parameters:
+  - accountId: Account ID
+  - folder: Folder name (default: INBOX)
+  - uid: Email UID or array of up to 50 UIDs
+  - detail: "issues" (default, only records with a DKIM/SPF/DMARC failure) or "full"
+  - resolveHostnames: Reverse-DNS the source IPs of returned records (default: false; at most 50 IPs, 3 s timeout each)
+  ```
+  Returns `allPass`, overall `totals`, an `issues` list that groups failing
+  source IPs across all reports, and per-report metadata (reporting org, date
+  range, published policy). `resolveHostnames` is the only option that makes
+  network requests other than IMAP (DNS PTR lookups through the system
+  resolver), so it is off by default.
+
+  Limits, enforced on every input format before parsing:
+
+  | Limit | Value |
+  | --- | --- |
+  | Attachment size (compressed or not) | 5 MB |
+  | Decoded size of one report (raw XML, gzip output, stored or deflated ZIP entry) | 20 MB |
+  | Files read from one ZIP | 16 |
+  | Decoded bytes per call, all attachments together | 40 MB |
+  | Emails per call | 50 |
+  | Records and issues returned | 500 each (`recordsTruncated` / `issuesTruncated` when cut) |
+
+  An attachment over a limit is reported in `errors` for that email, and the
+  other emails are still processed.
 
 - **imap_find_thread_messages**: Find inbox messages that belong to the same conversation threads as messages already sorted into another folder. Uses RFC 3501 HEADER search on In-Reply-To and References — works on any IMAP server.
   ```

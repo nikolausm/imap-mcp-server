@@ -1031,6 +1031,38 @@ export class ImapService {
   }
 
   /**
+   * Return every attachment of one message (filename, content type, bytes).
+   * Used by tools that need to read attachments without knowing their names
+   * up front (e.g. DMARC report decoding).
+   */
+  async getAllAttachments(
+    accountId: string,
+    folderName: string,
+    uid: number
+  ): Promise<Array<{ content: Buffer; contentType: string; filename: string }>> {
+    const client = await this.ensureConnected(accountId);
+
+    let lock;
+    try {
+      lock = await client.getMailboxLock(folderName);
+      const source = await client.fetchOne(uid, { source: true }, { uid: true });
+      if (!source || !source.source) {
+        throw new Error(`Email with UID ${uid} not found`);
+      }
+      const parsed = await simpleParser(source.source);
+      return (parsed.attachments ?? []).map((att: any) => ({
+        content: att.content as Buffer,
+        contentType: att.contentType || 'application/octet-stream',
+        filename: att.filename || 'unknown',
+      }));
+    } finally {
+      if (lock) {
+        lock.release();
+      }
+    }
+  }
+
+  /**
    * Mark messages as read.
    *
    * Single-uid calls return `void` (unchanged). When `uids` is an array, the
