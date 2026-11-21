@@ -642,6 +642,7 @@ sending, drafts, replies, and forwards.
   stored for drafts and Sent-folder copies so mail clients show it.
 
 - **imap_save_draft**: Save an email as a draft (no send). Takes the same fields as `imap_send_email`, plus `inReplyTo`, `references`, and an optional `folder` override for the Drafts folder.
+- **imap_save_reply_draft**: Save a reply to an existing email (`folder` + `uid`) as a draft (no send), quoted the way Outlook's Reply / Reply All does: your `html`/`text` on top, a From / Sent / To / Cc / Subject block, then the original's own formatted HTML (its `<head>` styles kept) with its inline images re-attached under the same Content-IDs. The server reads the original, so long threads never pass through the caller. `replyAll` (default `true`) removes the account's own addresses; the `RE:` subject and `In-Reply-To`/`References` are set automatically. Optional `cc`, `bcc`, `attachments`, `quoteOriginal` (default `true`), `timeZone` for the Sent line, and `draftsFolder`.
 
 - **imap_reply_to_email**: Reply to an existing email
   ```
