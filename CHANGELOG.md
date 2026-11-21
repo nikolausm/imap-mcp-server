@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `imap_save_reply_draft`: saves a reply as a draft with the original quoted like Outlook's Reply / Reply All (header block, the original's formatted HTML and `<head>` styles, inline images re-attached under their Content-IDs). The original is read on the server, so long threads keep their layout without passing through the caller. Never sends.
+
 ## [2.2.0] - 2026-10-09
 
 No tool was renamed, and no existing input or output shape changed. The new `from` and `allowedFrom` fields are optional. Local use of the setup wizard is unchanged.

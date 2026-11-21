@@ -7,6 +7,7 @@ import { parseSerializedArray } from '../utils/array-input.js';
 import { mergeBcc } from '../utils/default-bcc.js';
 import { allowedFromAddresses, resolveFrom } from '../utils/send-as.js';
 import { buildReferences, buildReplyRecipients } from '../utils/reply-headers.js';
+import { buildQuotedReply, referencedCids } from '../utils/reply-quote.js';
 import type { EmailAttachment, EmailMessage, ImapAccount, SentSaveResult } from '../types/index.js';
 import { z } from 'zod';
 import { basename, join } from 'path';
@@ -1150,6 +1151,116 @@ export function emailTools(
           attachmentCount: normalizedAttachments.diagnostics.length,
           attachmentDiagnostics: normalizedAttachments.diagnostics,
           message: `Draft saved to "${draftsFolder}"`,
+        }, null, 2)
+      }]
+    };
+  });
+
+  // Reply draft with the original quoted Outlook-style (draft only: nothing is sent)
+  server.registerTool('imap_save_reply_draft', {
+    description:
+      'Save a reply to an existing email (folder + uid) as a DRAFT, with the original message quoted the way Outlook\'s Reply / Reply All does: ' +
+      'your HTML/text on top, then a From / Sent / To / Cc / Subject header block, then the original\'s own formatted HTML body (its <head> styles kept) ' +
+      'with its inline images re-attached under the same Content-IDs, so long threads keep their layout, links, lists and logos. ' +
+      'The server reads the original itself, so a 100+ KB thread never has to be passed in. Recipients (replyAll default true, own addresses removed), ' +
+      'the "RE:" subject and In-Reply-To/References threading are set automatically. Nothing is sent; the draft is appended to the Drafts folder.',
+    inputSchema: {
+      ...accountSelector,
+      from: z.string().optional().describe('Sender identity. Must match the account email/login or an address configured in allowedFrom.'),
+      folder: z.string().default('INBOX').describe('Folder containing the original email'),
+      uid: z.coerce.number().describe('UID of the email to reply to'),
+      replyAll: z.boolean().default(true).describe('Reply to all recipients (default true)'),
+      html: z.string().optional().describe('HTML of YOUR new message only (the quote is added by the server)'),
+      text: z.string().optional().describe('Plain-text version of YOUR new message only'),
+      cc: addressList('cc', 'Extra CC recipients, added to the reply-all Cc').optional(),
+      bcc: bccSchema,
+      attachments: z.array(attachmentSchema).optional().describe('Extra attachments for your message'),
+      quoteOriginal: z.boolean().default(true).describe('Quote the original message below your text (default true)'),
+      timeZone: z.string().optional().describe('IANA time zone for the "Sent:" line of the quote (default: this machine\'s time zone)'),
+      draftsFolder: z.string().optional().describe('Override the Drafts folder name (defaults to auto-detected Drafts folder)'),
+    }
+  }, async ({ accountId: rawAccountId, accountName, from, folder, uid, replyAll, html, text, cc, bcc, attachments, quoteOriginal, timeZone, draftsFolder }) => {
+    const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
+    const account = await accountManager.getAccount(accountId);
+    if (!account) {
+      throw new Error(`Account ${accountId} not found`);
+    }
+    if (!html && !text) {
+      throw new Error('Pass html and/or text for your reply.');
+    }
+    const normalizedAttachments = await normalizeAttachments(attachments as AttachmentInput[] | undefined);
+
+    const originalEmail = await imapService.getEmailContent(accountId, folder, uid, { bodyFormat: 'text' });
+    const { to: replyTo, cc: replyCc } = buildReplyRecipients(originalEmail, [...allowedFromAddresses(account)], replyAll);
+    const extraCc = cc ? (Array.isArray(cc) ? cc : String(cc).split(',').map((s) => s.trim()).filter(Boolean)) : [];
+    const allCc = [...replyCc, ...extraCc];
+
+    let finalHtml = html;
+    let finalText = text;
+    let inlineAttachments: EmailAttachment[] = [];
+    let quotedBytes = 0;
+    if (quoteOriginal) {
+      const src = await imapService.getReplyQuoteSource(accountId, folder, uid);
+      const quoted = buildQuotedReply({
+        newHtml: html,
+        newText: text,
+        timeZone,
+        original: {
+          from: originalEmail.from,
+          to: originalEmail.to,
+          cc: originalEmail.cc,
+          date: src.date ?? originalEmail.date,
+          subject: originalEmail.subject,
+          html: src.html,
+          text: src.text ?? originalEmail.textContent,
+        },
+      });
+      finalHtml = quoted.html;
+      finalText = quoted.text;
+      quotedBytes = quoted.html.length;
+      const wanted = referencedCids(src.html || '');
+      inlineAttachments = src.inline
+        .filter((p) => wanted.has(p.cid.toLowerCase()))
+        .map((p) => ({ filename: p.filename, content: p.content, contentType: p.contentType, contentDisposition: 'inline' as const, cid: p.cid }));
+    }
+
+    const subject = /^re:/i.test(originalEmail.subject) ? originalEmail.subject : `RE: ${originalEmail.subject}`;
+    const rawMessage = await smtpService.composeRaw(account, {
+      from: resolveFrom(account, from),
+      to: replyTo,
+      cc: allCc.length > 0 ? allCc : undefined,
+      bcc: resolveBcc(account, bcc),
+      subject,
+      text: finalText,
+      html: finalHtml,
+      inReplyTo: originalEmail.messageId,
+      references: buildReferences(originalEmail),
+      attachments: [...inlineAttachments, ...(normalizedAttachments.attachments || [])],
+    });
+
+    const target = draftsFolder ?? await imapService.findDraftsFolder(accountId);
+    if (!target) {
+      throw new Error('No Drafts folder found. Tried: Drafts, Draft, INBOX.Drafts, INBOX.Draft, [Gmail]/Drafts. Pass `draftsFolder` to override.');
+    }
+    const appended = await imapService.appendMessage(accountId, target, rawMessage, ['\\Draft', '\\Seen']);
+    if (!appended) {
+      throw new Error(`Failed to append draft to folder "${target}"`);
+    }
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: true,
+          folder: target,
+          to: replyTo,
+          cc: allCc,
+          subject,
+          quoted: quoteOriginal,
+          quotedHtmlChars: quotedBytes,
+          inlineImages: inlineAttachments.length,
+          attachmentCount: normalizedAttachments.diagnostics.length,
+          message: `Reply draft saved to "${target}" (not sent)`,
         }, null, 2)
       }]
     };
