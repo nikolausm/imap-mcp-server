@@ -579,6 +579,43 @@ export class ImapService {
   }
 
   /**
+   * Decoded envelope fields (sender, subject, date, Message-ID) for specific
+   * UIDs. Unlike {@link fetchHeadersForUids}, RFC 2047 encoded-words are
+   * already decoded by imapflow, so values are human-readable. UIDs that no
+   * longer exist are simply absent from the map.
+   */
+  async fetchEnvelopesForUids(
+    accountId: string,
+    folderName: string,
+    uids: number[],
+  ): Promise<Map<number, { from: string; subject: string; date: string; messageId: string }>> {
+    const result = new Map<number, { from: string; subject: string; date: string; messageId: string }>();
+    if (!uids || uids.length === 0) {
+      return result;
+    }
+
+    const client = await this.ensureConnected(accountId);
+    let lock;
+    try {
+      lock = await client.getMailboxLock(folderName);
+      for await (const msg of client.fetch(uids, { uid: true, envelope: true }, { uid: true })) {
+        const env: any = msg.envelope ?? {};
+        result.set(msg.uid, {
+          from: env.from?.[0] ? this.formatAddress(env.from[0]) : '',
+          subject: env.subject || '',
+          date: env.date ? new Date(env.date).toISOString() : '',
+          messageId: env.messageId || '',
+        });
+      }
+      return result;
+    } finally {
+      if (lock) {
+        lock.release();
+      }
+    }
+  }
+
+  /**
    * Get the newest `count` messages in `folderName`. By default returns
    * lightweight headers only; set `options.includeBody = true` to also fetch
    * and parse the body of each message.
