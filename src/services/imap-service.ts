@@ -2,7 +2,7 @@ import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import { ImapAccount, EmailMessage, EmailContent, EmailBodyFormat, EmailLocation, Folder, SearchCriteria, SearchOptions, SentSaveResult, DEFAULT_BODY_MAX_LENGTH, DEFAULT_BODY_FORMAT, isSystemFlag } from '../types/index.js';
 import type { AccountManager } from './account-manager.js';
-import { htmlToMarkdown, normalizeWhitespace } from './html-to-markdown.js';
+import { htmlToMarkdown, normalizeWhitespace, stripInlineDataUris } from './html-to-markdown.js';
 import { assertCredentialsResolved } from '../utils/env-credentials.js';
 import { matchesSearchCriteria, extractMessageIds } from '../utils/client-side-search.js';
 
@@ -794,8 +794,10 @@ export class ImapService {
 
     // Body assembly per bodyFormat. The point is that raw HTML never crosses the boundary
     // unless explicitly requested via bodyFormat: 'html'.
-    const rawText = parsed.text || undefined;
-    const rawHtml = parsed.html || undefined;
+    // Inline data: URIs (embedded logos) are replaced before any conversion or truncation, so they
+    // neither flood the context nor push the real text past the length cap.
+    const rawText = stripInlineDataUris(parsed.text || undefined);
+    const rawHtml = stripInlineDataUris(parsed.html || undefined);
     let textContent: string | undefined;
     let htmlContent: string | undefined;
     let markdownContent: string | undefined;
