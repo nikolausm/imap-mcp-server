@@ -22,9 +22,13 @@ function leafName(folder: Folder): string {
   return parts[parts.length - 1] || folder.name;
 }
 
-/** True if the folder cannot hold messages (e.g. the Gmail "[Gmail]" container). */
-export function isNonSelectable(folder: Folder): boolean {
-  return (folder.attributes || []).some(a => a.toLowerCase() === '\\noselect');
+/** True if the folder cannot hold messages (e.g. the Gmail "[Gmail]"
+ * container): LIST flag \Noselect, or \NonExistent (RFC 5258), which implies it. */
+export function isNonSelectable(folder: Pick<Folder, 'attributes'>): boolean {
+  return (folder.attributes || []).some(a => {
+    const flag = a.toLowerCase();
+    return flag === '\\noselect' || flag === '\\nonexistent';
+  });
 }
 
 /** Match a folder against a SPECIAL-USE flag or a list of known leaf/full names. */
