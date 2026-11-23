@@ -1031,6 +1031,53 @@ export class ImapService {
   }
 
   /**
+   * Original message parts needed to quote it in a reply draft: the HTML with
+   * cid: links kept (mailparser would otherwise inline images as data: URIs,
+   * which Outlook blocks), the plain text, the date, and every attachment that
+   * has a Content-ID (the caller keeps the ones the HTML references).
+   */
+  async getReplyQuoteSource(
+    accountId: string,
+    folderName: string,
+    uid: number
+  ): Promise<{
+    html?: string;
+    text?: string;
+    date?: Date;
+    inline: Array<{ cid: string; content: Buffer; contentType: string; filename: string }>;
+  }> {
+    const client = await this.ensureConnected(accountId);
+
+    let lock;
+    try {
+      lock = await client.getMailboxLock(folderName);
+      const source = await client.fetchOne(uid, { source: true }, { uid: true });
+      if (!source || !source.source) {
+        throw new Error(`Email with UID ${uid} not found`);
+      }
+      const parsed: any = await simpleParser(source.source, { keepCidLinks: true } as any);
+      const inline = (parsed.attachments || [])
+        .filter((att: any) => typeof att.contentId === 'string' && att.contentId.trim() !== '')
+        .map((att: any) => ({
+          cid: String(att.contentId).trim().replace(/^<|>$/g, ''),
+          content: att.content as Buffer,
+          contentType: att.contentType || 'application/octet-stream',
+          filename: att.filename || 'image',
+        }));
+      return {
+        html: typeof parsed.html === 'string' ? parsed.html : undefined,
+        text: typeof parsed.text === 'string' ? parsed.text : undefined,
+        date: parsed.date instanceof Date ? parsed.date : undefined,
+        inline,
+      };
+    } finally {
+      if (lock) {
+        lock.release();
+      }
+    }
+  }
+
+  /**
    * Mark messages as read.
    *
    * Single-uid calls return `void` (unchanged). When `uids` is an array, the
