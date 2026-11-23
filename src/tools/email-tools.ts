@@ -7,6 +7,7 @@ import { parseSerializedArray } from '../utils/array-input.js';
 import { mergeBcc } from '../utils/default-bcc.js';
 import { allowedFromAddresses, resolveFrom } from '../utils/send-as.js';
 import { buildReferences, buildReplyRecipients } from '../utils/reply-headers.js';
+import { checkMoveTarget } from '../utils/move-policy.js';
 import type { EmailAttachment, EmailMessage, ImapAccount, SentSaveResult } from '../types/index.js';
 import { z } from 'zod';
 import { basename, join } from 'path';
@@ -786,7 +787,7 @@ export function emailTools(
 
   // Move email to another folder
   server.registerTool('imap_move_email', {
-    description: 'Move an email from one folder to another (e.g., INBOX to Taxes, or INBOX to Archive). Optionally creates the destination folder if it does not exist.',
+    description: 'Move an email from one folder to another (e.g., INBOX to Taxes, or INBOX to Archive). Optionally creates the destination folder if it does not exist. If the server sets IMAP_MCP_MOVE_ALLOWED_FOLDERS, only those destinations are accepted (exact name match; INBOX is case-insensitive) and any other target is refused without moving or creating anything — use the exact folder name from imap_list_folders.',
     inputSchema: {
       ...accountSelector,
       folder: z.string().default('INBOX').describe('Source folder name'),
@@ -795,6 +796,23 @@ export function emailTools(
       createDestinationIfMissing: z.boolean().optional().describe('If true, create the destination folder before moving when it does not exist (default: false)'),
     }
   }, async ({ accountId: rawAccountId, accountName, folder, uid, targetFolder, createDestinationIfMissing }) => {
+    // Destination allowlist (IMAP_MCP_MOVE_ALLOWED_FOLDERS): refuse before any IMAP call,
+    // so a refused target is never created either.
+    const policyError = checkMoveTarget(targetFolder);
+    if (policyError) {
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            success: false,
+            message: `Failed to move email ${uid} from ${folder} to ${targetFolder}`,
+            error: policyError,
+            movedCount: 0,
+          }, null, 2)
+        }]
+      };
+    }
+
     const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
     const isBatch = Array.isArray(uid);
     try {
