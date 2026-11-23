@@ -347,6 +347,27 @@ The read-only subset is: `imap_list_accounts`, `imap_connect`, `imap_disconnect`
 `imap_get_unread_count`, `imap_check_spam`, `imap_domain_stats`,
 `imap_list_spam_domains`.
 
+### Logging moves
+
+`IMAP_MCP_MOVE_LOG` keeps an audit trail of `imap_move_email`, which is useful
+when an assistant files or cleans up mail unattended. It is off unless set.
+
+| Variable | Effect |
+| --- | --- |
+| `IMAP_MCP_MOVE_LOG` | Path to a CSV file. Every moved (or failed) message gets one row: time, account, source folder and UID, target folder and new UID, status, error, sender, subject, date, Message-ID, and the optional `reason` passed to the tool. Only envelope headers are written, never bodies or credentials. |
+
+Details:
+
+- The file and its folder are created on first use, with a UTF-8 BOM and a header row so it opens directly in a spreadsheet. Cells that a spreadsheet would read as a formula get a leading `'`.
+- A new file is created with owner-only permissions (`0600`). On Windows the file inherits its folder's permissions, so put it in a private folder. An existing file is left as it is.
+- The header is created atomically, so several server processes starting at once write it exactly once. Rows from concurrent calls are not interleaved.
+- If a row can't be written, the move still happens, and the response reports `logged: false` with a `logWarning`.
+- To undo a move, look up the Message-ID with `imap_find_email_by_message_id`, since UIDs change when a message moves.
+
+```json
+"env": { "IMAP_MCP_MOVE_LOG": "/home/me/mail-moves.csv" }
+```
+
 ## Usage
 
 Once configured, the IMAP MCP server provides the following tools in Claude:
@@ -540,7 +561,10 @@ sending, drafts, replies, and forwards.
       and any errors). Single-uid calls return the legacy response shape.
   - targetFolder: Destination folder name
   - createDestinationIfMissing: Create the destination folder if it does not exist (default: false)
+  - reason: Optional note recorded in the move log (e.g. "rule 4: cold outreach")
   ```
+  When `IMAP_MCP_MOVE_LOG` is set (see [Logging moves](#logging-moves)), the
+  response also includes `logged`, plus `logWarning` if the row could not be written.
 
 - **imap_find_thread_messages**: Find inbox messages that belong to the same conversation threads as messages already sorted into another folder. Uses RFC 3501 HEADER search on In-Reply-To and References — works on any IMAP server.
   ```
