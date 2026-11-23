@@ -17,6 +17,7 @@
   ],
   "scripts": {
     "build": "node build.mjs",
+    "prepare": "node build.mjs",
     "prepublishOnly": "npm run build",
     "build:tsc": "tsc",
     "dev": "tsx watch src/index.ts",
