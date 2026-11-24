@@ -1,10 +1,11 @@
 import { ImapFlow } from 'imapflow';
-import { simpleParser } from 'mailparser';
-import { ImapAccount, EmailMessage, EmailContent, EmailBodyFormat, EmailLocation, Folder, SearchCriteria, SearchOptions, SentSaveResult, DEFAULT_BODY_MAX_LENGTH, DEFAULT_BODY_FORMAT, isSystemFlag } from '../types/index.js';
+import { simpleParser, type ParsedMail } from 'mailparser';
+import { ImapAccount, EmailMessage, EmailContent, EmailBodyFormat, EmailLocation, EmailAttachment, Folder, SearchCriteria, SearchOptions, SentSaveResult, DEFAULT_BODY_MAX_LENGTH, DEFAULT_BODY_FORMAT, isSystemFlag } from '../types/index.js';
 import type { AccountManager } from './account-manager.js';
 import { htmlToMarkdown, normalizeWhitespace } from './html-to-markdown.js';
 import { assertCredentialsResolved } from '../utils/env-credentials.js';
 import { matchesSearchCriteria, extractMessageIds } from '../utils/client-side-search.js';
+import { FORWARD_SOURCE_MAX_BYTES, forwardAttachments } from '../utils/forward-content.js';
 
 /**
  * Upper bound on messages whose source is downloaded and parsed for a
@@ -757,6 +758,63 @@ export class ImapService {
   }
 
   /**
+   * Fetch an email for imap_forward_email with `includeAttachments: true`:
+   * the content as `getEmailContent(..., { bodyFormat: 'html' })` returns it,
+   * except that cid: links in the HTML are kept, plus every attachment part
+   * with its bytes, ready for `SmtpService` (see `forwardAttachments`).
+   *
+   * The read is bounded: the source is fetched with a byte limit of
+   * `maxBytes + 1`, and a message larger than `maxBytes` is rejected instead of
+   * parsed, since a truncated source would lose attachments. Every failure
+   * (message missing, too large, unreadable part) throws, so the caller fails
+   * before sending rather than forwarding an incomplete message.
+   */
+  async getEmailForForward(
+    accountId: string,
+    folderName: string,
+    uid: number,
+    maxBytes: number = FORWARD_SOURCE_MAX_BYTES,
+  ): Promise<{ email: EmailContent; attachments: EmailAttachment[] }> {
+    const client = await this.ensureConnected(accountId);
+
+    let lock;
+    try {
+      lock = await client.getMailboxLock(folderName);
+
+      const message = await client.fetchOne(
+        uid,
+        { size: true, flags: true, source: { maxLength: maxBytes + 1 } },
+        { uid: true },
+      );
+
+      if (!message || !message.source) {
+        throw new Error(`Email with UID ${uid} not found`);
+      }
+
+      if (message.source.length > maxBytes || (message.size ?? 0) > maxBytes) {
+        // Trust RFC822.SIZE only when it is itself over the limit; a missing or
+        // under-reported size only tells us the fetched bytes ran past it.
+        const size = message.size && message.size > maxBytes ? `${message.size} bytes` : `more than ${maxBytes} bytes`;
+        throw new Error(
+          `Email UID ${uid} is ${size}, over the ${maxBytes}-byte limit for forwarding it with its attachments; ` +
+          'the email was not forwarded.'
+        );
+      }
+
+      // keepCidLinks: otherwise mailparser replaces every cid: reference to an
+      // image with a data: URL, and the inline image parts sent along would be
+      // orphaned.
+      const parsed = await simpleParser(message.source, { keepCidLinks: true });
+      const email = await this.buildEmailContentFromParsed(uid, parsed, message.flags, { bodyFormat: 'html' });
+      return { email, attachments: forwardAttachments(parsed.attachments || [], email.htmlContent, uid) };
+    } finally {
+      if (lock) {
+        lock.release();
+      }
+    }
+  }
+
+  /**
    * Parse a raw RFC822 source Buffer with mailparser and render body/header
    * fields according to `options`. Used by both `getEmailContent` (single
    * message) and the includeBody paths in `searchEmails`/`getLatestEmails`/
@@ -774,6 +832,16 @@ export class ImapService {
     flags: any,
     options: EmailContentOptions & { bodyMaxLength?: number } = {}
   ): Promise<EmailContent> {
+    return this.buildEmailContentFromParsed(uid, await simpleParser(source), flags, options);
+  }
+
+  /** Render an already parsed message; see `buildEmailContentFromSource`. */
+  private async buildEmailContentFromParsed(
+    uid: number,
+    parsed: ParsedMail,
+    flags: any,
+    options: EmailContentOptions & { bodyMaxLength?: number } = {}
+  ): Promise<EmailContent> {
     const {
       includeAttachmentText = false,
       maxAttachmentTextBytes = 256 * 1024,
@@ -783,7 +851,6 @@ export class ImapService {
       bodyMaxLength,
     } = options;
 
-    const parsed = await simpleParser(source);
     const flagArray = Array.from(flags || []) as string[];
 
     const cap = (s: string | undefined): string | undefined => {

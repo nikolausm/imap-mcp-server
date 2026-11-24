@@ -667,6 +667,25 @@ sending, drafts, replies, and forwards.
   - bcc: BCC recipients (optional; merged with account defaultBcc)
   - includeAttachments: Include original attachments (default: true)
   ```
+  `text` and the "Forwarded message" header (From, Date, Subject and To of the
+  original) precede the original in both the plain-text and the HTML part. In
+  the HTML part they are escaped and placed before the first visible content:
+  right after `<body>` in a full HTML document, at the start of a fragment.
+
+  With `includeAttachments: true` every attachment part of the original is
+  forwarded: regular files as attachments (also a PDF whose part carries a
+  Content-ID; a `cid:` link to such a part no longer resolves), and images the
+  HTML shows via `cid:` inline with their Content-ID. The `charset` and
+  `method` parameters of a part's Content-Type are kept. The original is read
+  with a bound of 25 MiB. A larger message, a missing message or a part that
+  cannot be read makes the tool fail before anything is sent, instead of
+  forwarding an incomplete message.
+
+  With `includeAttachments: false` the forward attaches no MIME part of the
+  original. Images the HTML references stay embedded as `data:` URLs, as
+  before. This covers the image types the parser embeds (`image/<word>`, not
+  `image/svg+xml`, whose `cid:` link stays unresolved) up to its size budget
+  for embedded images.
 
 ### Folder Operations
 
