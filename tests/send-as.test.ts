@@ -108,6 +108,7 @@ describe('outbound email tools send-as support', () => {
     findDraftsFolder: vi.fn(async () => 'Drafts'),
     appendMessage: vi.fn(async () => true),
     getEmailContent: vi.fn(async () => originalEmail),
+    getEmailForForward: vi.fn(async () => ({ email: originalEmail, attachments: [] })),
   };
   const mockSmtpService = {
     sendEmail: vi.fn(async () => ({ messageId: '<sent@example.com>', rawMessage: Buffer.from('raw') })),

@@ -7,6 +7,7 @@ import { parseSerializedArray } from '../utils/array-input.js';
 import { mergeBcc } from '../utils/default-bcc.js';
 import { allowedFromAddresses, resolveFrom } from '../utils/send-as.js';
 import { buildReferences, buildReplyRecipients } from '../utils/reply-headers.js';
+import { prependForwardHtml } from '../utils/forward-content.js';
 import type { EmailAttachment, EmailMessage, ImapAccount, SentSaveResult } from '../types/index.js';
 import { z } from 'zod';
 import { basename, join } from 'path';
@@ -1237,27 +1238,39 @@ export function emailTools(
       bcc: bccSchema,
       includeAttachments: z.boolean().default(true).describe('Include original attachments'),
     }
-  }, async ({ accountId: rawAccountId, accountName, from, folder, uid, to, text, body, bcc, includeAttachments }) => {
+  }, async ({ accountId: rawAccountId, accountName, from, folder, uid, to, text, body, bcc, includeAttachments = true }) => {
     const accountId = accountManager.resolveAccountId(rawAccountId, accountName);
     const account = await accountManager.getAccount(accountId);
     if (!account) {
       throw new Error(`Account ${accountId} not found`);
     }
 
-    // Get original email (needs both plain text and raw HTML to reconstruct the forward)
-    const originalEmail = await imapService.getEmailContent(accountId, folder, uid, { bodyFormat: 'html' });
+    // Get the original (needs both plain text and raw HTML to reconstruct the forward).
+    // includeAttachments: true (the default) forwards every attachment part of the
+    // original: regular files as attachments, images the HTML shows via cid: inline.
+    // The read is bounded, and if any part cannot be fetched the tool fails before
+    // sending. includeAttachments: false attaches no MIME part of the original; the
+    // HTML is read as before, so images it references stay embedded as data: URLs
+    // (mailparser does that for image/<word> types up to its inlining budget; other
+    // cid: links, e.g. to image/svg+xml, stay unresolved).
+    const { email: originalEmail, attachments } = includeAttachments
+      ? await imapService.getEmailForForward(accountId, folder, uid)
+      : { email: await imapService.getEmailContent(accountId, folder, uid, { bodyFormat: 'html' }), attachments: [] };
 
     // Prepare forwarded content
+    const note = text ?? body ?? '';
     const forwardHeader = `\n\n---------- Forwarded message ----------\nFrom: ${originalEmail.from}\nDate: ${originalEmail.date.toLocaleString()}\nSubject: ${originalEmail.subject}\nTo: ${originalEmail.to.join(', ')}\n\n`;
-    
+
     const emailComposer = {
       from: resolveFrom(account, from),
       to,
       subject: originalEmail.subject.startsWith('Fwd: ') ? originalEmail.subject : `Fwd: ${originalEmail.subject}`,
-      text: (text ?? body ?? '') + forwardHeader + (originalEmail.textContent || ''),
-      html: originalEmail.htmlContent,
+      text: note + forwardHeader + (originalEmail.textContent || ''),
+      // Note and header go in front of the HTML part too: clients show that part.
+      html: prependForwardHtml(originalEmail.htmlContent, note + forwardHeader),
       bcc: resolveBcc(account, bcc),
       references: originalEmail.messageId,
+      attachments: attachments.length > 0 ? attachments : undefined,
     };
 
     const { messageId, rawMessage } = await smtpService.sendEmail(accountId, account, emailComposer);

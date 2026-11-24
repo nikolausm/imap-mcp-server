@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `imap_forward_email` never attached the original's attachments, although `includeAttachments` defaults to `true`, and the note (`text`) and the "Forwarded message" header reached only the text/plain part, not the HTML part mail clients display (#238). With `includeAttachments: true`, regular attachments are forwarded as attachments, including a PDF whose part carries a Content-ID, and images the HTML references via `cid:` are forwarded inline with their Content-ID, so the forwarded HTML still shows them. The `charset` and `method` parameters of a part's Content-Type are kept. The original is read with a 25 MiB bound; a larger message, a missing message or an unreadable part fails the tool before sending instead of reporting a successful but incomplete forward. `includeAttachments: false` attaches no MIME part of the original; images the HTML references stay embedded as `data:` URLs, as before (for the image types mailparser embeds, not `image/svg+xml`). Note and header are escaped and placed before the first visible content of the HTML part, right after `<body>` for full HTML documents. The tool schema, the response, recipients, From, default BCC, the Sent-copy behavior and the subject prefix are unchanged. Tests in `tests/email-tools-forward.test.ts`.
+
 ## [2.2.0] - 2026-10-09
 
 No tool was renamed, and no existing input or output shape changed. The new `from` and `allowedFrom` fields are optional. Local use of the setup wizard is unchanged.
