@@ -8,17 +8,19 @@ import { emailTools } from '../src/tools/email-tools.js';
  * passed through to the service.
  */
 let sendEmailHandler: Function;
+let forwardEmailHandler: Function;
 
 const mockServer = {
   registerTool: vi.fn((name: string, _schema: any, handler: Function) => {
-    if (name === 'imap_send_email') {
-      sendEmailHandler = handler;
-    }
+    if (name === 'imap_send_email') sendEmailHandler = handler;
+    if (name === 'imap_forward_email') forwardEmailHandler = handler;
   }),
 };
 
 const mockImapService = {
   appendToSentFolder: vi.fn(),
+  getEmailContent: vi.fn(),
+  getAllAttachments: vi.fn(),
 };
 
 const account: any = {
@@ -38,6 +40,29 @@ const mockSmtpService = {
 };
 
 const sendArgs = { accountId: 'acc1', to: 'rcpt@example.com', subject: 'Hi', text: 'Hello' };
+
+const mockOriginalEmail = {
+  uid: 1,
+  from: 'Alice <alice@example.org>',
+  to: ['user@example.com'],
+  cc: [],
+  subject: 'Original',
+  date: new Date('2026-01-01T12:00:00Z'),
+  messageId: '<orig@example.com>',
+  textContent: 'Original message',
+  htmlContent: '<p>Original message</p>',
+  attachments: [{ filename: 'file.pdf', contentType: 'application/pdf', size: 1000 }],
+  customKeywords: [],
+  flags: [],
+  headers: {},
+};
+
+const mockAttachment = {
+  filename: 'file.pdf',
+  content: Buffer.from('pdf content'),
+  contentType: 'application/pdf',
+  size: 1000,
+};
 
 describe('imap_send_email Sent-copy reporting', () => {
   beforeEach(() => {
@@ -109,5 +134,47 @@ describe('imap_send_email Sent-copy reporting', () => {
     expect(parsed.savedToSent).toBe(false);
     expect(parsed.sentSaveError).toBeUndefined();
     expect(parsed.message).toBe('Email sent successfully');
+  });
+});
+
+describe('imap_forward_email includeAttachments', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAccountManager.getAccount.mockResolvedValue(account);
+    mockImapService.getEmailContent.mockResolvedValue(mockOriginalEmail);
+    mockImapService.appendToSentFolder.mockResolvedValue({ saved: true, folder: 'Sent' });
+    emailTools(
+      mockServer as any,
+      mockImapService as any,
+      mockAccountManager as any,
+      mockSmtpService as any,
+    );
+  });
+
+  it.each([
+    [true, 'includes original attachments', [mockAttachment]],
+    [false, 'skips original attachments', undefined],
+  ])('includeAttachments=%s: %s', async (includeAttachments, description, attachments) => {
+    if (attachments !== undefined) {
+      mockImapService.getAllAttachments.mockResolvedValue(attachments);
+    }
+
+    await forwardEmailHandler({
+      accountId: 'acc1',
+      folder: 'INBOX',
+      uid: 1,
+      to: 'friend@example.com',
+      includeAttachments,
+    });
+
+    expect(mockSmtpService.sendEmail).toHaveBeenCalled();
+    if (includeAttachments) {
+      expect(mockImapService.getAllAttachments).toHaveBeenCalledWith('acc1', 'INBOX', 1);
+      const sendCall = mockSmtpService.sendEmail.mock.calls[0];
+      expect(sendCall[2].attachments).toBeDefined();
+      expect(sendCall[2].attachments?.length).toBeGreaterThan(0);
+    } else {
+      expect(mockImapService.getAllAttachments).not.toHaveBeenCalled();
+    }
   });
 });
