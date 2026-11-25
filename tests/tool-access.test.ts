@@ -25,6 +25,7 @@ const DESTRUCTIVE_TOOLS = [
   'imap_add_account',
   'imap_update_account',
   'imap_create_folder',
+  'imap_rename_folder',
   'imap_delete_spam',
   'imap_delete_by_domain',
   'imap_add_spam_domain',
@@ -158,6 +159,12 @@ describe('registerTools gating', () => {
     expect(new Set(names)).toEqual(
       new Set(['imap_search_emails', 'imap_get_email'])
     );
+  });
+
+  it('registers imap_rename_folder when unrestricted or allowlisted, never in read-only mode', () => {
+    expect(registeredToolsFor({})).toContain('imap_rename_folder');
+    expect(registeredToolsFor({ IMAP_MCP_READ_ONLY: 'true' })).not.toContain('imap_rename_folder');
+    expect(registeredToolsFor({ IMAP_MCP_ENABLED_TOOLS: 'rename_folder' })).toEqual(['imap_rename_folder']);
   });
 
   it('silently ignores unknown tool names in the allowlist', () => {
